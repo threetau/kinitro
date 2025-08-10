@@ -1,0 +1,12 @@
+exclude = [".git", ".pyenv", ".ruff_cache", ".venv", ".vscode"]
+indent-width = 4
+
+[lint]
+fixable = ["ALL"]
+ignore = ["E501"]
+select = ["F", "E", "W", "N", "I", "A", "PLC", "PLE", "PLW"]
+
+[format]
+indent-style = "space"
+line-ending = "lf"
+quote-style = "double"
