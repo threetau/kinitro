@@ -20,6 +20,7 @@ import numpy as np
 class EnvSpec:
     task_name: str = "push-v3"
     max_episode_steps: int = 200
+    render_mode: str | None = None
 
 
 def make_env(spec: EnvSpec) -> gym.Env:
@@ -33,7 +34,11 @@ def make_env(spec: EnvSpec) -> gym.Env:
     # Use MetaWorld's Task API to construct a single-task env (V3 names).
     ml = metaworld.ML1(spec.task_name)  # type: ignore[attr-defined]
     env_cls = ml.train_classes[spec.task_name]
-    env: gym.Env = env_cls()
+    # Try to honor render_mode if supported by the env constructor.
+    try:
+        env: gym.Env = env_cls(render_mode=spec.render_mode) if spec.render_mode is not None else env_cls()
+    except TypeError:
+        env = env_cls()
     task = ml.train_tasks[0]
     env.set_task(task)
 

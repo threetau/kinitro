@@ -23,6 +23,9 @@ def build_parser() -> argparse.ArgumentParser:
     pe.add_argument("--agent", type=str, default=None, help="Path to miner agent weights (.npz). Optional")
     pe.add_argument("--goal", type=str, default="push the block to the goal", help="Text goal for the planner")
     pe.add_argument("--seed", type=int, default=0, help="Random seed")
+    pe.add_argument("--render", action="store_true", help="Render the environment in real time")
+    pe.add_argument("--render-mode", type=str, default=None, help="Render mode, e.g., human or rgb_array")
+    pe.add_argument("--fps", type=int, default=30, help="Frames per second when rendering")
     pe.add_argument("--json", action="store_true", help="Print result as JSON only")
 
     # make-agent subcommand
@@ -59,6 +62,9 @@ def main(argv: list[str] | None = None) -> None:
             agent_path=args.agent,
             goal_text=args.goal,
             seed=args.seed,
+            render=args.render,
+            render_mode=args.render_mode,
+            fps=args.fps,
         )
         result = evaluate(cfg)
         if args.json:
