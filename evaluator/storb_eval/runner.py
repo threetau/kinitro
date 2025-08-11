@@ -38,7 +38,15 @@ class EvalConfig:
 
 @ray.remote
 class RolloutWorker:
-    def __init__(self, spec: EnvSpec, agent_blob: Optional[bytes], goal_text: str, seed: int, render: bool, fps: int):
+    def __init__(
+        self,
+        spec: EnvSpec,
+        agent_blob: Optional[bytes],
+        goal_text: str,
+        seed: int,
+        render: bool,
+        fps: int,
+    ):
         env = make_env(spec)
         self.env = env
         self.goal_text = goal_text
@@ -56,10 +64,17 @@ class RolloutWorker:
             tmp.write(agent_blob)
             tmp.flush()
             tmp.close()
-            self.agent = SimpleVLAPolicy.load(tmp.name, observation_size=observation_dim, action_size=action_dim)
+            self.agent = SimpleVLAPolicy.load(
+                tmp.name, observation_size=observation_dim, action_size=action_dim
+            )
             Path(tmp.name).unlink(missing_ok=True)
         else:
-            self.agent = load_agent_from_path(None, observation_size=observation_dim, action_size=action_dim, seed=seed)
+            self.agent = load_agent_from_path(
+                None,
+                observation_size=observation_dim,
+                action_size=action_dim,
+                seed=seed,
+            )
 
     def run_episodes(self, num_episodes: int, max_steps: int) -> Dict[str, float]:
         returns: List[float] = []
@@ -68,7 +83,9 @@ class RolloutWorker:
             obs, _ = self.env.reset()
             total_reward = 0.0
             for _step in range(max_steps):
-                action = self.agent.act(np.asarray(obs, dtype=np.float32), goal_text=self.goal_text)
+                action = self.agent.act(
+                    np.asarray(obs, dtype=np.float32), goal_text=self.goal_text
+                )
                 obs, reward, terminated, truncated, info = self.env.step(action)
                 total_reward += float(reward)
                 if self.render:
@@ -77,6 +94,7 @@ class RolloutWorker:
                     except Exception:
                         pass
                     import time
+
                     time.sleep(1.0 / float(self.fps))
                 if terminated or truncated:
                     # MetaWorld envs report success via info.get('success', 0.0)
@@ -85,7 +103,9 @@ class RolloutWorker:
             returns.append(total_reward)
 
         avg_return = float(np.mean(returns)) if returns else 0.0
-        success_rate = float(successes) / float(num_episodes) if num_episodes > 0 else 0.0
+        success_rate = (
+            float(successes) / float(num_episodes) if num_episodes > 0 else 0.0
+        )
         return {"avg_return": avg_return, "success_rate": success_rate}
 
 
@@ -97,7 +117,11 @@ def maybe_init_ray() -> None:
 def evaluate(config: EvalConfig) -> Dict[str, float]:
     maybe_init_ray()
 
-    spec = EnvSpec(task_name=config.task_name, max_episode_steps=config.max_episode_steps, render_mode=config.render_mode)
+    spec = EnvSpec(
+        task_name=config.task_name,
+        max_episode_steps=config.max_episode_steps,
+        render_mode=config.render_mode,
+    )
 
     # Prepare agent payload if provided
     agent_blob: Optional[bytes] = None
@@ -109,14 +133,33 @@ def evaluate(config: EvalConfig) -> Dict[str, float]:
     episodes_per_worker = max(1, config.num_episodes // max(1, config.num_workers))
     remainder = config.num_episodes - episodes_per_worker * max(1, config.num_workers)
 
-    workers = [RolloutWorker.remote(spec, agent_blob, config.goal_text, config.seed + i, config.render, config.fps) for i in range(config.num_workers)]
+    workers = [
+        RolloutWorker.remote(
+            spec,
+            agent_blob,
+            config.goal_text,
+            config.seed + i,
+            config.render,
+            config.fps,
+        )
+        for i in range(config.num_workers)
+    ]
     episode_counts = [episodes_per_worker] * config.num_workers
     for i in range(remainder):
         episode_counts[i % config.num_workers] += 1
 
-    results = ray.get([w.run_episodes.remote(n, config.max_episode_steps) for w, n in zip(workers, episode_counts)])
+    results = ray.get(
+        [
+            w.run_episodes.remote(n, config.max_episode_steps)
+            for w, n in zip(workers, episode_counts)
+        ]
+    )
     avg_return = float(np.mean([r["avg_return"] for r in results])) if results else 0.0
-    success_rate = float(np.mean([r["success_rate"] for r in results])) if results else 0.0
-    return {"avg_return": avg_return, "success_rate": success_rate, "episodes": float(config.num_episodes)}
-
-
+    success_rate = (
+        float(np.mean([r["success_rate"] for r in results])) if results else 0.0
+    )
+    return {
+        "avg_return": avg_return,
+        "success_rate": success_rate,
+        "episodes": float(config.num_episodes),
+    }

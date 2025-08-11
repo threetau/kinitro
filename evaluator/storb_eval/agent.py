@@ -70,21 +70,27 @@ class SimpleVLAPolicy:
         rng = np.random.default_rng(config.seed)
 
         # Planner weights: language_vocab_size -> plan_hidden_size
-        self.W_plan = rng.normal(scale=0.1, size=(config.language_vocab_size, config.plan_hidden_size)).astype(
-            np.float32
-        )
+        self.W_plan = rng.normal(
+            scale=0.1, size=(config.language_vocab_size, config.plan_hidden_size)
+        ).astype(np.float32)
         self.b_plan = np.zeros(config.plan_hidden_size, dtype=np.float32)
 
         # Controller weights: (observation_size + plan_hidden_size) -> action_size
         control_in = config.observation_size + config.plan_hidden_size
-        self.W_control = rng.normal(scale=0.1, size=(control_in, config.control_hidden_size)).astype(np.float32)
+        self.W_control = rng.normal(
+            scale=0.1, size=(control_in, config.control_hidden_size)
+        ).astype(np.float32)
         self.b_control = np.zeros(config.control_hidden_size, dtype=np.float32)
 
-        self.W_out = rng.normal(scale=0.1, size=(config.control_hidden_size, config.action_size)).astype(np.float32)
+        self.W_out = rng.normal(
+            scale=0.1, size=(config.control_hidden_size, config.action_size)
+        ).astype(np.float32)
         self.b_out = np.zeros(config.action_size, dtype=np.float32)
 
         if config.nonlinearity != "tanh":
-            raise ValueError("Only 'tanh' nonlinearity is supported in the simple policy")
+            raise ValueError(
+                "Only 'tanh' nonlinearity is supported in the simple policy"
+            )
 
     # -----------------------
     # Serialization helpers
@@ -100,13 +106,26 @@ class SimpleVLAPolicy:
             b_control=self.b_control,
             W_out=self.W_out,
             b_out=self.b_out,
-            config=np.array([self.config.observation_size, self.config.action_size, self.config.language_vocab_size,
-                             self.config.plan_hidden_size, self.config.control_hidden_size, self.config.seed],
-                            dtype=np.int64),
+            config=np.array(
+                [
+                    self.config.observation_size,
+                    self.config.action_size,
+                    self.config.language_vocab_size,
+                    self.config.plan_hidden_size,
+                    self.config.control_hidden_size,
+                    self.config.seed,
+                ],
+                dtype=np.int64,
+            ),
         )
 
     @classmethod
-    def load(cls, path: str | Path, observation_size: Optional[int] = None, action_size: Optional[int] = None) -> "SimpleVLAPolicy":
+    def load(
+        cls,
+        path: str | Path,
+        observation_size: Optional[int] = None,
+        action_size: Optional[int] = None,
+    ) -> "SimpleVLAPolicy":
         data = np.load(path, allow_pickle=False)
         cfg_arr = data["config"].astype(np.int64)
         cfg = SimpleVLAPolicyConfig(
@@ -131,7 +150,9 @@ class SimpleVLAPolicy:
     # Inference
     # -----------------------
     def plan(self, goal_text: str) -> np.ndarray:
-        goal_vec = _hashing_tokenizer(goal_text, self.config.language_vocab_size, self.config.seed)
+        goal_vec = _hashing_tokenizer(
+            goal_text, self.config.language_vocab_size, self.config.seed
+        )
         plan = goal_vec @ self.W_plan + self.b_plan
         return _tanh(plan)
 
@@ -139,13 +160,17 @@ class SimpleVLAPolicy:
         if observation.ndim != 1:
             observation = observation.reshape(-1)
         plan_vec = self.plan(goal_text)
-        controller_in = np.concatenate([observation.astype(np.float32), plan_vec], axis=0)
+        controller_in = np.concatenate(
+            [observation.astype(np.float32), plan_vec], axis=0
+        )
         hidden = _tanh(controller_in @ self.W_control + self.b_control)
         action = _tanh(hidden @ self.W_out + self.b_out)
         return action.astype(np.float32)
 
 
-def create_default_agent(observation_size: int, action_size: int, seed: int = 0) -> SimpleVLAPolicy:
+def create_default_agent(
+    observation_size: int, action_size: int, seed: int = 0
+) -> SimpleVLAPolicy:
     config = SimpleVLAPolicyConfig(
         observation_size=observation_size,
         action_size=action_size,
@@ -155,7 +180,10 @@ def create_default_agent(observation_size: int, action_size: int, seed: int = 0)
 
 
 def load_agent_from_path(
-    agent_path: Optional[str | Path], observation_size: int, action_size: int, seed: int = 0
+    agent_path: Optional[str | Path],
+    observation_size: int,
+    action_size: int,
+    seed: int = 0,
 ) -> SimpleVLAPolicy:
     """
     Loads an agent from ``agent_path`` if provided; otherwise creates a default
@@ -164,6 +192,6 @@ def load_agent_from_path(
     """
     if agent_path is None:
         return create_default_agent(observation_size, action_size, seed)
-    return SimpleVLAPolicy.load(agent_path, observation_size=observation_size, action_size=action_size)
-
-
+    return SimpleVLAPolicy.load(
+        agent_path, observation_size=observation_size, action_size=action_size
+    )

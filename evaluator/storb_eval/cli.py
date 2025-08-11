@@ -16,23 +16,63 @@ def build_parser() -> argparse.ArgumentParser:
 
     # eval subcommand
     pe = sub.add_parser("eval", help="Run evaluation")
-    pe.add_argument("--task", default="push-v3", help="MetaWorld task name, e.g. push-v3, reach-v3, door-open-v3")
-    pe.add_argument("--episodes", type=int, default=10, help="Number of episodes to evaluate")
-    pe.add_argument("--max-steps", type=int, default=200, help="Maximum steps per episode")
-    pe.add_argument("--workers", type=int, default=1, help="Number of Ray workers to parallelize rollouts")
-    pe.add_argument("--agent", type=str, default=None, help="Path to miner agent weights (.npz). Optional")
-    pe.add_argument("--goal", type=str, default="push the block to the goal", help="Text goal for the planner")
+    pe.add_argument(
+        "--task",
+        default="push-v3",
+        help="MetaWorld task name, e.g. push-v3, reach-v3, door-open-v3",
+    )
+    pe.add_argument(
+        "--episodes", type=int, default=10, help="Number of episodes to evaluate"
+    )
+    pe.add_argument(
+        "--max-steps", type=int, default=200, help="Maximum steps per episode"
+    )
+    pe.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of Ray workers to parallelize rollouts",
+    )
+    pe.add_argument(
+        "--agent",
+        type=str,
+        default=None,
+        help="Path to miner agent weights (.npz). Optional",
+    )
+    pe.add_argument(
+        "--goal",
+        type=str,
+        default="push the block to the goal",
+        help="Text goal for the planner",
+    )
     pe.add_argument("--seed", type=int, default=0, help="Random seed")
-    pe.add_argument("--render", action="store_true", help="Render the environment in real time")
-    pe.add_argument("--render-mode", type=str, default=None, help="Render mode, e.g., human or rgb_array")
-    pe.add_argument("--fps", type=int, default=30, help="Frames per second when rendering")
+    pe.add_argument(
+        "--render", action="store_true", help="Render the environment in real time"
+    )
+    pe.add_argument(
+        "--render-mode",
+        type=str,
+        default=None,
+        help="Render mode, e.g., human or rgb_array",
+    )
+    pe.add_argument(
+        "--fps", type=int, default=30, help="Frames per second when rendering"
+    )
     pe.add_argument("--json", action="store_true", help="Print result as JSON only")
 
     # make-agent subcommand
-    pm = sub.add_parser("make-agent", help="Create a tiny random agent and save to disk")
-    pm.add_argument("--obs", type=int, required=True, help="Observation size expected by the env")
-    pm.add_argument("--act", type=int, required=True, help="Action size expected by the env")
-    pm.add_argument("--out", type=str, required=True, help="Output path for the .npz agent file")
+    pm = sub.add_parser(
+        "make-agent", help="Create a tiny random agent and save to disk"
+    )
+    pm.add_argument(
+        "--obs", type=int, required=True, help="Observation size expected by the env"
+    )
+    pm.add_argument(
+        "--act", type=int, required=True, help="Action size expected by the env"
+    )
+    pm.add_argument(
+        "--out", type=str, required=True, help="Output path for the .npz agent file"
+    )
     pm.add_argument("--seed", type=int, default=0, help="Random seed")
 
     return p
@@ -81,5 +121,3 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
-
-
