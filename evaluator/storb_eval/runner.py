@@ -18,7 +18,8 @@ from typing import Dict, List, Optional
 import numpy as np
 import ray  # type: ignore
 
-from .agent import SimpleVLAPolicy, load_agent_from_path
+from .agent_interface import AgentInterface
+from .agent_loader import AgentLoader
 from .envs import EnvSpec, action_size, make_env, obs_size
 
 
@@ -28,7 +29,7 @@ class EvalConfig:
     max_episode_steps: int = 200
     num_episodes: int = 10
     num_workers: int = 1
-    agent_path: Optional[str] = None
+    submission_path: Optional[str] = None  # Path to miner submission directory
     goal_text: str = "push the block to the goal"
     seed: int = 0
     render: bool = False
@@ -41,7 +42,7 @@ class RolloutWorker:
     def __init__(
         self,
         spec: EnvSpec,
-        agent_blob: Optional[bytes],
+        submission_path: Optional[str],
         goal_text: str,
         seed: int,
         render: bool,
@@ -53,24 +54,24 @@ class RolloutWorker:
         self.render = render
         self.fps = max(1, int(fps))
 
-        # If an agent blob is provided, save to temp and load; otherwise create default
+        # Load agent from submission directory
         observation_dim = obs_size(env)
         action_dim = action_size(env)
-        if agent_blob is not None:
-            import tempfile
-            from pathlib import Path
-
-            tmp = tempfile.NamedTemporaryFile(suffix=".npz", delete=False)
-            tmp.write(agent_blob)
-            tmp.flush()
-            tmp.close()
-            self.agent = SimpleVLAPolicy.load(
-                tmp.name, observation_size=observation_dim, action_size=action_dim
+        
+        if submission_path is not None:
+            # Load miner submission directory
+            self.agent = AgentLoader.load_agent(
+                submission_path,
+                observation_size=observation_dim,
+                action_size=action_dim,
+                seed=seed,
             )
-            Path(tmp.name).unlink(missing_ok=True)
         else:
-            self.agent = load_agent_from_path(
-                None,
+            # Use default SimpleVLA submission for testing
+            from pathlib import Path
+            default_submission = Path(__file__).parent.parent / "default_submission"
+            self.agent = AgentLoader.load_agent(
+                default_submission,
                 observation_size=observation_dim,
                 action_size=action_dim,
                 seed=seed,
@@ -79,10 +80,12 @@ class RolloutWorker:
     def run_episodes(self, num_episodes: int, max_steps: int) -> Dict[str, float]:
         returns: List[float] = []
         successes = 0
-        for _ in range(num_episodes):
+        for ep_idx in range(num_episodes):
+            print(f"[Worker] Episode {ep_idx+1}/{num_episodes} start", flush=True)
             obs, _ = self.env.reset()
+            self.agent.reset()  # Reset agent state for new episode
             total_reward = 0.0
-            for _step in range(max_steps):
+            for step_idx in range(max_steps):
                 action = self.agent.act(
                     np.asarray(obs, dtype=np.float32), goal_text=self.goal_text
                 )
@@ -93,14 +96,22 @@ class RolloutWorker:
                         self.env.render()
                     except Exception:
                         pass
-                    import time
+                    # Add small delay for smoother rendering
 
-                    time.sleep(1.0 / float(self.fps))
+                if (step_idx + 1) % 50 == 0:
+                    print(
+                        f"[Worker] Episode {ep_idx+1} step {step_idx+1}/{max_steps} reward_so_far={total_reward:.3f}",
+                        flush=True,
+                    )
                 if terminated or truncated:
                     # MetaWorld envs report success via info.get('success', 0.0)
                     successes += int(info.get("success", 0.0) > 0.0)
                     break
             returns.append(total_reward)
+            print(
+                f"[Worker] Episode {ep_idx+1} done: return={total_reward:.3f}",
+                flush=True,
+            )
 
         avg_return = float(np.mean(returns)) if returns else 0.0
         success_rate = (
@@ -111,7 +122,12 @@ class RolloutWorker:
 
 def maybe_init_ray() -> None:
     if not ray.is_initialized():
-        ray.init(ignore_reinit_error=True, include_dashboard=False, log_to_driver=False)
+        ray.init(
+            ignore_reinit_error=True, 
+            include_dashboard=False, 
+            log_to_driver=True,
+            _system_config={"worker_register_timeout_seconds": 30}
+        )
 
 
 def evaluate(config: EvalConfig) -> Dict[str, float]:
@@ -123,11 +139,27 @@ def evaluate(config: EvalConfig) -> Dict[str, float]:
         render_mode=config.render_mode,
     )
 
-    # Prepare agent payload if provided
-    agent_blob: Optional[bytes] = None
-    if config.agent_path is not None:
-        with open(config.agent_path, "rb") as f:
-            agent_blob = f.read()
+    # Pre-install requirements before creating Ray workers to show output
+    if config.submission_path is not None:
+        from pathlib import Path
+        from .agent_loader import AgentLoader
+        
+        print(f"🔧 Pre-installing requirements for submission: {config.submission_path}")
+        submission_dir = Path(config.submission_path)
+        requirements_file = submission_dir / "requirements.txt"
+        
+        if requirements_file.exists():
+            # Call the installation logic directly (same as in agent_loader)
+            AgentLoader._install_requirements(submission_dir)
+            # Prefetch large model assets to prevent long downloads inside Ray actors
+            AgentLoader.prefetch_models_if_configured(submission_dir)
+        else:
+            print("ℹ️  No requirements.txt found in submission")
+    else:
+        print("ℹ️  Using default submission (no additional requirements)")
+    
+    print("🚀 Starting evaluation with Ray workers...")
+    print("=" * 60)
 
     # Distribute episodes across workers
     episodes_per_worker = max(1, config.num_episodes // max(1, config.num_workers))
@@ -136,7 +168,7 @@ def evaluate(config: EvalConfig) -> Dict[str, float]:
     workers = [
         RolloutWorker.remote(
             spec,
-            agent_blob,
+            config.submission_path,
             config.goal_text,
             config.seed + i,
             config.render,

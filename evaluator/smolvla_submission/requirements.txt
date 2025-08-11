@@ -1,0 +1,19 @@
+# SmolVLA dependencies from lerobot with async support
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.35.0
+pillow>=9.0.0
+numpy>=1.24.0
+gymnasium==1.2.0
+lerobot[async]>=0.3.0
+num2words>=0.5.14
+accelerate>=1.10.0
+# Missing lerobot dependencies
+draccus>=0.7.0
+omegaconf>=2.3.0
+jsonlines>=3.0.0
+# Async inference dependencies
+grpcio>=1.50.0
+grpcio-tools>=1.50.0
+protobuf>=4.21.0
+datasets>=4.0.0

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .agent import create_default_agent
+# Agent imports removed - now using submission format
 from .runner import EvalConfig, evaluate
 
 
@@ -34,10 +34,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of Ray workers to parallelize rollouts",
     )
     pe.add_argument(
-        "--agent",
+        "--submission",
         type=str,
         default=None,
-        help="Path to miner agent weights (.npz). Optional",
+        help="Path to miner submission directory (contains agent.py + model files). If not provided, uses default SimpleVLA agent.",
     )
     pe.add_argument(
         "--goal",
@@ -60,20 +60,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pe.add_argument("--json", action="store_true", help="Print result as JSON only")
 
-    # make-agent subcommand
+    # make-submission subcommand
     pm = sub.add_parser(
-        "make-agent", help="Create a tiny random agent and save to disk"
+        "make-submission", help="Create a default SimpleVLA submission directory"
     )
     pm.add_argument(
-        "--obs", type=int, required=True, help="Observation size expected by the env"
-    )
-    pm.add_argument(
-        "--act", type=int, required=True, help="Action size expected by the env"
-    )
-    pm.add_argument(
-        "--out", type=str, required=True, help="Output path for the .npz agent file"
+        "--out", type=str, required=True, help="Output directory for the submission"
     )
     pm.add_argument("--seed", type=int, default=0, help="Random seed")
+    pm.add_argument("--save-weights", action="store_true", help="Save random weights to model.npz")
 
     return p
 
@@ -81,12 +76,36 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.command == "make-agent":
-        agent = create_default_agent(args.obs, args.act, seed=args.seed)
-        out = Path(args.out)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        agent.save(out)
-        print(str(out))
+    if args.command == "make-submission":
+        from shutil import copytree
+        import tempfile
+        
+        out_dir = Path(args.out)
+        default_submission = Path(__file__).parent.parent / "default_submission"
+        
+        # Copy the default submission to output directory
+        if out_dir.exists():
+            raise ValueError(f"Output directory already exists: {out_dir}")
+        
+        copytree(default_submission, out_dir)
+        
+        if args.save_weights:
+            # Create a temporary agent with random weights and save them
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                # Load the agent to initialize random weights, then save them
+                from .agent_loader import AgentLoader
+                temp_agent = AgentLoader.load_agent(
+                    out_dir,
+                    observation_size=100,  # Placeholder - will be overridden during actual eval
+                    action_size=4,         # Placeholder
+                    seed=args.seed,
+                )
+                # Save the weights if the agent supports it
+                if hasattr(temp_agent, 'save_weights'):
+                    temp_agent.save_weights(out_dir / "model.npz")
+        
+        print(f"Created submission directory: {out_dir}")
         return
 
     # Default to eval if no subcommand provided
@@ -99,7 +118,7 @@ def main(argv: list[str] | None = None) -> None:
             max_episode_steps=args.max_steps,
             num_episodes=args.episodes,
             num_workers=args.workers,
-            agent_path=args.agent,
+            submission_path=args.submission,
             goal_text=args.goal,
             seed=args.seed,
             render=args.render,
@@ -112,8 +131,10 @@ def main(argv: list[str] | None = None) -> None:
         else:
             print("Storb RL Eval Result")
             print(f"  task: {cfg.task_name}")
-            if args.agent:
-                print(f"  agent: {Path(args.agent).name}")
+            if args.submission:
+                print(f"  submission: {Path(args.submission).name}")
+            else:
+                print("  agent: default (SimpleVLA)")
             print(f"  episodes: {int(result['episodes'])}")
             print(f"  avg_return: {result['avg_return']:.3f}")
             print(f"  success_rate: {result['success_rate']:.3f}")

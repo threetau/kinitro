@@ -1,19 +1,23 @@
 """Storb RL evaluator package.
 
+Universal evaluator that supports any agent via the submission format.
+
 Exports:
-- agent: ``SimpleVLAPolicy``, ``create_default_agent``, ``load_agent_from_path``
-- envs: ``make_env``, ``EnvSpec``
-- runner: ``evaluate``, ``EvalConfig``
+- agent_interface: ``AgentInterface`` - Interface that all agents must implement
+- agent_loader: ``AgentLoader`` - Loads agent submissions dynamically
+- envs: ``make_env``, ``EnvSpec`` - Environment creation and configuration
+- runner: ``evaluate``, ``EvalConfig`` - Evaluation orchestration
 """
 
-from .agent import SimpleVLAPolicy, create_default_agent, load_agent_from_path
+from .agent_interface import AgentInterface
+from .agent_loader import AgentLoader
 from .envs import EnvSpec, make_env
 from .runner import EvalConfig, evaluate
 
 __all__ = [
-    "SimpleVLAPolicy",
-    "create_default_agent",
-    "load_agent_from_path",
+    # Core evaluation components
+    "AgentInterface",
+    "AgentLoader", 
     "EnvSpec",
     "make_env",
     "EvalConfig",

@@ -1,0 +1,8 @@
+{
+    "model_type": "simple_vla",
+    "language_vocab_size": 64,
+    "plan_hidden_size": 32,
+    "control_hidden_size": 64,
+    "nonlinearity": "tanh",
+    "description": "Default lightweight VLA-style agent for testing and development"
+}
