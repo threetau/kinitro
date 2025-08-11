@@ -24,21 +24,26 @@ from .envs import EnvSpec, action_size, make_env, obs_size
 
 @dataclass
 class EvalConfig:
-    task_name: str = "push-v2"
+    task_name: str = "push-v3"
     max_episode_steps: int = 200
     num_episodes: int = 10
     num_workers: int = 1
     agent_path: Optional[str] = None
     goal_text: str = "push the block to the goal"
     seed: int = 0
+    render: bool = False
+    render_mode: Optional[str] = None
+    fps: int = 30
 
 
 @ray.remote
 class RolloutWorker:
-    def __init__(self, spec: EnvSpec, agent_blob: Optional[bytes], goal_text: str, seed: int):
+    def __init__(self, spec: EnvSpec, agent_blob: Optional[bytes], goal_text: str, seed: int, render: bool, fps: int):
         env = make_env(spec)
         self.env = env
         self.goal_text = goal_text
+        self.render = render
+        self.fps = max(1, int(fps))
 
         # If an agent blob is provided, save to temp and load; otherwise create default
         observation_dim = obs_size(env)
@@ -66,6 +71,13 @@ class RolloutWorker:
                 action = self.agent.act(np.asarray(obs, dtype=np.float32), goal_text=self.goal_text)
                 obs, reward, terminated, truncated, info = self.env.step(action)
                 total_reward += float(reward)
+                if self.render:
+                    try:
+                        self.env.render()
+                    except Exception:
+                        pass
+                    import time
+                    time.sleep(1.0 / float(self.fps))
                 if terminated or truncated:
                     # MetaWorld envs report success via info.get('success', 0.0)
                     successes += int(info.get("success", 0.0) > 0.0)
@@ -85,7 +97,7 @@ def maybe_init_ray() -> None:
 def evaluate(config: EvalConfig) -> Dict[str, float]:
     maybe_init_ray()
 
-    spec = EnvSpec(task_name=config.task_name, max_episode_steps=config.max_episode_steps)
+    spec = EnvSpec(task_name=config.task_name, max_episode_steps=config.max_episode_steps, render_mode=config.render_mode)
 
     # Prepare agent payload if provided
     agent_blob: Optional[bytes] = None
@@ -97,9 +109,7 @@ def evaluate(config: EvalConfig) -> Dict[str, float]:
     episodes_per_worker = max(1, config.num_episodes // max(1, config.num_workers))
     remainder = config.num_episodes - episodes_per_worker * max(1, config.num_workers)
 
-    workers = [
-        RolloutWorker.remote(spec, agent_blob, config.goal_text, config.seed + i) for i in range(config.num_workers)
-    ]
+    workers = [RolloutWorker.remote(spec, agent_blob, config.goal_text, config.seed + i, config.render, config.fps) for i in range(config.num_workers)]
     episode_counts = [episodes_per_worker] * config.num_workers
     for i in range(remainder):
         episode_counts[i % config.num_workers] += 1
