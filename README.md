@@ -1,4 +1,4 @@
-# Storb RL Subnet
+# cerebrum machinae
 
 ## Development
 
