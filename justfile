@@ -60,7 +60,7 @@ test-python:
 
 # Clean build artifacts
 clean:
-    cd validator && cargo clean
+    cargo clean
     find . -name "__pycache__" -type d -exec rm -rf {} +
     find . -name "*.pyc" -delete
 
