@@ -1,14 +1,21 @@
+"""Storb RL evaluator package.
+
+Exports:
+- agent: ``SimpleVLAPolicy``, ``create_default_agent``, ``load_agent_from_path``
+- envs: ``make_env``, ``EnvSpec``
+- runner: ``evaluate``, ``EvalConfig``
 """
-Storb RL evaluator
-"""
 
-import numpy as np
+from .agent import SimpleVLAPolicy, create_default_agent, load_agent_from_path
+from .envs import EnvSpec, make_env
+from .runner import EvalConfig, evaluate
 
-
-class Evaluator:
-    def act(
-        self,
-        state_tensor: np.ndarray,
-        goal_tensor: np.ndarray,
-        control_tensor: np.ndarray,
-    ): ...
+__all__ = [
+    "SimpleVLAPolicy",
+    "create_default_agent",
+    "load_agent_from_path",
+    "EnvSpec",
+    "make_env",
+    "EvalConfig",
+    "evaluate",
+]

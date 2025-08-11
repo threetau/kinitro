@@ -2,6 +2,9 @@
 .DS_Store
 temp/
 
+# models
+models/
+
 # Rust
 /target/
 
