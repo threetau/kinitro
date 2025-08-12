@@ -44,38 +44,45 @@ class Agent(AgentInterface):
        continuous action using an affine transform followed by tanh.
     """
 
-    def __init__(self, submission_dir: Path, observation_size: int, action_size: int, seed: int = 0, **kwargs):
+    def __init__(
+        self,
+        submission_dir: Path,
+        observation_size: int,
+        action_size: int,
+        seed: int = 0,
+        **kwargs,
+    ):
         """
         Initialize the SimpleVLA agent.
-        
+
         Args:
             submission_dir: Path to submission directory (contains config.json)
             observation_size: Expected observation dimension
-            action_size: Expected action dimension 
+            action_size: Expected action dimension
             seed: Random seed for reproducibility
         """
         self.submission_dir = submission_dir
         self.observation_size = observation_size
         self.action_size = action_size
         self.seed = seed
-        
+
         # Load configuration
         config_path = submission_dir / "config.json"
         if config_path.exists():
-            with open(config_path, 'r') as f:
+            with open(config_path, "r") as f:
                 config = json.load(f)
         else:
             config = {}
-        
+
         # Set default configuration
         self.language_vocab_size = config.get("language_vocab_size", 64)
         self.plan_hidden_size = config.get("plan_hidden_size", 32)
         self.control_hidden_size = config.get("control_hidden_size", 64)
         self.nonlinearity = config.get("nonlinearity", "tanh")
-        
+
         if self.nonlinearity != "tanh":
             raise ValueError("Only 'tanh' nonlinearity is supported in SimpleVLA")
-        
+
         # Initialize weights
         rng = np.random.default_rng(seed)
 
@@ -132,8 +139,10 @@ class Agent(AgentInterface):
         plan = goal_vec @ self.W_plan + self.b_plan
         return _tanh(plan)
 
-    def act(self, observation: np.ndarray, goal_text: str) -> np.ndarray:
+    def act(self, observation: np.ndarray, **kwargs) -> np.ndarray:
         """Take action given observation and goal text."""
+        goal_text = kwargs["goal_text"]
+
         if observation.ndim != 1:
             observation = observation.reshape(-1)
         plan_vec = self.plan(goal_text)

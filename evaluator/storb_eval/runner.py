@@ -13,19 +13,20 @@ It intentionally avoids heavy model dependencies to support local development.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional
 
+import gymnasium as gym  # type: ignore
 import numpy as np
 import ray  # type: ignore
 
-from .agent_interface import AgentInterface
 from .agent_loader import AgentLoader
-from .envs import EnvSpec, action_size, make_env, obs_size
+from .envs import EnvSpec, make_env
 
 
 @dataclass
 class EvalConfig:
-    task_name: str = "push-v3"
+    env_name: str = "push-v3"
     max_episode_steps: int = 200
     num_episodes: int = 10
     num_workers: int = 1
@@ -48,18 +49,24 @@ class RolloutWorker:
         render: bool,
         fps: int,
     ):
-        env = make_env(spec)
+        env: gym.Env = make_env(spec)
         self.env = env
         self.goal_text = goal_text
         self.render = render
         self.fps = max(1, int(fps))
 
+        observation_dim = env.observation_space.shape[0]
+        action_dim = env.action_space.shape[0]
+
         # Load agent from submission directory
-        observation_dim = obs_size(env)
-        action_dim = action_size(env)
-        
         if submission_path is not None:
             # Load miner submission directory
+            # Ensure requirements are installed inside this Ray worker's environment
+            try:
+                AgentLoader._install_requirements(Path(submission_path))
+            except Exception:
+                # Proceed even if installation fails; agent import may still succeed
+                pass
             self.agent = AgentLoader.load_agent(
                 submission_path,
                 observation_size=observation_dim,
@@ -68,8 +75,12 @@ class RolloutWorker:
             )
         else:
             # Use default SimpleVLA submission for testing
-            from pathlib import Path
-            default_submission = Path(__file__).parent.parent / "default_submission"
+            # Resolve to repo root -> submissions/default_submission
+            default_submission = (
+                Path(__file__).resolve().parents[2]
+                / "submissions"
+                / "default_submission"
+            )
             self.agent = AgentLoader.load_agent(
                 default_submission,
                 observation_size=observation_dim,
@@ -81,7 +92,7 @@ class RolloutWorker:
         returns: List[float] = []
         successes = 0
         for ep_idx in range(num_episodes):
-            print(f"[Worker] Episode {ep_idx+1}/{num_episodes} start", flush=True)
+            print(f"[Worker] Episode {ep_idx + 1}/{num_episodes} start", flush=True)
             obs, _ = self.env.reset()
             self.agent.reset()  # Reset agent state for new episode
             total_reward = 0.0
@@ -100,7 +111,7 @@ class RolloutWorker:
 
                 if (step_idx + 1) % 50 == 0:
                     print(
-                        f"[Worker] Episode {ep_idx+1} step {step_idx+1}/{max_steps} reward_so_far={total_reward:.3f}",
+                        f"[Worker] Episode {ep_idx + 1} step {step_idx + 1}/{max_steps} reward_so_far={total_reward:.3f}",
                         flush=True,
                     )
                 if terminated or truncated:
@@ -109,7 +120,7 @@ class RolloutWorker:
                     break
             returns.append(total_reward)
             print(
-                f"[Worker] Episode {ep_idx+1} done: return={total_reward:.3f}",
+                f"[Worker] Episode {ep_idx + 1} done: return={total_reward:.3f}",
                 flush=True,
             )
 
@@ -123,10 +134,10 @@ class RolloutWorker:
 def maybe_init_ray() -> None:
     if not ray.is_initialized():
         ray.init(
-            ignore_reinit_error=True, 
-            include_dashboard=False, 
+            ignore_reinit_error=True,
+            include_dashboard=False,
             log_to_driver=True,
-            _system_config={"worker_register_timeout_seconds": 30}
+            _system_config={"worker_register_timeout_seconds": 30},
         )
 
 
@@ -134,20 +145,26 @@ def evaluate(config: EvalConfig) -> Dict[str, float]:
     maybe_init_ray()
 
     spec = EnvSpec(
-        task_name=config.task_name,
+        env_name=config.env_name,
         max_episode_steps=config.max_episode_steps,
         render_mode=config.render_mode,
     )
 
     # Pre-install requirements before creating Ray workers to show output
+    resolved_submission: Optional[Path] = None
     if config.submission_path is not None:
-        from pathlib import Path
-        from .agent_loader import AgentLoader
-        
-        print(f"🔧 Pre-installing requirements for submission: {config.submission_path}")
         submission_dir = Path(config.submission_path)
+        if not submission_dir.is_absolute():
+            submission_dir = (Path.cwd() / submission_dir).resolve()
+
+        if not submission_dir.exists():
+            raise ValueError(f"Submission directory does not exist: {submission_dir}")
+
+        resolved_submission = submission_dir
+
+        print(f"🔧 Pre-installing requirements for submission: {resolved_submission}")
         requirements_file = submission_dir / "requirements.txt"
-        
+
         if requirements_file.exists():
             # Call the installation logic directly (same as in agent_loader)
             AgentLoader._install_requirements(submission_dir)
@@ -156,8 +173,14 @@ def evaluate(config: EvalConfig) -> Dict[str, float]:
         else:
             print("ℹ️  No requirements.txt found in submission")
     else:
-        print("ℹ️  Using default submission (no additional requirements)")
-    
+        # Resolve default submission from repo root
+        resolved_submission = (
+            Path(__file__).resolve().parents[2] / "submissions" / "default_submission"
+        )
+        print(
+            f"ℹ️  Using default submission: {resolved_submission} (no additional requirements)"
+        )
+
     print("🚀 Starting evaluation with Ray workers...")
     print("=" * 60)
 
@@ -168,7 +191,7 @@ def evaluate(config: EvalConfig) -> Dict[str, float]:
     workers = [
         RolloutWorker.remote(
             spec,
-            config.submission_path,
+            str(resolved_submission) if resolved_submission is not None else None,
             config.goal_text,
             config.seed + i,
             config.render,

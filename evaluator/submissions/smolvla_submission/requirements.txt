@@ -1,0 +1,14 @@
+## SmolVLA minimal synchronous dependencies (async removed)
+numpy>=1.24.0
+transformers>=4.35.0
+pillow>=9.0.0
+gymnasium==1.2.0
+lerobot>=0.3.0
+num2words>=0.5.14
+accelerate>=1.10.0
+draccus>=0.7.0
+omegaconf>=2.3.0
+jsonlines>=3.0.0
+
+## Core ML framework (required by agent)
+torch>=2.0.0

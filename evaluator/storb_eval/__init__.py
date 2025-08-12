@@ -17,7 +17,7 @@ from .runner import EvalConfig, evaluate
 __all__ = [
     # Core evaluation components
     "AgentInterface",
-    "AgentLoader", 
+    "AgentLoader",
     "EnvSpec",
     "make_env",
     "EvalConfig",

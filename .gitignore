@@ -8,6 +8,9 @@ temp/
 # models
 models/
 
+# # submissions
+# evaluator/submissions/*
+
 # Rust
 /target/
 

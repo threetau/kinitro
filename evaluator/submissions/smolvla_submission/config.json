@@ -1,0 +1,22 @@
+{
+  "model_type": "smolvla",
+  "model_path": "lerobot/smolvla_base",
+  "architecture": "SmolVLA-450M",
+  "description": "SmolVLA implementation using pretrained lerobot/smolvla_base model (synchronous inference)",
+  "action_chunk_size": 1,
+  "image_size": 224,
+  "vision_encoder": "SigLIP",
+  "language_decoder": "SmolLM2",
+  "action_expert": "Flow Matching Transformer",
+  "parameters": "450M total (350M VLM + 100M action expert)",
+  "inference_mode": "synchronous",
+  "torch_num_threads": 8,
+  "num_vlm_layers": 8,
+  "num_steps": 4,
+  "resize": [
+    384,
+    384
+  ],
+  "chunk_size": 50,
+  "n_action_steps": 50
+}
