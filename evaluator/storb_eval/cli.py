@@ -18,6 +18,11 @@ def build_parser() -> argparse.ArgumentParser:
     # eval subcommand
     pe = sub.add_parser("eval", help="Run evaluation")
     pe.add_argument(
+        "--env-id",
+        default=None,
+        help="Generic Gymnasium env id (e.g. CartPole-v1). If omitted, uses Meta-World provider + --task.",
+    )
+    pe.add_argument(
         "--task",
         default="push-v3",
         help="MetaWorld task name, e.g. push-v3, reach-v3, door-open-v3",
@@ -110,6 +115,7 @@ def main(argv: list[str] | None = None) -> None:
         if args.command is None:
             args = parser.parse_args(["eval", *([] if argv is None else argv)])
         cfg = EvalConfig(
+            env_id=args.env_id,
             env_name=args.task,
             max_episode_steps=args.max_steps,
             num_episodes=args.episodes,
@@ -126,7 +132,10 @@ def main(argv: list[str] | None = None) -> None:
             print(json.dumps(result))
         else:
             print("Storb RL Eval Result")
-            print(f"  task: {cfg.env_name}")
+            if cfg.env_id:
+                print(f"  env_id: {cfg.env_id}")
+            else:
+                print(f"  task: {cfg.env_name}")
             if args.submission:
                 print(f"  submission: {Path(args.submission).name}")
             else:

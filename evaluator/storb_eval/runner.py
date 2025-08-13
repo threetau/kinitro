@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import gymnasium as gym  # type: ignore
 import numpy as np
@@ -26,6 +26,9 @@ from .envs import EnvSpec, make_env
 
 @dataclass
 class EvalConfig:
+    # Generic Gym id (e.g. "CartPole-v1" or provider-ids). If None, fallback to
+    # Meta-World provider + env_name.
+    env_id: Optional[str] = None
     env_name: str = "push-v3"
     max_episode_steps: int = 200
     num_episodes: int = 10
@@ -36,6 +39,10 @@ class EvalConfig:
     render: bool = False
     render_mode: Optional[str] = None
     fps: int = 30
+    # Extra kwargs forwarded to gym.make
+    make_kwargs: Optional[Dict[str, Any]] = None
+    # Observation augmentation controls
+    enable_image_obs: bool = True
 
 
 @ray.remote
@@ -111,8 +118,17 @@ class RolloutWorker:
                         flush=True,
                     )
                 if terminated or truncated:
-                    # MetaWorld envs report success via info.get('success', 0.0)
-                    successes += int(info.get("success", 0.0) > 0.0)
+                    success_recorded = False
+                    for key in ("success", "is_success", "goal_achieved", "solved"):
+                        if key in info:
+                            try:
+                                successes += int(float(info[key]) > 0.0)
+                            except Exception:
+                                successes += int(bool(info[key]))
+                            success_recorded = True
+                            break
+                    if not success_recorded and truncated and not terminated:
+                        successes += 1
                     break
             returns.append(total_reward)
             print(
@@ -143,9 +159,12 @@ def evaluate(config: EvalConfig) -> Dict[str, float]:
     # Ensure rgb_array for topview capture; optionally enable human display via wrapper
     effective_render_mode = config.render_mode or "rgb_array"
     spec = EnvSpec(
+        env_id=config.env_id,
         env_name=config.env_name,
         max_episode_steps=config.max_episode_steps,
         render_mode=effective_render_mode,
+        make_kwargs=config.make_kwargs or {},
+        enable_image_obs=config.enable_image_obs,
     )
 
     # Pre-install requirements before creating Ray workers to show output
