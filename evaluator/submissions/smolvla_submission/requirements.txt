@@ -1,4 +1,4 @@
-## SmolVLA minimal synchronous dependencies (async removed)
+## SmolVLA synchronous dependencies
 numpy>=1.24.0
 transformers>=4.35.0
 pillow>=9.0.0

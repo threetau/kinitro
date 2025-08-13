@@ -95,8 +95,6 @@ def main(argv: list[str] | None = None) -> None:
             # Load the agent to initialize random weights, then save them
             temp_agent = AgentLoader.load_agent(
                 out_dir,
-                observation_size=100,  # Placeholder - will be overridden during actual eval
-                action_size=4,  # Placeholder
                 seed=args.seed,
             )
             # Save the weights if the agent supports it

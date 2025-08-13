@@ -8,8 +8,11 @@ temp/
 # models
 models/
 
-# # submissions
+# submissions
 # evaluator/submissions/*
+
+# examples
+huggingface_smolvla_examples/
 
 # Rust
 /target/

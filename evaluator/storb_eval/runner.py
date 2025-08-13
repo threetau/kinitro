@@ -18,7 +18,7 @@ from typing import Dict, List, Optional
 
 import gymnasium as gym  # type: ignore
 import numpy as np
-import ray  # type: ignore
+import ray
 
 from .agent_loader import AgentLoader
 from .envs import EnvSpec, make_env
@@ -31,7 +31,7 @@ class EvalConfig:
     num_episodes: int = 10
     num_workers: int = 1
     submission_path: Optional[str] = None  # Path to miner submission directory
-    goal_text: str = "push the block to the goal"
+    goal_text: str = "push the red block to the green spot"
     seed: int = 0
     render: bool = False
     render_mode: Optional[str] = None
@@ -55,9 +55,6 @@ class RolloutWorker:
         self.render = render
         self.fps = max(1, int(fps))
 
-        observation_dim = env.observation_space.shape[0]
-        action_dim = env.action_space.shape[0]
-
         # Load agent from submission directory
         if submission_path is not None:
             # Load miner submission directory
@@ -69,8 +66,8 @@ class RolloutWorker:
                 pass
             self.agent = AgentLoader.load_agent(
                 submission_path,
-                observation_size=observation_dim,
-                action_size=action_dim,
+                observation_space=self.env.observation_space,
+                action_space=self.env.action_space,
                 seed=seed,
             )
         else:
@@ -83,8 +80,8 @@ class RolloutWorker:
             )
             self.agent = AgentLoader.load_agent(
                 default_submission,
-                observation_size=observation_dim,
-                action_size=action_dim,
+                observation_space=self.env.observation_space,
+                action_space=self.env.action_space,
                 seed=seed,
             )
 
@@ -97,17 +94,16 @@ class RolloutWorker:
             self.agent.reset()  # Reset agent state for new episode
             total_reward = 0.0
             for step_idx in range(max_steps):
-                action = self.agent.act(
-                    np.asarray(obs, dtype=np.float32), goal_text=self.goal_text
-                )
+                # Pass raw observation (can be dict with image + base)
+                action = self.agent.act(obs, goal_text=self.goal_text)
                 obs, reward, terminated, truncated, info = self.env.step(action)
                 total_reward += float(reward)
-                if self.render:
-                    try:
-                        self.env.render()
-                    except Exception:
-                        pass
-                    # Add small delay for smoother rendering
+                # if self.render:
+                #     try:
+                #         self.env.render()
+                #     except Exception:
+                #         pass
+                #     # Add small delay for smoother rendering
 
                 if (step_idx + 1) % 50 == 0:
                     print(
@@ -144,10 +140,12 @@ def maybe_init_ray() -> None:
 def evaluate(config: EvalConfig) -> Dict[str, float]:
     maybe_init_ray()
 
+    # Ensure rgb_array for topview capture; optionally enable human display via wrapper
+    effective_render_mode = config.render_mode or "rgb_array"
     spec = EnvSpec(
         env_name=config.env_name,
         max_episode_steps=config.max_episode_steps,
-        render_mode=config.render_mode,
+        render_mode=effective_render_mode,
     )
 
     # Pre-install requirements before creating Ray workers to show output
