@@ -37,7 +37,7 @@ class Config:
             settings_files=settings_files,
             validators=[
                 Validator("wallet_name", must_exist=True, default="default_wallet"),
-            ]
+            ],
         )
         self._parser = ArgumentParser()
 
@@ -80,4 +80,23 @@ class Config:
         if not full_path.exists():
             full_path.mkdir(parents=True, exist_ok=True)
 
-    def add_args(self): ...
+    def add_args(self):
+        """Add command line arguments"""
+        self._parser.add_argument(
+            "--wallet-name",
+            type=str,
+            help="Name of the wallet",
+            default=self.settings.get("wallet_name", "default"),
+        )
+        self._parser.add_argument(
+            "--hotkey-name",
+            type=str,
+            help="Name of the hotkey",
+            default=self.settings.get("hotkey_name", "default"),
+        )
+        self._parser.add_argument(
+            "--netuid",
+            type=int,
+            help="Subnet netuid",
+            default=self.settings.get("subtensor", {}).get("netuid", 1),
+        )

@@ -7,8 +7,8 @@ from core.log import get_logger
 
 logger = get_logger(__name__)
 
-class Validator:
-    ...
+
+class Validator: ...
 
 
 async def main():

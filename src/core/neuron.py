@@ -72,7 +72,8 @@ class Neuron(ABC):
             )
 
         self.metagraph = Metagraph(
-            netuid=cast(str, self.netuid), substrate=self.substrate  # type: ignore[arg-type]
+            netuid=cast(str, self.netuid),
+            substrate=self.substrate,  # type: ignore[arg-type]
         )
         assert self.metagraph, "Metagraph must be initialised"
         self.metagraph.sync_nodes()
@@ -82,15 +83,6 @@ class Neuron(ABC):
         self.uid = getattr(node, "node_id", None) if node else None
         assert self.uid, "UID must be defined"
 
-        # TODO: Import DHT implementation (e.g., from kademlia import Server as DHT)
-        # self.dht = DHT(
-        #     db=cast(str, self.settings.db_dir),
-        #     port=cast(int, self.settings["dht"]["port"]),
-        #     file=cast(str, self.settings["dht"]["file"]),
-        # )
-        # assert self.dht, "DHT must be initialised"
-        self.dht = None  # Placeholder until DHT import is resolved
-
         get_logger("kademlia").setLevel(pylog.DEBUG)
         get_logger("rpcudp").setLevel(pylog.DEBUG)
 
@@ -99,29 +91,6 @@ class Neuron(ABC):
 
     @abstractmethod
     async def stop(self): ...
-
-    async def start_dht(self):
-        """Start the DHT server"""
-        # TODO: Implement DHT server startup when DHT import is resolved
-        logger.warning("DHT initialization is commented out - needs proper DHT import")
-
-        # dht_bootstrap_ip = cast(str, self.settings["dht"]["bootstrap"]["ip"])
-        # dht_bootstrap_port = cast(int, self.settings["dht"]["bootstrap"]["port"])
-
-        # try:
-        #     if dht_bootstrap_ip and dht_bootstrap_port:
-        #         logger.info(
-        #             f"Starting DHT server on port {dht_bootstrap_port} with bootstrap node {dht_bootstrap_ip}"
-        #         )
-        #         await self.dht.start(dht_bootstrap_ip, dht_bootstrap_port)
-        #     else:
-        #         logger.info(f"Starting DHT server on port {self.dht.port}")
-        #         await self.dht.start()
-        # except Exception as e:
-        #     logger.error(f"Failed to start DHT server: {e}")
-        #     raise RuntimeError("Failed to start DHT server") from e
-
-        # logger.info(f"DHT server started on port {self.dht.port}")
 
     def check_registration(self):
         node = self.metagraph.nodes.get(self.keypair.ss58_address)

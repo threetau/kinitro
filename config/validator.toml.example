@@ -10,7 +10,6 @@ db_file = "storb_data/database.db"
 [subtensor]
 network = "finney"
 address = "wss://entrypoint-finney.opentensor.ai:443"
-insecure = true
 netuid = 26
 
 [neuron]

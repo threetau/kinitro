@@ -1,15 +1,13 @@
-from dynaconf import Dynaconf
-
 from core.config import Config, ConfigOpts
 from core.constants import NeuronType
 
 
-class MinerConfig(Config):
+class ValidatorConfig(Config):
     def __init__(self):
         opts = ConfigOpts(
-            neuron_name="miner",
-            neuron_type=NeuronType.Miner,
-            settings_files=["miner.toml"],
+            neuron_name="validator",
+            neuron_type=NeuronType.Validator,
+            settings_files=["validator.toml"],
         )
         super().__init__(opts)
         self._parser = super()._parser
