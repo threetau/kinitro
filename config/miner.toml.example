@@ -1,0 +1,12 @@
+version = "0.0.1"
+log_level = "INFO" # Must be one of TRACE, DEBUG, INFO, WARN, ERROR
+
+wallet_path = "~/.bittensor/wallets"
+wallet_name = "default"
+hotkey_name = "default"
+
+[subtensor]
+network = "finney"
+address = "wss://entrypoint-finney.opentensor.ai:443"
+insecure = true
+netuid = 26
