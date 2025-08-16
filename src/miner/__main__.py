@@ -1,155 +1,15 @@
-import json
 import os
-from pathlib import Path
-from typing import Optional
 
 import dotenv
-from fiber.chain.chain_utils import load_hotkey_keypair
-from fiber.chain.commitments import CommitmentDataFieldType, set_commitment
-from fiber.chain.interface import get_substrate
-from fiber.chain.metagraph import Metagraph
-from huggingface_hub import HfApi
 
+from core.chain import commit_to_substrate
+from core.errors import CommitmentError, ConfigurationError, UploadError
 from core.log import get_logger
+from core.submission import upload_submission_to_hf
 from miner.config import MinerConfig
 
 logger = get_logger(__name__)
 dotenv.load_dotenv()
-
-
-class MinerError(Exception):
-    """Base exception for miner operations."""
-
-    pass
-
-
-class ConfigurationError(MinerError):
-    """Raised when configuration is invalid."""
-
-    pass
-
-
-class UploadError(MinerError):
-    """Raised when upload operations fail."""
-
-    pass
-
-
-class CommitmentError(MinerError):
-    """Raised when substrate commitment operations fail."""
-
-    pass
-
-
-def upload_submission_to_hf(
-    submission_dir: str, repo_id: str, token: str, commit_message: Optional[str] = None
-) -> None:
-    """
-    Upload submission directory to Hugging Face repository.
-
-    Args:
-        submission_dir: Path to the submission directory
-        repo_id: Hugging Face repository ID (e.g., "username/repo-name")
-        token: Hugging Face API token
-        commit_message: Optional commit message
-
-    Raises:
-        UploadError: If upload fails
-        FileNotFoundError: If submission directory doesn't exist
-    """
-    logger.info(f"Uploading submission from {submission_dir} to {repo_id}")
-
-    # Validate submission directory exists
-    submission_path = Path(submission_dir)
-    if not submission_path.exists():
-        raise FileNotFoundError(f"Submission directory not found: {submission_dir}")
-
-    # Initialize Hugging Face API
-    api = HfApi(token=token)
-
-    try:
-        # Create repository if it doesn't exist
-        try:
-            api.create_repo(repo_id=repo_id, exist_ok=True, private=False)
-            logger.info(f"Repository {repo_id} ready")
-        except Exception as e:
-            logger.warning(f"Repository creation failed or already exists: {e}")
-
-        # Upload the entire submission directory
-        commit_info = api.upload_folder(
-            folder_path=str(submission_path),
-            repo_id=repo_id,
-            commit_message=commit_message
-            or f"Upload submission from {submission_path.name}",
-            token=token,
-        )
-
-        logger.info(f"Successfully uploaded submission. Commit SHA: {commit_info.oid}")
-
-    except Exception as e:
-        raise UploadError(f"Failed to upload submission: {e}") from e
-
-
-def commit_to_substrate(config: MinerConfig, commit_data: dict) -> None:
-    """
-    Commit information to substrate chain using fiber.
-
-    Args:
-        config: Miner configuration
-        commit_data: Data to commit to the chain
-
-    Raises:
-        CommitmentError: If substrate commitment fails
-    """
-    logger.info("Connecting to substrate chain...")
-
-    try:
-        # Get substrate connection
-        substrate = get_substrate(
-            subtensor_network=config.settings.subtensor_network,
-            subtensor_address=config.settings.subtensor_address,
-        )
-
-        logger.info("Successfully connected to substrate")
-
-        # Create metagraph to get neuron information (unused but available for future use)
-        Metagraph(
-            netuid=config.settings.netuid,
-            substrate=substrate,
-        )
-
-        # Prepare commitment data
-        commitment_data = json.dumps(commit_data)
-
-        keypair = load_hotkey_keypair(
-            wallet_name=config.settings.wallet_name,
-            hotkey_name=config.settings.hotkey_name,
-        )
-
-        # Set commitment on chain
-        logger.info("Setting commitment on chain...")
-        success = set_commitment(
-            substrate=substrate,
-            keypair=keypair,
-            netuid=config.settings.netuid,
-            fields=[
-                (CommitmentDataFieldType.RAW, commitment_data.encode("utf-8")),
-            ],
-            wait_for_inclusion=True,
-            wait_for_finalization=True,
-        )
-
-        if not success:
-            raise CommitmentError("Failed to commit data to substrate chain")
-
-        logger.info("Successfully committed data to substrate chain")
-
-    except Exception as e:
-        if isinstance(e, CommitmentError):
-            raise
-        raise CommitmentError(
-            f"Error connecting to substrate or committing data: {e}"
-        ) from e
 
 
 def handle_upload_command(config: MinerConfig) -> None:
