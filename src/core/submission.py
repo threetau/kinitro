@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -59,3 +60,22 @@ def upload_submission_to_hf(
 
     except Exception as e:
         raise UploadError(f"Failed to upload submission: {e}") from e
+
+
+def download_submission_from_hf(repo_id: str, submission_dir: str) -> None:
+    """
+    Download submission from Hugging Face repository.
+    """
+    token = os.getenv("HF_TOKEN")
+
+    logger.info(f"Downloading submission from {repo_id}")
+
+    # Initialize Hugging Face API
+    api = HfApi(token=token)
+
+    # Download the entire submission directory
+    download_path = api.snapshot_download(
+        repo_id=repo_id, local_dir=submission_dir, token=token
+    )
+
+    logger.info(f"Successfully downloaded submission to {download_path}")
