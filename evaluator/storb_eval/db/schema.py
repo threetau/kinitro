@@ -118,40 +118,36 @@ class EvaluationResult(TimestampMixin, Base):
     evaluation = relationship("EvaluationJob", back_populates="results")
 
 
-class Episode(TimestampMixin, Base):
-    __tablename__ = "episodes"
+DUCKDB_SCHEMA = """
+-- Episodes table
+CREATE TABLE IF NOT EXISTS episodes (
+    id BIGINT PRIMARY KEY,
+    evaluation_id BIGINT NOT NULL,
+    episode_index INTEGER NOT NULL,
+    start_time TIMESTAMP WITH TIME ZONE,
+    end_time TIMESTAMP WITH TIME ZONE,
+    total_reward DOUBLE,
+    success BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
-    id = Column(SnowflakeId, primary_key=True)
-    evaluation_id = Column(
-        SnowflakeId,
-        ForeignKey("evaluation_job.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    episode_index = Column(Integer, nullable=False, index=True)
-    start_time = Column(DateTime(timezone=True), nullable=True)
-    end_time = Column(DateTime(timezone=True), nullable=True)
-    total_reward = Column(Float, nullable=True)
-    success = Column(Boolean, nullable=False, server_default="false", index=True)
-    # relationship to steps (to match EpisodeStep.back_populates)
-    steps = relationship(
-        "EpisodeStep", back_populates="episode", cascade="all, delete-orphan"
-    )
+-- Episode steps table
+CREATE TABLE IF NOT EXISTS episode_steps (
+    id BIGINT PRIMARY KEY,
+    episode_id BIGINT NOT NULL,
+    step_index INTEGER NOT NULL,
+    observation_path JSON NOT NULL,
+    reward DOUBLE NOT NULL,
+    action JSON NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
-
-class EpisodeStep(Base, TimestampMixin):
-    __tablename__ = "episode_steps"
-
-    id = Column(SnowflakeId, primary_key=True)
-    episode_id = Column(
-        SnowflakeId,
-        ForeignKey("episodes.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    step_index = Column(Integer, nullable=False, index=True)
-    observation_path = Column(JSONB, nullable=False)
-    reward = Column(Float, nullable=False)
-    action = Column(JSONB, nullable=False)
-
-    episode = relationship("Episode", back_populates="steps")
+-- Indexes for common query patterns
+CREATE INDEX IF NOT EXISTS idx_episodes_evaluation_id ON episodes(evaluation_id);
+CREATE INDEX IF NOT EXISTS idx_episodes_success ON episodes(success);
+CREATE INDEX IF NOT EXISTS idx_episodes_episode_index ON episodes(episode_index);
+CREATE INDEX IF NOT EXISTS idx_episode_steps_episode_id ON episode_steps(episode_id);
+CREATE INDEX IF NOT EXISTS idx_episode_steps_step_index ON episode_steps(step_index);
+"""

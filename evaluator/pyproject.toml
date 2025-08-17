@@ -5,11 +5,14 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["storb_eval*"]
 
+[tool.setuptools.package-data]
+"storb_eval.rpc" = ["*.capnp"]
+
 [project]
 name = "storb-rl"
 version = "0.0.1"
 description = "Storb RL Subnet"
-readme = "USAGE.md"
+readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
@@ -19,10 +22,20 @@ dependencies = [
     "gymnasium==1.2.0",
     "mujoco>=3.2.0",
     "torch>=2.8.0",
+    "sqlalchemy>=2.0.43",
+    "psycopg2>=2.9.10",
+    "asyncpg>=0.30.0",
+    "pgqueuer>=0.24.2",
+    "kubernetes-asyncio>=33.3.0",
+    "dynaconf>=3.2.11",
+    "alembic>=1.10.0",
+    "pycapnp>=2.0.0",
+    "pycapnp>=2.0.0"
 ]
 
 [project.scripts]
 storb-eval = "storb_eval.cli:main"
+storb-db = "storb_eval.db_cli:main"
 
 [dependency-groups]
 dev = ["debugpy>=1.8.9", "py-spy>=0.4.0", "pytest>=8.3.4", "ruff>=0.8.2"]

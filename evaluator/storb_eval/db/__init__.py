@@ -13,7 +13,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
-from .config import get_config
+from ..config import get_config
 from .schema import Base
 
 logger = logging.getLogger(__name__)
