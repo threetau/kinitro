@@ -1,10 +1,13 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .schema import EvaluationStatus
+
+# Snowflake-style integer ID (0 .. 2^63 - 1) used for DB BigInteger PKs
+SnowflakeId = Annotated[int, Field(ge=0, le=(2**63 - 1))]
 
 
 class SubmissionMixin(BaseModel):
@@ -34,7 +37,8 @@ class TimestampMixin(BaseModel):
 class EvaluationJob(SubmissionMixin, StatusMixin, TimestampMixin, BaseModel):
     """Model for evaluation jobs."""
 
-    id: UUID
+    # Snowflake-style integer ID (maps to BigInteger in DB)
+    id: SnowflakeId
     pgqueuer_job_id: str
     container_id: Optional[str] = None
     ray_worker_id: Optional[str] = None
@@ -52,11 +56,11 @@ class EvaluationResult:
     """Model for evaluation results."""
 
     id: UUID
-    evaluation_id: UUID
+    # FK to EvaluationJob.id (SnowflakeId)
+    evaluation_id: SnowflakeId
     avg_return: Optional[float] = None
     success_rate: Optional[float] = None
     num_episodes: Optional[int] = None
-    episodes: Optional[int] = None
     eval_start: Optional[datetime] = None
     eval_end: Optional[datetime] = None
     metrics: Optional[dict[str, Any]] = None
@@ -66,7 +70,8 @@ class Episode:
     """Model for episodes."""
 
     id: UUID
-    evaluation_id: UUID
+    # FK to EvaluationJob.id (SnowflakeId)
+    evaluation_id: SnowflakeId
     episode_index: int
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
