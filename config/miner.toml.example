@@ -1,0 +1,18 @@
+version = "0.0.1"
+log_level = "INFO" # Must be one of TRACE, DEBUG, INFO, WARN, ERROR
+
+wallet_path = "~/.bittensor/wallets"
+wallet_name = "default"
+hotkey_name = "default"
+
+# Hugging Face configuration
+# NOTE: Set the HF_TOKEN environment variable for authentication
+hf_repo_id = "your-username/your-repo-name"  # Replace with your HF repository
+
+# Submission configuration
+submission_dir = "./evaluator/submissions/default_submission"
+
+[subtensor]
+network = "finney"
+address = "wss://entrypoint-finney.opentensor.ai:443"
+netuid = 26
