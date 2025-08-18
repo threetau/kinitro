@@ -72,7 +72,7 @@ def handle_commit_command(config: MinerConfig) -> None:
 
     # Prepare commitment data
     commit_data = ModelChainCommitment(
-        provider=ModelProvider.HuggingFace,
+        provider=ModelProvider.HUGGING_FACE,
         repo_id=config.settings["hf_repo_id"],
     )
 
