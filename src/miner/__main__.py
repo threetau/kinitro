@@ -5,8 +5,10 @@ import dotenv
 from core.chain import commit_to_substrate
 from core.errors import CommitmentError, ConfigurationError, UploadError
 from core.log import get_logger
+from core.schemas import ModelChainCommitment, ModelProvider
 from core.submission import upload_submission_to_hf
-from miner.config import MinerConfig
+
+from .config import MinerConfig
 
 logger = get_logger(__name__)
 dotenv.load_dotenv()
@@ -38,8 +40,8 @@ def handle_upload_command(config: MinerConfig) -> None:
 
     # Upload submission to Hugging Face
     upload_submission_to_hf(
-        submission_dir=config.settings.submission_dir,
-        repo_id=config.settings.hf_repo_id,
+        submission_dir=config.settings["submission_dir"],
+        repo_id=config.settings["hf_repo_id"],
         token=hf_token,
     )
 
@@ -69,9 +71,10 @@ def handle_commit_command(config: MinerConfig) -> None:
         )
 
     # Prepare commitment data
-    commit_data = {
-        "repo_id": config.settings.hf_repo_id,
-    }
+    commit_data = ModelChainCommitment(
+        provider=ModelProvider.HuggingFace,
+        repo_id=config.settings["hf_repo_id"],
+    )
 
     # Commit to substrate chain
     commit_to_substrate(config, commit_data)

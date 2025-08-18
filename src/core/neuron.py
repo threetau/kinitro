@@ -86,11 +86,11 @@ class Neuron(ABC):
         get_logger("kademlia").setLevel(pylog.DEBUG)
         get_logger("rpcudp").setLevel(pylog.DEBUG)
 
-    @abstractmethod
-    async def start(self): ...
+    # @abstractmethod
+    # async def start(self): ...
 
-    @abstractmethod
-    async def stop(self): ...
+    # @abstractmethod
+    # async def stop(self): ...
 
     def check_registration(self):
         node = self.metagraph.nodes.get(self.keypair.ss58_address)

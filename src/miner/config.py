@@ -20,7 +20,7 @@ class MinerConfig(Config):
             "--hf-repo-id",
             type=str,
             help="Hugging Face repository ID (e.g., username/repo-name)",
-            default=self.settings.get("hf_repo_id"),
+            default=self.settings["hf_repo_id"],
         )
 
         # Substrate/Subtensor configuration

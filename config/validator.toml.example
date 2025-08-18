@@ -16,6 +16,7 @@ netuid = 26
 sync_frequency = 300
 load_old_nodes = true
 min_stake_threshold = 1000
+allowed_validators = []
 
 [otel]
 api_key = ""

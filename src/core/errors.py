@@ -1,22 +1,22 @@
-class MinerError(Exception):
-    """Base exception for miner operations."""
+class Error(Exception):
+    """Base exception for neuron errors."""
 
     pass
 
 
-class ConfigurationError(MinerError):
+class ConfigurationError(Error):
     """Raised when configuration is invalid."""
 
     pass
 
 
-class UploadError(MinerError):
+class UploadError(Error):
     """Raised when upload operations fail."""
 
     pass
 
 
-class CommitmentError(MinerError):
+class CommitmentError(Error):
     """Raised when substrate commitment operations fail."""
 
     pass

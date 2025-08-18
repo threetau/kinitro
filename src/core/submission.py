@@ -1,3 +1,5 @@
+"""Hugging Face submission system"""
+
 import os
 from pathlib import Path
 from typing import Optional
