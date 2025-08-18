@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: 
+spec:
+  # runtimeClassName: runc
+  restartPolicy: Never
+  containers:
+  - name: runner
+    image: miner-agent
+    imagePullPolicy: Never
+    env:
+      - name: SUBMISSION_URL
+        value: 
+    command: ["python", "/workspace/submission/main.py"]
+    volumeMounts:
+      - name: workspace
+        mountPath: /workspace/submission
+  initContainers:
+  - name: fetch-submission
+    image: miner-agent
+    imagePullPolicy: Never
+    env:
+      - name: SUBMISSION_URL
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.annotations['submission-url']
+    command:
+      - sh
+      - -c
+      - |
+        git clone --depth=1 $SUBMISSION_URL /workspace/submission
+        cp /templates/* /workspace/submission/
+        if [ -f /workspace/submission/requirements.txt ]; then
+          pip install --no-cache-dir -r /workspace/submission/requirements.txt
+        fi
+    volumeMounts:
+      - name: workspace
+        mountPath: /workspace/submission
+  volumes:
+  - name: workspace
+    emptyDir: {}

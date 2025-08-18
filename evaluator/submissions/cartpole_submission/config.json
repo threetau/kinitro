@@ -1,6 +1,0 @@
-{
-  "description": "Simple heuristic CartPole agent for testing the evaluator.",
-  "notes": "Uses angle and angular velocity to choose left/right."
-}
-
-

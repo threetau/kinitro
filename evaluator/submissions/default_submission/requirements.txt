@@ -1,2 +1,0 @@
-## Core ML framework (required by agent)
-torch>=2.0.0
