@@ -26,10 +26,9 @@ dependencies = [
     "psycopg2>=2.9.10",
     "asyncpg>=0.30.0",
     "pgqueuer>=0.24.2",
-    "kubernetes-asyncio>=33.3.0",
+    "kubernetes>=33.1.0",
     "dynaconf>=3.2.11",
     "alembic>=1.10.0",
-    "pycapnp>=2.0.0",
     "pycapnp>=2.0.0"
 ]
 
