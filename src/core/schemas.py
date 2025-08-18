@@ -7,8 +7,8 @@ CHAIN_COMMITMENT_VERSION = "1.0"
 
 
 class ModelProvider(StrEnum):
-    HuggingFace = "huggingface"
-    R2 = "r2"
+    HuggingFace = "HuggingFace"
+    R2 = "R2"
 
 
 class ChainCommitment(BaseModel):
