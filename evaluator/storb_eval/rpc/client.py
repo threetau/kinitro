@@ -3,6 +3,7 @@
 Cap'n Proto RPC Client for Agent Interface
 """
 
+import asyncio
 import logging
 import os
 import pickle
@@ -21,8 +22,8 @@ logger = logging.getLogger(__name__)
 class AgentClient:
     """Client for connecting to Agent RPC server"""
 
-    def __init__(self, address="localhost", port=8000):
-        self.address = address
+    def __init__(self, host="localhost", port=8000):
+        self.address = host
         self.port = port
         self.client = None
         self.agent = None
@@ -68,6 +69,8 @@ class AgentClient:
             action_np = np.frombuffer(action_data, dtype=np.dtype(dtype_str)).reshape(
                 shape
             )
+            # Copy the array to make it writable (fixes PyTorch warning)
+            action_np = action_np.copy()
             return torch.from_numpy(action_np)
         except Exception as e:
             logger.error(f"Error in act: {e}")

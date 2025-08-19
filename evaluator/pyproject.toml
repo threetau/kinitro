@@ -30,7 +30,9 @@ dependencies = [
     "dynaconf>=3.2.11",
     "alembic>=1.10.0",
     "pycapnp>=2.0.0",
-    "pytest>=8.4.1"
+    "pytest>=8.4.1",
+    "snowflake-id==1.0.2",
+    "pytest-asyncio==1.1.0"
 ]
 
 [project.scripts]

@@ -1996,6 +1996,15 @@ wheels = [
 ]
 
 [[package]]
+name = "snowflake-id"
+version = "1.0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/d0/91bd3d2e54ea849e8c4e73681ef75c1c93f37a8c9f0627b1553522267e08/snowflake_id-1.0.2.tar.gz", hash = "sha256:4a4cd49508599aaa16488311f4b9121e9ac3bac57edff3e9f71b1d79086dbfe8", size = 4497 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/41/a4/ee0bdba1d1e98db21166381559d0061d752bbf66af2dd1cbbe4c2afdc4fa/snowflake_id-1.0.2-py3-none-any.whl", hash = "sha256:c3142752ed334b9d4632739a704461d13e97aa6fa71b65d5329829b4b5cc058c", size = 4795 },
+]
+
+[[package]]
 name = "sqlalchemy"
 version = "2.0.43"
 source = { registry = "https://pypi.org/simple" }
@@ -2059,6 +2068,7 @@ dependencies = [
     { name = "pycapnp" },
     { name = "pytest" },
     { name = "ray" },
+    { name = "snowflake-id" },
     { name = "sqlalchemy" },
     { name = "torch" },
 ]
@@ -2086,6 +2096,7 @@ requires-dist = [
     { name = "pycapnp", specifier = ">=2.0.0" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "ray", specifier = ">=2.48.0" },
+    { name = "snowflake-id", specifier = "==1.0.2" },
     { name = "sqlalchemy", specifier = ">=2.0.43" },
     { name = "torch", specifier = ">=2.8.0" },
 ]
