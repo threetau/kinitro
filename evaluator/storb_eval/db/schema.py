@@ -24,6 +24,7 @@ SS58Address = String(48)
 
 
 class EvaluationStatus(enum.Enum):
+    queued = "queued"
     pending = "pending"
     starting = "starting"
     running = "running"
@@ -106,7 +107,7 @@ class EvaluationResult(TimestampMixin, Base):
     id = Column(SnowflakeId, primary_key=True)
     evaluation_id = Column(
         SnowflakeId,
-        ForeignKey("evaluation_job.id", ondelete="CASCADE"),
+        ForeignKey("evaluation_jobs.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -116,6 +117,46 @@ class EvaluationResult(TimestampMixin, Base):
     num_episodes = Column(Integer, nullable=True)
 
     evaluation = relationship("EvaluationJob", back_populates="results")
+
+
+class Episode(TimestampMixin, Base):
+    __tablename__ = "episodes"
+
+    id = Column(SnowflakeId, primary_key=True)
+    evaluation_id = Column(
+        SnowflakeId,
+        ForeignKey("evaluation_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    episode_index = Column(Integer, nullable=False)
+    start_time = Column(DateTime(timezone=True), nullable=True)
+    end_time = Column(DateTime(timezone=True), nullable=True)
+    total_reward = Column(Float, nullable=True)
+    success = Column(Boolean, nullable=False, server_default="false")
+
+    evaluation = relationship("EvaluationJob", back_populates="episodes")
+    steps = relationship(
+        "EpisodeStep", back_populates="episode", cascade="all, delete-orphan"
+    )
+
+
+class EpisodeStep(TimestampMixin, Base):
+    __tablename__ = "episode_steps"
+
+    id = Column(SnowflakeId, primary_key=True)
+    episode_id = Column(
+        SnowflakeId,
+        ForeignKey("episodes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    step_index = Column(Integer, nullable=False)
+    observation_path = Column(JSONB, nullable=False)
+    reward = Column(Float, nullable=False)
+    action = Column(JSONB, nullable=False)
+
+    episode = relationship("Episode", back_populates="steps")
 
 
 DUCKDB_SCHEMA = """

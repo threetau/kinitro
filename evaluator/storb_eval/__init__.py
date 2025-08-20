@@ -1,7 +1,5 @@
 """Storb RL evaluator package.
 
-Universal evaluator that supports any agent via the submission format.
-
 Exports:
 - agent_interface: ``AgentInterface`` - Interface that all agents must implement
 - envs: ``EnvSpec``, ``EnvManager`` - Environment configuration and management

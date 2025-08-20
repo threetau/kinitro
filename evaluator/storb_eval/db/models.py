@@ -1,6 +1,5 @@
 from datetime import datetime
-from typing import Annotated, Any, Optional
-from uuid import UUID
+from typing import Annotated, Optional
 
 from pydantic import BaseModel, Field
 
@@ -13,7 +12,7 @@ SnowflakeId = Annotated[int, Field(ge=0, le=(2**63 - 1))]
 class SubmissionMixin(BaseModel):
     """Mixin for submission/provenance data."""
 
-    submission_id: UUID
+    submission_id: SnowflakeId
     miner_hotkey: str
     hf_repo_id: str
     hf_repo_commit: Optional[str] = None
@@ -44,38 +43,44 @@ class EvaluationJob(SubmissionMixin, StatusMixin, TimestampMixin, BaseModel):
     ray_worker_id: Optional[str] = None
     retry_count: int
     max_retries: int
-    last_error: Optional[str] = None
-    exit_code: Optional[int] = None
     logs_path: str
     random_seed: Optional[int] = None
     eval_start: Optional[datetime] = None
     eval_end: Optional[datetime] = None
 
 
-class EvaluationResult:
+class EvaluationResult(TimestampMixin, BaseModel):
     """Model for evaluation results."""
 
-    id: UUID
+    id: SnowflakeId
     # FK to EvaluationJob.id (SnowflakeId)
     evaluation_id: SnowflakeId
     avg_return: Optional[float] = None
     success_rate: Optional[float] = None
+    total_reward: Optional[float] = None
     num_episodes: Optional[int] = None
-    eval_start: Optional[datetime] = None
-    eval_end: Optional[datetime] = None
-    metrics: Optional[dict[str, Any]] = None
 
 
-class Episode:
+class Episode(TimestampMixin, BaseModel):
     """Model for episodes."""
 
-    id: UUID
+    id: SnowflakeId
     # FK to EvaluationJob.id (SnowflakeId)
     evaluation_id: SnowflakeId
     episode_index: int
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
-    length: Optional[int] = None
     total_reward: Optional[float] = None
     success: bool = False
+
+
+class EpisodeStep(TimestampMixin, BaseModel):
+    """Model for episode steps."""
+
+    id: SnowflakeId
+    # FK to Episode.id (SnowflakeId)
+    episode_id: SnowflakeId
+    step_index: int
+    observation_path: dict  # JSON field
+    reward: float
+    action: dict  # JSON field
