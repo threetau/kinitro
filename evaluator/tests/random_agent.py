@@ -7,7 +7,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 
-from storb_eval.agent_interface import AgentInterface
+from kinitro_eval.agent_interface import AgentInterface
 
 
 class RandomActionAgent(AgentInterface):

@@ -8,7 +8,7 @@ evaluation jobs and results in PostgreSQL.
 from datetime import datetime
 
 import pytest
-from storb_eval.db.court_clerk import CourtClerk
+from kinitro_eval.db.court_clerk import CourtClerk
 
 
 class TestCourtClerkDuckDB:

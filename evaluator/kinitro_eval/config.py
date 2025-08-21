@@ -1,5 +1,5 @@
 """
-Configuration management for the Storb RL evaluator orchestrator.
+Configuration management for the kinitro evaluator orchestrator.
 
 This module uses Dynaconf to load configuration from TOML (or other
 supported formats). Call `load_config(path)` at startup to load a
@@ -17,7 +17,7 @@ from dynaconf import Dynaconf
 
 
 @dataclass
-class StorbRLConfig:
+class KinitroEvalConfig:
     database_url: str = "postgresql://localhost/storb_eval"
     ray_address: Optional[str] = None
     max_workers: int = 10
@@ -39,7 +39,7 @@ class StorbRLConfig:
     agent_base_image: str = "ghcr.io/storb-tech/agent-runner"
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "StorbRLConfig":
+    def from_dict(cls, data: Dict[str, Any]) -> "KinitroEvalConfig":
         # Only pick known keys; ignore others
         kwargs: Dict[str, Any] = {}
         for field in cls.__dataclass_fields__:
@@ -66,10 +66,10 @@ class StorbRLConfig:
 
 
 # Module-level singleton
-_GLOBAL_CONFIG: Optional[StorbRLConfig] = None
+_GLOBAL_CONFIG: Optional[KinitroEvalConfig] = None
 
 
-def load_config(path: Optional[str | Path] = None) -> StorbRLConfig:
+def load_config(path: Optional[str | Path] = None) -> KinitroEvalConfig:
     """Load configuration using Dynaconf from the given file path.
 
     If `path` is None the loader will try a few default locations:
@@ -91,21 +91,21 @@ def load_config(path: Optional[str | Path] = None) -> StorbRLConfig:
     if files:
         settings = Dynaconf(settings_files=files, environments=True, load_dotenv=False)
         raw = settings.as_dict()  # flatten
-        # Dynaconf may nest under environments; prefer top-level 'storb_rl' table
-        data = raw.get("storb_rl") or raw
-        cfg = StorbRLConfig.from_dict(data)
+        # Dynaconf may nest under environments; prefer top-level 'kinitro' table
+        data = raw.get("kinitro") or raw
+        cfg = KinitroEvalConfig.from_dict(data)
         cfg.validate()
         _GLOBAL_CONFIG = cfg
         return cfg
 
     # No file found; use defaults
-    cfg = StorbRLConfig()
+    cfg = KinitroEvalConfig()
     cfg.validate()
     _GLOBAL_CONFIG = cfg
     return cfg
 
 
-def get_config() -> StorbRLConfig:
+def get_config() -> KinitroEvalConfig:
     global _GLOBAL_CONFIG
     if _GLOBAL_CONFIG is None:
         return load_config()

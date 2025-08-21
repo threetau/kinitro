@@ -7,7 +7,7 @@ Tests EnvManager, BenchmarkSpec, EnvSpec functionality without agent dependencie
 import logging
 
 import pytest
-from storb_eval.roullout.envs import (
+from kinitro_eval.roullout.envs import (
     BenchmarkSpec,
     EnvManager,
     EnvSpec,
@@ -70,7 +70,7 @@ class TestRolloutPackage:
     def test_env_spec_creation(self, env_manager, mt1_benchmark_spec):
         """Test that EnvSpec objects are created correctly."""
         task_specs = env_manager.get_benchmark_envs(mt1_benchmark_spec)
-        
+
         # Check first task spec
         env_spec = task_specs[0]
         assert isinstance(env_spec, EnvSpec), "Should return EnvSpec objects"
@@ -82,22 +82,24 @@ class TestRolloutPackage:
         """Test that environments can be created from specs."""
         task_specs = env_manager.get_benchmark_envs(mt1_benchmark_spec)
         env_spec = task_specs[0]
-        
+
         # Create environment
         env = env_manager.make_env(env_spec)
-        
+
         assert env is not None, "Environment should be created"
-        
+
         # Test basic environment functionality
         observation, info = env.reset()
         assert observation is not None, "Should receive observation from reset"
         assert isinstance(observation, dict), "MetaWorld observation should be dict"
         assert "base" in observation, "Should have base observation"
-        
+
         # Test that action space exists
         assert hasattr(env, "action_space"), "Environment should have action_space"
-        assert hasattr(env, "observation_space"), "Environment should have observation_space"
-        
+        assert hasattr(env, "observation_space"), (
+            "Environment should have observation_space"
+        )
+
         # Clean up
         env.close()
 
@@ -105,9 +107,7 @@ class TestRolloutPackage:
         """Test BenchmarkSpec validation and creation."""
         # Valid benchmark spec
         valid_spec = BenchmarkSpec(
-            provider="metaworld",
-            benchmark_name="MT1", 
-            config={"env_name": "reach-v3"}
+            provider="metaworld", benchmark_name="MT1", config={"env_name": "reach-v3"}
         )
         assert valid_spec.provider == "metaworld"
         assert valid_spec.benchmark_name == "MT1"
@@ -117,22 +117,19 @@ class TestRolloutPackage:
         """Test handling multiple benchmark specifications."""
         # Create multiple benchmark specs
         mt1_spec = BenchmarkSpec(
-            provider="metaworld",
-            benchmark_name="MT1",
-            config={"env_name": "reach-v3"}
+            provider="metaworld", benchmark_name="MT1", config={"env_name": "reach-v3"}
         )
-        
-        mt10_spec = BenchmarkSpec(
-            provider="metaworld",
-            benchmark_name="MT10"
-        )
-        
+
+        mt10_spec = BenchmarkSpec(provider="metaworld", benchmark_name="MT10")
+
         # Get tasks for each benchmark
         mt1_tasks = env_manager.get_benchmark_envs(mt1_spec)
         mt10_tasks = env_manager.get_benchmark_envs(mt10_spec)
-        
+
         # Verify they are different
-        assert len(mt1_tasks) != len(mt10_tasks), "Different benchmarks should have different task counts"
+        assert len(mt1_tasks) != len(mt10_tasks), (
+            "Different benchmarks should have different task counts"
+        )
         assert len(mt1_tasks) == 50, "MT1 should have 50 tasks"
         assert len(mt10_tasks) == 500, "MT10 should have 500 tasks"
 
@@ -143,7 +140,7 @@ class TestRolloutPackage:
             env_name="invalid_env",
             benchmark_name="invalid_benchmark",
         )
-        
+
         # This should raise an error or handle gracefully
         try:
             env = env_manager.make_env(invalid_spec)
@@ -158,7 +155,7 @@ class TestRolloutPackage:
         """Test that EnvSpec has proper string representation."""
         task_specs = env_manager.get_benchmark_envs(mt1_benchmark_spec)
         env_spec = task_specs[0]
-        
+
         spec_str = str(env_spec)
         assert "metaworld" in spec_str, "String should contain provider"
         assert "reach" in spec_str, "String should contain environment name"

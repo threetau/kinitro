@@ -2,7 +2,7 @@ import random
 import time
 
 import pytest
-from storb_eval.containers import Containers
+from kinitro_eval.containers import Containers
 
 # Use a real HuggingFace repo for testing
 SUBMISSION_REPO = "https://huggingface.co/rishiad/default_submission"

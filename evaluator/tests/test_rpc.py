@@ -13,8 +13,8 @@ import numpy as np
 import torch
 
 # Import our modules
-from storb_eval.rpc.client import AgentClient
-from storb_eval.rpc.server import run_server_in_process
+from kinitro_eval.rpc.client import AgentClient
+from kinitro_eval.rpc.server import run_server_in_process
 
 # Configure logging
 logging.basicConfig(

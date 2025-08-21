@@ -5,7 +5,7 @@ import yaml
 from kubernetes import client, config
 from kubernetes.stream import stream
 
-from storb_eval.db.models import SnowflakeId
+from kinitro_eval.db.models import SnowflakeId
 
 
 class Containers:

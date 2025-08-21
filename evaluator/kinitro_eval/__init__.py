@@ -1,4 +1,4 @@
-"""Storb RL evaluator package.
+"""kinitro evaluator package.
 
 Exports:
 - agent_interface: ``AgentInterface`` - Interface that all agents must implement

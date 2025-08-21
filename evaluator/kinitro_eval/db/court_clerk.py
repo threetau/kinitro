@@ -1,5 +1,5 @@
 """
-Court Clerk component for the Storb RL evaluator.
+Court Clerk component for the kinitro evaluator.
 
 The Court Clerk is responsible for filing evaluation results and managing
 all database interactions. It provides a comprehensive CRUD interface for
@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 import duckdb
 from snowflake import SnowflakeGenerator
 
-from storb_eval.roullout.envs import BenchmarkSpec
+from kinitro_eval.roullout.envs import BenchmarkSpec
 
 from . import DatabaseManager, get_database_manager
 from .models import (

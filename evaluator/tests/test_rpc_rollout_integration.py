@@ -13,9 +13,9 @@ from typing import List
 
 import capnp
 import pytest
-from storb_eval.roullout.envs import BenchmarkSpec, EnvManager, EnvSpec
-from storb_eval.rpc.client import AgentClient
-from storb_eval.rpc.server import start_server
+from kinitro_eval.roullout.envs import BenchmarkSpec, EnvManager, EnvSpec
+from kinitro_eval.rpc.client import AgentClient
+from kinitro_eval.rpc.server import start_server
 from test_scripts.random_agent import RandomActionAgent
 
 # Configure logging
