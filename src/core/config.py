@@ -17,8 +17,8 @@ logger = get_logger(__name__)
 
 @dataclass
 class ConfigOpts:
-    neuron_name: str
-    neuron_type: NeuronType
+    neuron_name: Optional[str] = None
+    neuron_type: Optional[NeuronType] = None
     settings_files: Optional[list[str]] = None
 
 
@@ -86,17 +86,17 @@ class Config:
             "--wallet-name",
             type=str,
             help="Name of the wallet",
-            default=self.settings.get("wallet_name", "default"),
+            default=self.settings.get("wallet_name", "default"),  # type: ignore
         )
         self._parser.add_argument(
             "--hotkey-name",
             type=str,
             help="Name of the hotkey",
-            default=self.settings.get("hotkey_name", "default"),
+            default=self.settings.get("hotkey_name", "default"),  # type: ignore
         )
         self._parser.add_argument(
             "--netuid",
             type=int,
             help="Subnet netuid",
-            default=self.settings.get("subtensor", {}).get("netuid", 1),
+            default=self.settings.get("subtensor", {}).get("netuid", 1),  # type: ignore
         )
