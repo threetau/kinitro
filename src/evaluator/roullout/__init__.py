@@ -5,7 +5,8 @@ from typing import Any, Dict, List
 import ray
 from ray.actor import ActorProxy
 
-from ..db.models import SnowflakeId
+from core.db.models import SnowflakeId
+
 from ..rpc.client import AgentClient
 from .envs import BenchmarkSpec, EnvManager, EnvResult, EnvSpec, EpisodeResult
 

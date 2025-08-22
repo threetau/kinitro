@@ -2,10 +2,9 @@ import os
 import time
 
 import yaml
+from kinitro_eval.db.models import SnowflakeId
 from kubernetes import client, config
 from kubernetes.stream import stream
-
-from kinitro_eval.db.models import SnowflakeId
 
 
 class Containers:

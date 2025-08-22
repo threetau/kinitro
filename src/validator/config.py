@@ -11,3 +11,16 @@ class ValidatorConfig(Config):
         )
         super().__init__(opts)
         self._parser = super()._parser
+
+    def add_args(self):
+        """Add command line arguments"""
+        super().add_args()
+        # pg database
+        self._parser.add_argument(
+            "--pg-database",
+            type=str,
+            help="PostgreSQL database URL",
+            default=self.settings.get(
+                "pg_database", "postgresql://user:password@localhost/dbname"
+            ),  # type: ignore
+        )

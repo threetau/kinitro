@@ -6,8 +6,9 @@ Exports:
 - database: ``DatabaseManager`` - PostgreSQL database management
 """
 
+from core.db import DatabaseManager
+
 from .agent_interface import AgentInterface
-from .db import DatabaseManager
 from .roullout.envs import EnvManager, EnvSpec
 
 __all__ = [

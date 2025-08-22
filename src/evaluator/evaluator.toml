@@ -1,0 +1,2 @@
+pg_database = "postgresql://postgres@localhost/postgres"
+duck_db = "./data/evaluator.duckdb"
