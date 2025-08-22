@@ -1,9 +1,16 @@
 import asyncio
 import time
+from datetime import datetime
 from multiprocessing import Lock, Queue
 from threading import Thread
 
+import asyncpg
+from pgqueuer.db import AsyncpgDriver
+from pgqueuer.queries import Queries
+from snowflake import SnowflakeGenerator
+
 from core.chain import query_commitments_from_substrate
+from core.db.models import EvaluationJob, EvaluationStatus
 from core.log import get_logger
 from core.neuron import Neuron
 from core.schemas import ChainCommitmentResponse
@@ -125,10 +132,40 @@ class Validator(Neuron):
                     _ = validator
                     # TODO: use RPC to send to other validators
 
-    def send_job(self):
+    async def send_job(self):
         """
         Hand off the job to the orchestrator
         """
+        gen = SnowflakeGenerator(42)
+        job_id = next(gen)
+        sub_id = next(gen)
+
+        job = EvaluationJob(
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            status=EvaluationStatus.QUEUED,
+            submission_id=sub_id,  # type: ignore
+            miner_hotkey="5CyY97KCfwRC5UZN58A1cLpZnMgSZAKWtqaaggUfzYiJ6B8d",
+            hf_repo_id="rishiad/default_submission",
+            hf_repo_commit="93a2aa6de1069bcc37c60e80954d3a2c6e202678",
+            env_provider="metaworld",
+            env_name="MT10",
+            id=job_id,  # type: ignore
+            container_id=None,
+            ray_worker_id=None,
+            retry_count=0,
+            max_retries=3,
+            logs_path="./data/logs",
+            random_seed=None,
+            eval_start=None,
+            eval_end=None,
+        )
+
+        conn = await asyncpg.connect()
+        driver = AsyncpgDriver(conn)
+        q = Queries(driver)
+        job_bytes = job.to_bytes()
+        await q.enqueue(["add_job"], [job_bytes], [0])
 
         # TODO
 
