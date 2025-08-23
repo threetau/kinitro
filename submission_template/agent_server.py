@@ -7,10 +7,9 @@ import asyncio
 import logging
 import os
 import pickle
-
-import capnp
 import numpy as np
 import torch
+import capnp
 
 # Load the schema
 schema_file = os.path.join(os.path.dirname(__file__), "agent.capnp")

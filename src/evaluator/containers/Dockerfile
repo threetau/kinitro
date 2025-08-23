@@ -16,8 +16,7 @@ RUN pip install --no-cache-dir \
     metaworld==3.0.0 \
     gymnasium==1.2.0
 
-# Copy in your template driver files
+# Copy in the driver files
 WORKDIR /workspace
 COPY ./submission_template/ /templates/
-# Default command (overridable in K8s)
 CMD ["python", "main.py"]

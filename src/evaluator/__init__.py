@@ -9,7 +9,7 @@ Exports:
 from core.db import DatabaseManager
 
 from .agent_interface import AgentInterface
-from .roullout.envs import EnvManager, EnvSpec
+from .rollout.envs import EnvManager, EnvSpec
 
 __all__ = [
     # Core evaluation components
