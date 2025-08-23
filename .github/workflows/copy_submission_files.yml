@@ -1,0 +1,53 @@
+name: Copy Submission Files on Merge to Main
+
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/evaluator/rpc/server.py'
+      - 'src/evaluator/agent_interface.py'
+      - 'src/evaluator/rpc/agent.capnp'
+
+jobs:
+  copy-files:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run copy_submission_files.py
+        run: python copy_submission_files.py
+
+  sync-miner-template:
+    needs: copy-files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout miner-template repo
+        uses: actions/checkout@v4
+        with:
+          repository: threetau/kinitro-miner-template
+          token: ${{ secrets.MINER_TEMPLATE_PUSH_TOKEN }}
+          ref: main
+          path: miner-template
+      - name: Copy updated files from submission_template
+        run: |
+          cp submission_template/agent_server.py miner-template/agent_server.py
+          cp submission_template/agent_interface.py miner-template/agent_interface.py
+          cp submission_template/agent.capnp miner-template/agent.capnp
+      - name: Commit and push changes
+        run: |
+          cd miner-template
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add agent_server.py agent_interface.py agent.capnp
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update agent_server.py, agent_interface.py, agent.capnp"
+            git push origin main
+          fi

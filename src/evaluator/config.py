@@ -2,15 +2,16 @@ from core.config import Config, ConfigOpts
 from core.constants import NeuronType
 
 
-class ValidatorConfig(Config):
+class EvaluatorConfig(Config):
     def __init__(self):
         opts = ConfigOpts(
-            neuron_name="validator",
             neuron_type=NeuronType.Validator,
-            settings_files=["validator.toml"],
+            neuron_name="evaluator",
+            settings_files=["evaluator.toml"],
         )
         super().__init__(opts)
-        self._parser = super()._parser
+        self.pg_database = self.settings.get("pg_database")  # type: ignore
+        self.duck_db = self.settings.get("duck_db")  # type: ignore
 
     def add_args(self):
         """Add command line arguments"""
@@ -23,4 +24,12 @@ class ValidatorConfig(Config):
             default=self.settings.get(
                 "pg_database", "postgresql://user:password@localhost/dbname"
             ),  # type: ignore
+        )
+
+        # duck db
+        self._parser.add_argument(
+            "--duck-db",
+            type=str,
+            help="DuckDB file path",
+            default=self.settings.get("duck_db", "data/evaluator.duckdb"),  # type: ignore
         )
