@@ -34,7 +34,7 @@ class Validator(Neuron):
         self.validators_to_query_mutex = Lock()
         self.miners_to_query: list[str] = []
         self._last_commitment_fingerprint_by_hotkey: dict[str, str] = {}
-
+        self.last_seen_block: int = 0
         # Max lookback window (in blocks) to cap historical queries
         try:
             lookback_from_section = self.config.settings["neuron"].get(
@@ -62,7 +62,7 @@ class Validator(Neuron):
         latest_block_number = self.substrate.get_block_number()
         # Start at the edge of the lookback window so we don't scan unbounded history
         self.last_seen_block: int = max(
-            latest_block_number - self.max_commitment_lookback, 0
+            self.last_seen_block, latest_block_number - self.max_commitment_lookback
         )
 
     async def run(self):
