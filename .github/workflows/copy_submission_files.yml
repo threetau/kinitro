@@ -6,9 +6,9 @@ on:
     branches:
       - main
     paths:
-      - 'submission_template/agent_server.py'
-      - 'submission_template/agent_interface.py'
-      - 'submission_template/agent.capnp'
+      - 'src/evaluator/rpc/server.py'
+      - 'src/evaluator/agent_interface.py'
+      - 'src/evaluator/rpc/agent.capnp'
 
 jobs:
   copy-files:
