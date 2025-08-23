@@ -33,7 +33,9 @@ class Validator(Neuron):
         self.miners_to_query: list[str] = []
 
         # TODO: query the actual last seen block from the database
-        self.last_seen_block: int = 6240964
+        # self.last_seen_block: int = 6240964
+        current_block = self.substrate.get_block_number()
+        self.last_seen_block: int = current_block - 1
 
     async def run(self):
         """
@@ -60,50 +62,66 @@ class Validator(Neuron):
         """
         Sync nodes with the metagraph and query miner commitments from the chain.
         """
-
         while True:
             try:
+                # Sync the metagraph to get the latest nodes
                 self.metagraph.sync_nodes()
-                logger.debug("Metagraph synced successfully")
+                logger.info("Metagraph synced successfully.")
 
-                # Update validators to query
+                # Prepare fresh lists for validators and miners
                 validators_to_query: list[str] = []
+                miners_to_query: list[str] = []
+
+                min_stake = self.config.settings["neuron"]["min_stake_threshold"]
+                allowed_validators = self.config.settings["neuron"][
+                    "allowed_validators"
+                ]
+
+                # Classify nodes as validators or miners
                 for hotkey, node_info in self.metagraph.nodes.items():
-                    if (
-                        node_info.stake
-                        >= self.config.settings["neuron"]["min_stake_threshold"]
-                        and hotkey
-                        in self.config.settings["neuron"]["allowed_validators"]
-                    ):
+                    if node_info.stake >= min_stake and hotkey in allowed_validators:
                         validators_to_query.append(hotkey)
                     else:
-                        # We can basically assume that the other nodes are miners
-                        self.miners_to_query.append(hotkey)
+                        miners_to_query.append(hotkey)
 
-                logger.debug("Filtered validators and miners")
+                logger.info(
+                    f"Filtered {len(validators_to_query)} validators and {len(miners_to_query)} miners from metagraph."
+                )
 
-                # Lock and replace
+                # Update the shared lists with mutex protection
                 with self.validators_to_query_mutex:
                     self.validators_to_query = validators_to_query
+                    self.miners_to_query = miners_to_query
 
-                # Get commitments from chain since the last block we've seen
+                # Query commitments from chain for new blocks
                 latest_block = self.substrate.get_block_number()
-                for i in range(self.last_seen_block + 1, latest_block + 1):
+                logger.info(
+                    f"Querying commitments from block {self.last_seen_block + 1} to {latest_block}."
+                )
+
+                total_commitments = 0
+                for block_num in range(self.last_seen_block + 1, latest_block + 1):
                     for miner_hotkey in self.miners_to_query:
                         commitments = query_commitments_from_substrate(
-                            self.config, miner_hotkey, block=i
+                            self.config, miner_hotkey, block=block_num
                         )
-                        self.job_queue.put_nowait(*commitments)
+                        if commitments:
+                            for commitment in commitments:
+                                logger.debug(
+                                    f"Block {block_num} - Miner {miner_hotkey} commitment: {commitment}"
+                                )
+                                self.job_queue.put_nowait(commitment)
+                                total_commitments += 1
 
-                logger.debug(
-                    f"Got commitments from chain since last seen block of {self.last_seen_block}. Latest block is {latest_block}."
+                logger.info(
+                    f"Processed {total_commitments} new commitments from chain since last seen block {self.last_seen_block}. Latest block is {latest_block}."
                 )
                 self.last_seen_block = latest_block
 
-                time.sleep(self.config.settings["sync_frequency"])
+                time.sleep(self.config.settings["neuron"]["sync_frequency"])
             except Exception as e:
                 logger.error(f"Error syncing metagraph: {e}")
-                time.sleep(self.config.settings["sync_frequency"] // 2)
+                time.sleep(self.config.settings["neuron"]["sync_frequency"] // 2)
 
     def queue_jobs(self):
         """
@@ -140,6 +158,7 @@ class Validator(Neuron):
         job_id = next(gen)
         sub_id = next(gen)
 
+        # TODO: don't hardcode this
         job = EvaluationJob(
             created_at=datetime.now(),
             updated_at=datetime.now(),

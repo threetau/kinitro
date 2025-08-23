@@ -36,4 +36,4 @@ class ModelChainCommitment(ChainCommitment):
 @dataclass
 class ChainCommitmentResponse:
     hotkey: str
-    data: ChainCommitment
+    data: ModelChainCommitment

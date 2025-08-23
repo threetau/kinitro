@@ -1,12 +1,12 @@
 import logging as pylog
 import sys
 import time
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import cast
 
 # import httpx
 # from fastapi import FastAPI
-from fiber.chain import chain_utils, interface, post_ip_to_chain
+from fiber.chain import chain_utils, interface
 from fiber.chain.metagraph import Metagraph
 
 # from storb import __spec_version__, get_spec_version
@@ -56,20 +56,8 @@ class Neuron(ABC):
         assert self.substrate, "Substrate must be defined"
 
         self.netuid = cast(int, self.settings.netuid)
-        self.external_ip = cast(str, self.settings.external_ip)
 
         assert self.netuid, "Netuid must be defined"
-
-        if self.settings.post_ip:
-            assert self.external_ip, "External IP must be defined"
-            post_ip_to_chain.post_node_ip_to_chain(
-                self.substrate,  # type: ignore[arg-type]
-                self.keypair,
-                cast(int, self.netuid),
-                cast(str, self.external_ip),
-                self.api_port,
-                self.keypair.ss58_address,
-            )
 
         self.metagraph = Metagraph(
             netuid=cast(str, self.netuid),

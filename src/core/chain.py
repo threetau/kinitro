@@ -8,11 +8,12 @@ from fiber.chain.commitments import (
 )
 from fiber.chain.interface import get_substrate
 from fiber.chain.metagraph import Metagraph
+from pydantic import ValidationError
 
 from .config import Config
 from .errors import CommitmentError
 from .log import get_logger
-from .schemas import ChainCommitment, ChainCommitmentResponse
+from .schemas import ChainCommitment, ChainCommitmentResponse, ModelChainCommitment
 
 logger = get_logger(__name__)
 
@@ -34,8 +35,8 @@ def commit_to_substrate(config: Config, commit_data: ChainCommitment) -> None:
     try:
         # Get substrate connection
         substrate = get_substrate(
-            subtensor_network=config.settings["subtensor_network"],
-            subtensor_address=config.settings["subtensor_address"],
+            subtensor_network=config.settings["subtensor"]["network"],
+            subtensor_address=config.settings["subtensor"]["address"],
         )
 
         logger.info("Successfully connected to substrate")
@@ -100,8 +101,8 @@ def query_commitments_from_substrate(
 
     try:
         substrate = get_substrate(
-            subtensor_network=config.settings["subtensor_network"],
-            subtensor_address=config.settings["subtensor_address"],
+            subtensor_network=config.settings["subtensor"]["network"],
+            subtensor_address=config.settings["subtensor"]["address"],
         )
 
         commitment_query = query_commitment(
@@ -120,15 +121,42 @@ def query_commitments_from_substrate(
             if query is None:
                 continue
 
-            data_type, data = query
+            # Handle both tuple and dict formats from fiber library
+            if isinstance(query, dict):
+                # If query is a dict, extract data_type and data from it
+                data_type = query.get("data_type") or query.get("type")
+                data = query.get("data") or query.get("value")
+
+                if data_type is None or data is None:
+                    logger.warning(f"Invalid commitment query format: {query}")
+                    continue
+            else:
+                # If query is a tuple, unpack it as before
+                try:
+                    data_type, data = query
+                except (ValueError, TypeError) as e:
+                    logger.warning(
+                        f"Failed to unpack commitment query: {query}, error: {e}"
+                    )
+                    continue
 
             match data_type:
                 case CommitmentDataFieldType.RAW:
                     commitment = data.decode("utf-8")
-                    commitment = ChainCommitment.model_validate_json(commitment)
-                    commitments.append(
-                        ChainCommitmentResponse(hotkey=miner_hotkey, data=commitment)
-                    )
+                    try:
+                        commitment = ModelChainCommitment.model_validate_json(
+                            commitment
+                        )
+                        commitments.append(
+                            ChainCommitmentResponse(
+                                hotkey=miner_hotkey, data=commitment
+                            )
+                        )
+                    except ValidationError as e:
+                        logger.warning(
+                            f"Failed to validate commitment: {commitment}, error: {e}"
+                        )
+                        continue
                 case _:
                     logger.warning(
                         f"Unknown/unsupported commitment data field type: {data_type}"

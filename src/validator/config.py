@@ -10,7 +10,6 @@ class ValidatorConfig(Config):
             settings_files=["validator.toml"],
         )
         super().__init__(opts)
-        self._parser = super()._parser
 
     def add_args(self):
         """Add command line arguments"""
