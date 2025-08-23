@@ -22,6 +22,8 @@ logger = get_logger(__name__)
 # TODO: make this a proper config option
 IS_CONTROL_VALIDATOR = True
 
+FALLBACK_MAX_COMMITMENT_LOOKBACK = 360
+
 
 class Validator(Neuron):
     def __init__(self, config: ValidatorConfig):
@@ -31,11 +33,37 @@ class Validator(Neuron):
         self.validators_to_query: list[str] = []
         self.validators_to_query_mutex = Lock()
         self.miners_to_query: list[str] = []
+        self._last_commitment_fingerprint_by_hotkey: dict[str, str] = {}
 
-        # TODO: query the actual last seen block from the database
-        # self.last_seen_block: int = 6240964
-        current_block = self.substrate.get_block_number()
-        self.last_seen_block: int = current_block - 1
+        # Max lookback window (in blocks) to cap historical queries
+        try:
+            lookback_from_section = self.config.settings["neuron"].get(
+                "max_commitment_lookback", None
+            )
+            lookback_from_top_level = self.config.settings.get(
+                "max_commitment_lookback", None
+            )
+            effective_lookback = (
+                lookback_from_top_level
+                if lookback_from_top_level is not None
+                else lookback_from_section
+            )
+            self.max_commitment_lookback: int = int(
+                FALLBACK_MAX_COMMITMENT_LOOKBACK
+                if effective_lookback is None
+                else effective_lookback
+            )
+        except Exception:
+            self.max_commitment_lookback = FALLBACK_MAX_COMMITMENT_LOOKBACK
+        if self.max_commitment_lookback < 1:
+            self.max_commitment_lookback = 1
+
+        # Initialize last seen block bounded by the max lookback window
+        latest_block_number = self.substrate.get_block_number()
+        # Start at the edge of the lookback window so we don't scan unbounded history
+        self.last_seen_block: int = max(
+            latest_block_number - self.max_commitment_lookback, 0
+        )
 
     async def run(self):
         """
@@ -93,28 +121,50 @@ class Validator(Neuron):
                     self.validators_to_query = validators_to_query
                     self.miners_to_query = miners_to_query
 
-                # Query commitments from chain for new blocks
+                # Query commitments from chain for new blocks, capped by max lookback
                 latest_block = self.substrate.get_block_number()
+                start_block = max(
+                    self.last_seen_block + 1,
+                    max(latest_block - self.max_commitment_lookback + 1, 0),
+                )
                 logger.info(
-                    f"Querying commitments from block {self.last_seen_block + 1} to {latest_block}."
+                    f"Querying commitments from block {start_block} to {latest_block} (max lookback {self.max_commitment_lookback})."
                 )
 
                 total_commitments = 0
-                for block_num in range(self.last_seen_block + 1, latest_block + 1):
+                total_skipped_unchanged = 0
+                for block_num in range(start_block, latest_block + 1):
                     for miner_hotkey in self.miners_to_query:
                         commitments = query_commitments_from_substrate(
                             self.config, miner_hotkey, block=block_num
                         )
                         if commitments:
                             for commitment in commitments:
+                                fingerprint = self._compute_commitment_fingerprint(
+                                    commitment
+                                )
+                                previous_fingerprint = (
+                                    self._last_commitment_fingerprint_by_hotkey.get(
+                                        miner_hotkey
+                                    )
+                                )
+                                if previous_fingerprint == fingerprint:
+                                    total_skipped_unchanged += 1
+                                    logger.debug(
+                                        f"Skipping unchanged commitment for miner {miner_hotkey} at block {block_num}"
+                                    )
+                                    continue
+                                self._last_commitment_fingerprint_by_hotkey[
+                                    miner_hotkey
+                                ] = fingerprint
                                 logger.debug(
-                                    f"Block {block_num} - Miner {miner_hotkey} commitment: {commitment}"
+                                    f"Block {block_num} - Miner {miner_hotkey} new/updated commitment: {commitment}"
                                 )
                                 self.job_queue.put_nowait(commitment)
                                 total_commitments += 1
 
                 logger.info(
-                    f"Processed {total_commitments} new commitments from chain since last seen block {self.last_seen_block}. Latest block is {latest_block}."
+                    f"Processed {total_commitments} new commitments from chain (skipped {total_skipped_unchanged} unchanged). Previous last seen block {self.last_seen_block}. Latest block is {latest_block}."
                 )
                 self.last_seen_block = latest_block
 
@@ -187,6 +237,17 @@ class Validator(Neuron):
         await q.enqueue(["add_job"], [job_bytes], [0])
 
         # TODO
+
+    def _compute_commitment_fingerprint(
+        self, commitment_response: ChainCommitmentResponse
+    ):
+        """Create a stable fingerprint to detect changes per miner hotkey.
+
+        Uses key fields from the commitment payload; update this if the schema evolves.
+        """
+        data = commitment_response.data
+        # Include version to differentiate schema updates
+        return f"{data.version}|{data.provider}|{data.repo_id}"
 
 
 async def main():

@@ -17,6 +17,7 @@ sync_frequency = 300
 load_old_nodes = true
 min_stake_threshold = 1000
 allowed_validators = []
+max_commitment_lookback = 360 # Maximum number of recent blocks to scan per sync
 
 [otel]
 api_key = ""
