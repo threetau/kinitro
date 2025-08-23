@@ -1,9 +1,14 @@
 name: Copy Submission Files on Merge to Main
 
+
 on:
   push:
     branches:
       - main
+    paths:
+      - 'submission_template/agent_server.py'
+      - 'submission_template/agent_interface.py'
+      - 'submission_template/agent.capnp'
 
 jobs:
   copy-files:
