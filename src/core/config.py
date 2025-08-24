@@ -29,9 +29,24 @@ class Config:
     """
 
     def __init__(self, opts: ConfigOpts):
+        # First, do a preliminary parse to get the config file argument
+        preliminary_parser = ArgumentParser(add_help=False)
+        preliminary_parser.add_argument(
+            "--config", type=str, help="Configuration file path"
+        )
+        preliminary_args, _ = preliminary_parser.parse_known_args()
+
+        # Build settings files list
         settings_files = ["settings.toml", ".secrets.toml"]
-        if opts.settings_files:
+        if preliminary_args.config:
+            # If --config is specified, use that file
+            settings_files.append(preliminary_args.config)
+        elif opts.settings_files:
+            # Use files specified in opts (e.g., validator.toml)
             settings_files.extend(opts.settings_files)
+        else:
+            # Default to validator.toml if no other config specified
+            settings_files.append("validator.toml")
 
         self.settings: Dynaconf = Dynaconf(
             settings_files=settings_files,
@@ -82,6 +97,11 @@ class Config:
 
     def add_args(self):
         """Add command line arguments"""
+        self._parser.add_argument(
+            "--config",
+            type=str,
+            help="Configuration file path",
+        )
         self._parser.add_argument(
             "--wallet-name",
             type=str,

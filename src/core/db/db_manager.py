@@ -100,7 +100,9 @@ class DatabaseManager:
     def create_evaluation_job(self, job_data: EvaluationJobBase) -> EvaluationJob:
         """Create a new evaluation job."""
         with self.pg_session() as session:
-            pg_job = PGEvaluationJob(**job_data.model_dump())
+            # Exclude computed fields when creating the database object
+            job_dict = job_data.model_dump(exclude={"duration_seconds"})
+            pg_job = PGEvaluationJob(**job_dict)
             session.add(pg_job)
             session.flush()  # Get ID
             session.refresh(pg_job)

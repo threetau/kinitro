@@ -17,11 +17,11 @@ from core.neuron import Neuron
 from core.schemas import ChainCommitmentResponse
 
 from .config import ValidatorConfig
+from .rpc.parent_server import ParentValidatorServer, start_parent_server
+from .rpc.child_server import ChildValidatorManager
 
 logger = get_logger(__name__)
 
-# TODO: make this a proper config option
-IS_CONTROL_VALIDATOR = True
 
 FALLBACK_MAX_COMMITMENT_LOOKBACK = 360
 
@@ -36,6 +36,29 @@ class Validator(Neuron):
         self.miners_to_query: list[str] = []
         self._last_commitment_fingerprint_by_hotkey: dict[str, str] = {}
         self.last_seen_block: int = 0
+
+        # Parent-child validator setup
+        self.is_parent_validator = config.settings.get("is_parent_validator", False)
+        self.parent_server = None
+        self.child_manager = None
+
+        if self.is_parent_validator:
+            logger.info("Starting as parent validator")
+            self.parent_server = ParentValidatorServer(self)
+        else:
+            logger.info("Starting as child validator")
+            validator_id = config.settings.get("validator_id")
+            if not validator_id:
+                validator_id = f"validator_{self.keypair.ss58_address[:8]}"
+                logger.info(f"Generated validator ID: {validator_id}")
+
+            parent_host = config.settings.get("parent_host", "localhost")
+            parent_port = config.settings.get("parent_port", 8001)
+            child_port = config.settings.get("child_port", 8002)
+
+            self.child_manager = ChildValidatorManager(
+                self, validator_id, child_port, parent_host, parent_port
+            )
 
         # Initialize database manager if database URL is provided
         self.db_manager = None
@@ -104,9 +127,7 @@ class Validator(Neuron):
             )
 
             # Load commitment fingerprints
-            fingerprints = self.db_manager.get_commitment_fingerprints_for_validator(
-                validator_hotkey
-            )
+            fingerprints = self.db_manager.get_all_commitment_fingerprints()
             self._last_commitment_fingerprint_by_hotkey = {
                 fp.miner_hotkey: fp.fingerprint for fp in fingerprints
             }
@@ -172,21 +193,91 @@ class Validator(Neuron):
         except Exception as e:
             logger.error(f"Error in validator run loop: {e}")
         finally:
+            # Clean up parent-child resources
+            if self.is_parent_validator and hasattr(self, "parent_rpc_thread"):
+                try:
+                    # RPC thread will stop when main process exits (daemon=True)
+                    logger.info("Parent RPC thread cleanup initiated")
+                except Exception as e:
+                    logger.error(f"Error stopping parent RPC thread: {e}")
+            elif not self.is_parent_validator and self.child_manager:
+                try:
+                    # Simply disable job polling and let the thread terminate naturally
+                    self.child_manager.job_polling_enabled = False
+                    logger.info("Child manager cleanup initiated")
+                except Exception as e:
+                    logger.error(f"Error stopping child manager: {e}")
+
             # Save state on shutdown
             if self.db_manager:
                 self._save_validator_state()
                 self.db_manager.close_connections()
 
     def background_tasks(self):
-        if IS_CONTROL_VALIDATOR:
+        if self.is_parent_validator:
+            # Parent validator tasks
             self.sync_metagraph_thread = Thread(target=self.sync_metagraph, daemon=True)
             self.sync_metagraph_thread.start()
 
             self.job_queuer_thread = Thread(target=self.queue_jobs, daemon=True)
             self.job_queuer_thread.start()
+
+            # Start parent RPC server in separate thread (with logging visible)
+            import threading
+            import logging
+            import sys
+
+            # Configure logging for RPC thread to show up in main output
+            rpc_logger = logging.getLogger("validator.rpc")
+            rpc_handler = logging.StreamHandler(sys.stdout)
+            rpc_handler.setFormatter(
+                logging.Formatter("%(asctime)s | RPC | %(levelname)s | %(message)s")
+            )
+            rpc_logger.addHandler(rpc_handler)
+            rpc_logger.setLevel(logging.DEBUG)
+
+            self.parent_rpc_thread = threading.Thread(
+                target=start_parent_server,
+                args=(self, "127.0.0.1", self.config.settings.get("parent_port", 8001)),
+                daemon=True,
+            )
+            self.parent_rpc_thread.start()
+            logger.info(
+                f"Started parent RPC server on port {self.config.settings.get('parent_port', 8001)}"
+            )
         else:
-            # TODO: any tasks specific to non-control validators
-            ...
+            # Child validator tasks - start child manager
+            import asyncio
+            import threading
+            import capnp
+            import logging
+            import sys
+
+            # Configure logging for child RPC to show up in main output
+            child_rpc_logger = logging.getLogger("validator.rpc")
+            child_rpc_handler = logging.StreamHandler(sys.stdout)
+            child_rpc_handler.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s | CHILD-RPC | %(levelname)s | %(message)s"
+                )
+            )
+            child_rpc_logger.addHandler(child_rpc_handler)
+            child_rpc_logger.setLevel(logging.DEBUG)
+
+            def run_child_manager():
+                async def run_with_kj():
+                    async with capnp.kj_loop():
+                        await self.child_manager.start()
+                        # Start job polling loop
+                        await self.child_manager._job_polling_loop()
+
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(run_with_kj())
+
+            self.child_thread = threading.Thread(target=run_child_manager, daemon=True)
+            self.child_thread.start()
+            logger.info("Started child validator manager")
 
     def sync_metagraph(self):
         """
@@ -272,6 +363,10 @@ class Validator(Neuron):
                                 self.job_queue.put_nowait(commitment)
                                 total_commitments += 1
 
+                                # If we have a parent server, add job to its queue
+                                if self.parent_server:
+                                    self.parent_server.add_job_to_queue(commitment)
+
                 logger.info(
                     f"Processed {total_commitments} new commitments from chain (skipped {total_skipped_unchanged} unchanged). Previous last seen block {self.last_seen_block}. Latest block is {latest_block}."
                 )
@@ -289,28 +384,26 @@ class Validator(Neuron):
         """
         Queue up evaluation jobs to process models submitted through chain commitments.
 
-        For the control validator, it queues the job for itself, as well as sending the
-        jobs to other validators.
-
-        A validator that is not the control validator will not run this function.
+        For the parent validator, it queues the job for itself and distributes to child validators.
         """
 
-        if not IS_CONTROL_VALIDATOR:
-            logger.warning("Not a control validator, skipping job queuing.")
+        if not self.is_parent_validator:
+            logger.warning("Not a parent validator, skipping job queuing.")
             return
 
         while True:
             if self.job_queue.empty():
+                time.sleep(1)
                 continue
 
             commitment = self.job_queue.get_nowait()
-            # TODO: process job for itself
 
-            # Process job for other validators
-            with self.validators_to_query_mutex:
-                for validator in self.validators_to_query:
-                    _ = validator
-                    # TODO: use RPC to send to other validators
+            # Process job for parent validator itself (if needed)
+            # TODO: implement local job processing if desired
+
+            # Job distribution to child validators is handled by ParentValidatorServer
+            # when children request jobs via RPC
+            logger.debug(f"Processed commitment from {commitment.hotkey}")
 
     async def send_job(self):
         """
@@ -363,8 +456,6 @@ class Validator(Neuron):
 
 
 async def main():
-    import os
-
     config = ValidatorConfig()
 
     validator = Validator(config)

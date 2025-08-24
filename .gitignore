@@ -4,6 +4,7 @@ temp/
 
 /miner.toml
 /validator.toml
+/validator_child.toml
 
 # duckdb
 *.duckdb

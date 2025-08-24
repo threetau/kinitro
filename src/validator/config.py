@@ -23,3 +23,39 @@ class ValidatorConfig(Config):
                 "pg_database", "postgresql://user:password@localhost/dbname"
             ),  # type: ignore
         )
+
+        # parent-child validator configuration
+        self._parser.add_argument(
+            "--is-parent-validator",
+            action="store_true",
+            help="Run as parent validator (distributes jobs to child validators)",
+            default=self.settings.get("is_parent_validator", False),
+        )
+
+        self._parser.add_argument(
+            "--parent-host",
+            type=str,
+            help="Parent validator host (for child validators)",
+            default=self.settings.get("parent_host", "localhost"),
+        )
+
+        self._parser.add_argument(
+            "--parent-port",
+            type=int,
+            help="Parent validator RPC port (for child validators)",
+            default=self.settings.get("parent_port", 8001),
+        )
+
+        self._parser.add_argument(
+            "--child-port",
+            type=int,
+            help="Child validator RPC port (for receiving jobs)",
+            default=self.settings.get("child_port", 8002),
+        )
+
+        self._parser.add_argument(
+            "--validator-id",
+            type=str,
+            help="Unique validator ID for parent-child communication",
+            default=self.settings.get("validator_id", None),
+        )

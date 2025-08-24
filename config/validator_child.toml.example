@@ -1,0 +1,32 @@
+version = "0.0.1"
+log_level = "INFO" # Must be one of TRACE, DEBUG, INFO, WARN, ERROR
+
+wallet_path = "~/.bittensor/wallets"
+wallet_name = "kinitro-local"
+hotkey_name = "child_vali_1"
+
+pg_database = "postgresql://postgres@localhost/postgres_child1"
+
+# Child validator configuration
+is_parent_validator = false
+validator_id = "child_validator_1"  # Unique ID for this child validator
+parent_host = "localhost"           # Parent validator host
+parent_port = 8001                  # Parent validator RPC port
+child_port = 8002                   # This child's RPC port
+
+[subtensor]
+network = "local"
+address = "ws://127.0.0.1:9944"
+netuid = 2
+
+[neuron]
+sync_frequency = 300
+load_old_nodes = true
+min_stake_threshold = 1000
+allowed_validators = []
+max_commitment_lookback = 3 # Maximum number of recent blocks to scan per sync
+
+[otel]
+api_key = ""
+endpoint = ""
+service_name = ""
