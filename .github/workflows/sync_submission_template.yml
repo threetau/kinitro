@@ -1,0 +1,55 @@
+name: Sync submission template files to the kinitro-agent-template repo
+
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'submission_template/**'
+      - 'src/evaluator/rpc/server.py'
+      - 'src/evaluator/agent_interface.py'
+      - 'src/evaluator/rpc/agent.capnp'
+
+env:
+  TMPL_DIR: agent-template
+
+jobs:
+  sync-agent-template:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repo (this repo)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout destination repo
+        uses: actions/checkout@v4
+        with:
+          repository: threetau/kinitro-agent-template
+          token: ${{ secrets.MINER_TEMPLATE_PUSH_TOKEN }}
+          ref: main
+          path: ${{ env.TMPL_DIR }}
+          fetch-depth: 1
+
+      - name: Copy files
+        shell: bash
+        run: |
+          cp -f submission_template/agent_server.py "${{ env.TMPL_DIR }}/agent_server.py"
+          cp -f submission_template/agent_interface.py "${{ env.TMPL_DIR }}/agent_interface.py"
+          cp -f submission_template/agent.capnp "${{ env.TMPL_DIR }}/agent.capnp"
+      
+      - name: Commit and push changes
+        shell: bash
+        run: |
+          cd "${{ env.TMPL_DIR }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet; then
+            git add -A
+            git commit -m "Sync from kinitro: ${GITHUB_SHA}"
+            git push origin HEAD:main
+          else
+            echo "No changes to commit."
+          fi
