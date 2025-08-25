@@ -10,6 +10,7 @@ on:
       - 'src/evaluator/rpc/server.py'
       - 'src/evaluator/agent_interface.py'
       - 'src/evaluator/rpc/agent.capnp'
+  workflow_dispatch:
 
 env:
   TMPL_DIR: agent-template
