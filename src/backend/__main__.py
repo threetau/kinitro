@@ -27,6 +27,7 @@ from sqlalchemy.orm import sessionmaker
 
 from core.chain import query_commitments_from_substrate
 from core.log import get_logger
+from core.messages import EvalJobMessage, EvalResultMessage
 from core.schemas import ChainCommitmentResponse
 
 from .config import BackendConfig
@@ -41,6 +42,10 @@ from .models import (
 
 logger = get_logger(__name__)
 
+# Chain monitoring constants
+CHAIN_SCAN_YIELD_INTERVAL = 2  # Yield control every N blocks to prevent blocking WebSocket connections
+
+# TODO: implement weight broadcasting and weight setting to connecting validators
 
 # Pydantic models for API requests/responses
 class CompetitionCreate(BaseModel):
@@ -155,37 +160,6 @@ class BackendStats(BaseModel):
     total_results: int
     last_seen_block: int
     competition_percentages: Dict[str, float]
-
-
-class EvalJobMessage(BaseModel):
-    """Message for broadcasting evaluation jobs to validators."""
-
-    message_type: str = "eval_job"
-    job_id: str
-    competition_id: str
-    miner_hotkey: str
-    hf_repo_id: str
-    benchmarks: List[str]
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-class EvalResultMessage(BaseModel):
-    """Message for receiving evaluation results from validators."""
-
-    message_type: str = "eval_result"
-    job_id: str
-    validator_hotkey: str
-    miner_hotkey: str
-    competition_id: str
-    benchmark: str
-    score: float
-    success_rate: Optional[float] = None
-    avg_reward: Optional[float] = None
-    total_episodes: Optional[int] = None
-    logs: Optional[str] = None
-    error: Optional[str] = None
-    extra_data: Optional[dict] = None
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class BackendService:
@@ -361,13 +335,17 @@ class BackendService:
                             f"Preview of active competitions: {list(active_competitions.keys())[:5]}"
                         )
 
-                        # Query commitments
-                        for block_num in range(start_block, latest_block + 1):
+                        # Query commitments (with yield points to prevent blocking)
+                        for i, block_num in enumerate(range(start_block, latest_block + 1)):
                             commitments = await self._query_block_commitments(block_num)
                             for commitment in commitments:
                                 await self._process_commitment(
                                     commitment, block_num, active_competitions
                                 )
+                            
+                            # Yield control periodically to prevent blocking WebSocket connections
+                            if i % CHAIN_SCAN_YIELD_INTERVAL == 0:
+                                await asyncio.sleep(0)
 
                         # Update state
                         state.last_seen_block = latest_block
@@ -708,6 +686,9 @@ async def create_competition(competition: CompetitionCreate):
             id=str(uuid.uuid4()),
             name=competition.name,
             description=competition.description,
+            # TODO: consider changing the schema for this (if we need to)?
+            # we want users to be able to submit entire benchmarks
+            # json *specs*, not just a list of strings
             benchmarks=competition.benchmarks,
             points=competition.points,
             active=True,

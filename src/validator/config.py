@@ -111,3 +111,26 @@ class ValidatorConfig(Config):
             help="Port to bind WebSocket server (for parent validators)",
             default=self.settings.get("broadcast_port", 8765),
         )
+
+        self._parser.add_argument(
+            "--backend-url",
+            type=str,
+            help="Backend WebSocket URL for validator connections",
+            default=self.settings.get(
+                "backend_url", "ws://localhost:8080/ws/validator"
+            ),
+        )
+
+        self._parser.add_argument(
+            "--reconnect-interval",
+            type=int,
+            help="Seconds to wait before reconnecting to backend",
+            default=self.settings.get("reconnect_interval", 5),
+        )
+
+        self._parser.add_argument(
+            "--heartbeat-interval",
+            type=int,
+            help="Seconds between heartbeat messages to backend",
+            default=self.settings.get("heartbeat_interval", 30),
+        )
