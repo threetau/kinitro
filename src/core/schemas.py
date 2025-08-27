@@ -28,6 +28,7 @@ class ModelChainCommitment(ChainCommitment):
     """
 
     provider: ModelProvider = Field(..., description="Provider of the model")
+    competition_id: str = Field(..., description="Identifier for the competition")
     repo_id: str = Field(
         ..., description="Identifier for the repository on the provider"
     )
