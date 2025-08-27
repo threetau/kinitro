@@ -11,8 +11,9 @@ websocket_port = 8080
 max_commitment_lookback = 360
 chain_sync_interval = 30  # seconds between chain scans
 
-subtensor_network = "local"
-subtensor_address = "ws://127.0.0.1:9944"
+[subtensor]
+network = "local"
+address = "ws://127.0.0.1:9944"
 netuid = 2
 
 # Backend Service Configuration

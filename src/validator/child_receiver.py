@@ -3,7 +3,7 @@
 import asyncio
 import json
 import uuid
-from typing import Optional, Callable, Awaitable
+from typing import Awaitable, Callable, Optional
 
 import websockets
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK

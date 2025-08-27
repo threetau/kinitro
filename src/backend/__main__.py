@@ -281,12 +281,12 @@ class BackendService:
             logger.info("Initializing blockchain connection...")
 
             self.substrate = get_substrate(
-                subtensor_network=self.config.settings["subtensor_network"],
-                subtensor_address=self.config.settings["subtensor_address"],
+                subtensor_network=self.config.settings["subtensor"]["network"],
+                subtensor_address=self.config.settings["subtensor"]["address"],
             )
 
             self.metagraph = Metagraph(
-                netuid=self.config.settings["netuid"],
+                netuid=self.config.settings["subtensor"]["netuid"],
                 substrate=self.substrate,
             )
 
@@ -354,7 +354,12 @@ class BackendService:
                         comp_result = await session.execute(
                             select(Competition).where(Competition.active)
                         )
+
                         active_competitions = {c.id: c for c in comp_result.scalars()}
+                        # preview active competitions
+                        logger.debug(
+                            f"Preview of active competitions: {list(active_competitions.keys())[:5]}"
+                        )
 
                         # Query commitments
                         for block_num in range(start_block, latest_block + 1):
@@ -471,6 +476,7 @@ class BackendService:
     ):
         """Process a commitment from the chain."""
         try:
+            logger.debug(f"Processing commitment for block {block_num}: {commitment}")
             competition_id = getattr(commitment.data, "competition_id", None)
 
             if not competition_id or competition_id not in active_competitions:
@@ -492,6 +498,7 @@ class BackendService:
                 )
 
                 if existing.scalar_one_or_none():
+                    logger.debug(f"Submission already exists for {commitment.hotkey}")
                     return
 
                 # Create submission
@@ -522,8 +529,11 @@ class BackendService:
                 session.add(eval_job)
                 await session.commit()
 
+                logger.debug(f"Created evaluation job: {eval_job}")
+
                 # Broadcast to validators
                 await self._broadcast_job(eval_job)
+                logger.debug(f"Broadcasted job {job_id} to validators")
 
                 logger.info(f"Processed commitment from {commitment.hotkey}")
 

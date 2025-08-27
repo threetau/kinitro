@@ -16,9 +16,9 @@ from core.log import get_logger
 from core.neuron import Neuron
 from core.schemas import ChainCommitmentResponse
 
+from .child_receiver import ChildValidatorReceiver
 from .config import ValidatorConfig
 from .parent_broadcaster import ParentValidatorBroadcaster
-from .child_receiver import ChildValidatorReceiver
 
 logger = get_logger(__name__)
 
@@ -344,7 +344,8 @@ class Validator(Neuron):
                 latest_block = self.substrate.get_block_number()
                 start_block = max(
                     self.last_seen_block + 1,
-                    max(latest_block - self.max_commitment_lookback + 1, 0),
+                    latest_block - self.max_commitment_lookback + 1,
+                    0,
                 )
                 logger.info(
                     f"Querying commitments from block {start_block} to {latest_block} (max lookback {self.max_commitment_lookback})."
