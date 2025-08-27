@@ -14,6 +14,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,9 +44,12 @@ from .models import (
 logger = get_logger(__name__)
 
 # Chain monitoring constants
-CHAIN_SCAN_YIELD_INTERVAL = 2  # Yield control every N blocks to prevent blocking WebSocket connections
+CHAIN_SCAN_YIELD_INTERVAL = (
+    2  # Yield control every N blocks to prevent blocking WebSocket connections
+)
 
 # TODO: implement weight broadcasting and weight setting to connecting validators
+
 
 # Pydantic models for API requests/responses
 class CompetitionCreate(BaseModel):
@@ -196,6 +200,9 @@ class BackendService:
         self.engine = None
         self.async_session = None
 
+        # Thread pool for blocking operations
+        self.thread_pool = ThreadPoolExecutor(max_workers=4)
+
     async def startup(self):
         """Initialize the backend service."""
         logger.info("Starting Kinitro Backend Service")
@@ -246,6 +253,9 @@ class BackendService:
         # Close database
         if self.engine:
             await self.engine.dispose()
+
+        # Shutdown thread pool
+        self.thread_pool.shutdown(wait=True)
 
         logger.info("Backend Service shut down")
 
@@ -336,13 +346,15 @@ class BackendService:
                         )
 
                         # Query commitments (with yield points to prevent blocking)
-                        for i, block_num in enumerate(range(start_block, latest_block + 1)):
+                        for i, block_num in enumerate(
+                            range(start_block, latest_block + 1)
+                        ):
                             commitments = await self._query_block_commitments(block_num)
                             for commitment in commitments:
                                 await self._process_commitment(
                                     commitment, block_num, active_competitions
                                 )
-                            
+
                             # Yield control periodically to prevent blocking WebSocket connections
                             if i % CHAIN_SCAN_YIELD_INTERVAL == 0:
                                 await asyncio.sleep(0)
@@ -404,7 +416,11 @@ class BackendService:
         try:
             if not self.substrate:
                 return 0
-            return self.substrate.get_block_number()
+            # Run in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                self.thread_pool, self.substrate.get_block_number
+            )
         except Exception as e:
             logger.error(f"Failed to get latest block: {e}")
             return 0
@@ -413,38 +429,55 @@ class BackendService:
         """Sync metagraph nodes."""
         try:
             if self.metagraph:
-                self.metagraph.sync_nodes()
+                # Run in thread pool to avoid blocking
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(self.thread_pool, self.metagraph.sync_nodes)
                 logger.debug("Metagraph synced")
         except Exception as e:
             logger.error(f"Failed to sync metagraph: {e}")
+
+    def _query_commitments_sync(
+        self, block_num: int, nodes: list
+    ) -> List[ChainCommitmentResponse]:
+        """Synchronous version of commitment querying for thread pool."""
+        commitments = []
+
+        for node in nodes:
+            if node.stake >= self.min_stake_threshold:
+                try:
+                    miner_commitments = query_commitments_from_substrate(
+                        self.config, node.hotkey, block=block_num
+                    )
+                    if miner_commitments:
+                        commitments.extend(miner_commitments)
+                except Exception as e:
+                    logger.debug(f"Failed to query {node.hotkey}: {e}")
+                    continue
+
+        return commitments
 
     async def _query_block_commitments(
         self, block_num: int
     ) -> List[ChainCommitmentResponse]:
         """Query commitments for a block."""
-        commitments = []
-
         try:
             if not self.metagraph:
                 return []
 
-            # Query each miner
-            for node in self.metagraph.nodes.values():
-                if node.stake >= self.min_stake_threshold:
-                    try:
-                        miner_commitments = query_commitments_from_substrate(
-                            self.config, node.hotkey, block=block_num
-                        )
-                        if miner_commitments:
-                            commitments.extend(miner_commitments)
-                    except Exception as e:
-                        logger.debug(f"Failed to query {node.hotkey}: {e}")
-                        continue
+            # Get nodes as a list for thread pool execution
+            nodes = list(self.metagraph.nodes.values())
+
+            # Run commitment querying in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            commitments = await loop.run_in_executor(
+                self.thread_pool, self._query_commitments_sync, block_num, nodes
+            )
+
+            return commitments
 
         except Exception as e:
             logger.error(f"Failed to query block {block_num}: {e}")
-
-        return commitments
+            return []
 
     async def _process_commitment(
         self,
