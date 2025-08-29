@@ -43,7 +43,7 @@ def commit_to_substrate(config: Config, commit_data: ChainCommitment) -> None:
 
         # Create metagraph to get neuron information (unused but available for future use)
         Metagraph(
-            netuid=config.settings["netuid"],
+            netuid=config.settings["subtensor"]["netuid"],
             substrate=substrate,  # type: ignore
         )
 
@@ -60,7 +60,7 @@ def commit_to_substrate(config: Config, commit_data: ChainCommitment) -> None:
         success = set_commitment(
             substrate=substrate,  # type: ignore
             keypair=keypair,
-            netuid=config.settings["netuid"],
+            netuid=config.settings["subtensor"]["netuid"],
             fields=[
                 (CommitmentDataFieldType.RAW, commitment_data.encode("utf-8")),
             ],
@@ -107,7 +107,7 @@ def query_commitments_from_substrate(
 
         commitment_query = query_commitment(
             substrate=substrate,  # type: ignore
-            netuid=config.settings["netuid"],
+            netuid=config.settings["subtensor"]["netuid"],
             hotkey=miner_hotkey,
             block=block,
         )

@@ -71,9 +71,6 @@ class Neuron(ABC):
         self.uid = getattr(node, "node_id", None) if node else None
         assert self.uid, "UID must be defined"
 
-        get_logger("kademlia").setLevel(pylog.DEBUG)
-        get_logger("rpcudp").setLevel(pylog.DEBUG)
-
     # @abstractmethod
     # async def start(self): ...
 

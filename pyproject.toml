@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src", "."]
-include = ["miner", "validator", "core", "evaluator"]
+include = ["backend", "miner", "validator", "core", "evaluator"]
 
 [tool.setuptools.package-data]
 "kinitro.evaluator.rpc" = ["*.capnp"]
@@ -24,6 +24,7 @@ dependencies = [
     "dynaconf>=3.2.11",
     "fastapi>=0.104.0",
     "fiber @ git+https://github.com/threetau/fiber.git@488277ddfcd80650e238f96f41ca38ec76c600d9#egg=fiber[chain]",
+    "greenlet>=3.2.4",
     "gymnasium==1.2.0",
     "huggingface-hub>=0.34.4",
     "kubernetes>=33.1.0",

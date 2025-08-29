@@ -9,18 +9,11 @@ hotkey_name = "default"
 pg_database = "postgresql://postgres@localhost/postgres"
 duckdb_path = "evaluation_data.duckdb"  # Path for DuckDB evaluation data storage
 
-# Parent-Child Validator Configuration
-# Set is_parent to true for parent validators that discover jobs from chain
-# Set is_parent to false for child validators that receive jobs from parent
-is_parent = false
-
-# Parent validator WebSocket server settings (only used when is_parent = true)
-broadcast_host = "0.0.0.0"  # Host to bind WebSocket server
-broadcast_port = 8765       # Port for WebSocket server
-
-# Child validator connection settings (only used when is_parent = false)
-parent_host = "localhost"   # Parent validator hostname or IP
-parent_port = 8765         # Parent validator WebSocket port
+# WebSocket Validator Configuration
+# Connection settings for centralized Kinitro Backend
+backend_url = "ws://localhost:8080/ws/validator"  # Backend WebSocket endpoint
+reconnect_interval = 5     # Seconds to wait before reconnecting
+heartbeat_interval = 30    # Seconds between heartbeat messages
 
 [subtensor]
 network = "finney"

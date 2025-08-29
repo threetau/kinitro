@@ -7,8 +7,8 @@ CHAIN_COMMITMENT_VERSION = "1.0"
 
 
 class ModelProvider(StrEnum):
-    HUGGING_FACE = "HUGGING_FACE"
-    R2 = "R2"
+    HF = "HF"  # Hugging Face
+    R2 = "R2"  # Cloudflare R2
 
 
 class ChainCommitment(BaseModel):
@@ -28,6 +28,7 @@ class ModelChainCommitment(ChainCommitment):
     """
 
     provider: ModelProvider = Field(..., description="Provider of the model")
+    competition_id: str = Field(..., description="Identifier for the competition")
     repo_id: str = Field(
         ..., description="Identifier for the repository on the provider"
     )
