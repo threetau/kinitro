@@ -1,13 +1,13 @@
-@0x893bac407c81b48c;
+@0xbf5147e1a2a3a3b1;
 
 interface Agent {
+  ping @0 (message :Text) -> (response :Text);
+  act  @1 (obs :Tensor) -> (action :Tensor);
+  reset @2 ();
+}
 
-    struct Tensor {
-        data @0   :Data; # tensor bytes tensor.numpy().tobytes()
-        shape @1  :List(UInt64); # tensor shape list(tensor.shape())
-        dtype @2  :Text; # data type name tensor.dtype()
-    }
-
-    act @0 (obs :Data) -> (action :Tensor);
-    reset @1 () -> ();
+struct Tensor {
+  data  @0 :Data;
+  shape @1 :List(Int32);
+  dtype @2 :Text;
 }

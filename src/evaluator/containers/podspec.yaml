@@ -12,10 +12,12 @@ spec:
     env:
       - name: SUBMISSION_URL
         value: 
-    command: ["python", "/workspace/submission/main.py"]
+    command: ["python", "/workspace/submission/main.py", "--host", "0.0.0.0", "--port", "8000"]
     volumeMounts:
       - name: workspace
         mountPath: /workspace/submission
+      - name: shared-socket
+        mountPath: /shared
   initContainers:
   - name: fetch-submission
     image: miner-agent
@@ -40,3 +42,7 @@ spec:
   volumes:
   - name: workspace
     emptyDir: {}
+  - name: shared-socket
+    hostPath:
+      path: /tmp/kinitro-sockets
+      type: DirectoryOrCreate

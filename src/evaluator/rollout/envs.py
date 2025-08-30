@@ -8,7 +8,9 @@ instantiate environments and discover all tasks for provider-agnostic evaluation
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List
 
 import gymnasium as gym
@@ -18,11 +20,23 @@ from gymnasium import ObservationWrapper
 from gymnasium.spaces import Box
 from gymnasium.spaces import Dict as DictSpace
 from gymnasium.wrappers import HumanRendering
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
 # Constant ripped from lerobot.constants
 OBS_IMAGES = "observation.images"
+
+
+def configure_headless_rendering():
+    """Configure environment variables for headless MuJoCo rendering using EGL."""
+    if "DISPLAY" not in os.environ:
+        # Only configure headless mode if no display is available
+        os.environ["MUJOCO_GL"] = "egl"
+        os.environ["PYOPENGL_PLATFORM"] = "egl"
+        logger.info("Configured headless rendering with EGL backend")
+    else:
+        logger.info("Display available, using default OpenGL rendering")
 
 
 @dataclass
@@ -121,6 +135,7 @@ class MultiViewImageObsWrapper(ObservationWrapper):
       - If a `camera_attribute` is provided and exists on the env, it will be
         set to each name in `camera_names` to capture multiple views. If not,
         a single render will be captured without switching cameras.
+      - Optionally saves images to disk for debugging/analysis.
     """
 
     def __init__(
@@ -129,11 +144,35 @@ class MultiViewImageObsWrapper(ObservationWrapper):
         image_size: tuple[int, int] = (64, 64),
         camera_attribute: str | None = "camera_name",
         camera_names: tuple[str, ...] = ("topview", "corner3", "gripperPOV"),
+        save_images: bool = False,
+        image_save_dir: str | None = None,
+        submission_id: str | None = None,
     ):
         super().__init__(env)
         self._img_h, self._img_w = int(image_size[0]), int(image_size[1])
         self._camera_attribute = camera_attribute
         self._camera_names = tuple(camera_names) if camera_names else tuple()
+        
+        # Image saving configuration
+        self._save_images = save_images
+        self._submission_id = submission_id
+        self._step_count = 0
+        self._episode_count = 0
+        
+        # Setup image save directory if enabled
+        if self._save_images and image_save_dir:
+            self._image_save_dir = Path(image_save_dir)
+            if self._submission_id:
+                self._image_save_dir = self._image_save_dir / str(self._submission_id)
+            
+            # Create directories for each camera
+            for camera_name in self._camera_names:
+                camera_dir = self._image_save_dir / camera_name
+                camera_dir.mkdir(parents=True, exist_ok=True)
+                
+            logger.info(f"Image saving enabled to: {self._image_save_dir}")
+        else:
+            self._image_save_dir = None
 
         # Decide how many views we will expose in the observation space
         can_switch_cameras = (
@@ -189,6 +228,7 @@ class MultiViewImageObsWrapper(ObservationWrapper):
 
     def observation(self, obs):  # type: ignore[override]
         images_hwc: list[np.ndarray] = []
+        camera_names_used: list[str] = []
 
         if (
             self._camera_attribute is not None
@@ -203,25 +243,59 @@ class MultiViewImageObsWrapper(ObservationWrapper):
 
             for cam in self._camera_names:
                 self._set_camera_if_possible(cam)
-                images_hwc.append(self._render_rgb_array())
+                img = self._render_rgb_array()
+                images_hwc.append(img)
+                camera_names_used.append(cam)
 
             # Restore original camera
             self._set_camera_if_possible(current_cam)
         else:
             # Single-view capture without camera switching
-            images_hwc.append(self._render_rgb_array())
+            img = self._render_rgb_array()
+            images_hwc.append(img)
+            camera_names_used.append("default")
+
+        # Save images to disk if enabled
+        if self._save_images and self._image_save_dir:
+            self._save_images_to_disk(images_hwc, camera_names_used)
 
         # Convert images to CHW uint8
         images_chw = [
             np.transpose(img, (2, 0, 1)).astype(np.uint8) for img in images_hwc
         ]
 
-        # Build dict observation
-        out: dict[str, object] = {"base": obs}
-        for idx, img in enumerate(images_chw):
-            key = "observation.image" if idx == 0 else f"observation.image{idx + 1}"
-            out[key] = img
-        return out
+        # For now, return base observation directly to avoid RPC message size limits
+        # Images are still saved to disk for analysis
+        # This avoids both the concatenation issue and the message size problem
+        
+        # Increment step counter
+        self._step_count += 1
+        
+        # Return the original observation to avoid serialization issues
+        return obs
+    
+    def _save_images_to_disk(self, images_hwc: list[np.ndarray], camera_names: list[str]) -> None:
+        """Save rendered images to disk organized by camera."""
+        try:
+            for img, camera_name in zip(images_hwc, camera_names):
+                if self._image_save_dir:
+                    camera_dir = self._image_save_dir / camera_name
+                    filename = f"ep{self._episode_count:04d}_step{self._step_count:06d}.png"
+                    filepath = camera_dir / filename
+                    
+                    # Convert numpy array to PIL Image and save
+                    # img is HWC format, convert to PIL format
+                    pil_img = Image.fromarray(img.astype(np.uint8))
+                    pil_img.save(filepath)
+                    
+        except Exception as e:
+            logger.warning(f"Failed to save image: {e}")
+    
+    def reset(self, **kwargs):
+        """Reset the environment and increment episode counter."""
+        self._episode_count += 1
+        self._step_count = 0
+        return super().reset(**kwargs)
 
 
 class EnvManager:
@@ -229,6 +303,8 @@ class EnvManager:
 
     def __init__(self):
         self._metaworld_cache = {}
+        # Configure headless rendering on initialization
+        configure_headless_rendering()
 
     def get_benchmark_envs(self, benchmark_spec: BenchmarkSpec) -> list[EnvSpec]:
         """Get all test environments for a given benchmark"""
@@ -261,6 +337,13 @@ class EnvManager:
                     benchmark_name="MT1",
                     provider="metaworld",
                     config={"task_idx": i, "task_data": task},
+                    # Inherit settings from benchmark_spec
+                    max_episode_steps=benchmark_spec.max_episode_steps,
+                    render_mode=benchmark_spec.render_mode,
+                    enable_image_obs=benchmark_spec.enable_image_obs,
+                    image_size=benchmark_spec.image_size,
+                    camera_attribute=benchmark_spec.camera_attribute,
+                    camera_names=benchmark_spec.camera_names,
                 )
                 envs.append(env)
 
@@ -277,6 +360,13 @@ class EnvManager:
                         benchmark_name="MT10",
                         provider="metaworld",
                         config={"task_idx": i, "task_data": task},
+                        # Inherit settings from benchmark_spec
+                        max_episode_steps=benchmark_spec.max_episode_steps,
+                        render_mode=benchmark_spec.render_mode,
+                        enable_image_obs=benchmark_spec.enable_image_obs,
+                        image_size=benchmark_spec.image_size,
+                        camera_attribute=benchmark_spec.camera_attribute,
+                        camera_names=benchmark_spec.camera_names,
                     )
                     envs.append(env)
 
@@ -293,6 +383,13 @@ class EnvManager:
                         benchmark_name="MT25",
                         provider="metaworld",
                         config={"task_idx": i, "task_data": task},
+                        # Inherit settings from benchmark_spec
+                        max_episode_steps=benchmark_spec.max_episode_steps,
+                        render_mode=benchmark_spec.render_mode,
+                        enable_image_obs=benchmark_spec.enable_image_obs,
+                        image_size=benchmark_spec.image_size,
+                        camera_attribute=benchmark_spec.camera_attribute,
+                        camera_names=benchmark_spec.camera_names,
                     )
                     envs.append(env)
 
@@ -309,6 +406,13 @@ class EnvManager:
                         benchmark_name="MT50",
                         provider="metaworld",
                         config={"task_idx": i, "task_data": task},
+                        # Inherit settings from benchmark_spec
+                        max_episode_steps=benchmark_spec.max_episode_steps,
+                        render_mode=benchmark_spec.render_mode,
+                        enable_image_obs=benchmark_spec.enable_image_obs,
+                        image_size=benchmark_spec.image_size,
+                        camera_attribute=benchmark_spec.camera_attribute,
+                        camera_names=benchmark_spec.camera_names,
                     )
                     envs.append(env)
 
@@ -325,6 +429,13 @@ class EnvManager:
                         benchmark_name="ML10",
                         provider="metaworld",
                         config={"task_idx": i, "task_data": task},
+                        # Inherit settings from benchmark_spec
+                        max_episode_steps=benchmark_spec.max_episode_steps,
+                        render_mode=benchmark_spec.render_mode,
+                        enable_image_obs=benchmark_spec.enable_image_obs,
+                        image_size=benchmark_spec.image_size,
+                        camera_attribute=benchmark_spec.camera_attribute,
+                        camera_names=benchmark_spec.camera_names,
                     )
                     envs.append(env)
 
@@ -338,7 +449,7 @@ class EnvManager:
         )
         return envs
 
-    def make_env(self, env_spec: EnvSpec) -> gym.Env:
+    def make_env(self, env_spec: EnvSpec, save_images: bool = False, submission_id: str | None = None) -> gym.Env:
         """Create an environment for a specific environment spec."""
         if env_spec.provider == "metaworld":
             env = self._make_metaworld_env(env_spec)
@@ -361,6 +472,9 @@ class EnvManager:
                 image_size=env_spec.image_size,
                 camera_attribute=env_spec.camera_attribute,
                 camera_names=env_spec.camera_names,
+                save_images=save_images,
+                image_save_dir="data" if save_images else None,
+                submission_id=submission_id,
             )
 
         # Optional human display wrapper if user requested human rendering
@@ -376,11 +490,14 @@ class EnvManager:
         config = env_spec.config
         benchmark = env_spec.benchmark_name
         env_name = env_spec.env_name
+        
+        # Use appropriate render mode - None for headless, rgb_array for rendering
+        render_mode = env_spec.render_mode if env_spec.enable_image_obs else None
 
         if benchmark == "MT1":
             # For MT1, create a single-task environment
             mt1 = metaworld.MT1(env_name)
-            env = mt1.train_classes[env_name](render_mode="rgb_array")
+            env = mt1.train_classes[env_name](render_mode=render_mode)
             # Use the specific task from the config
             task = config["task_data"]
             env.set_task(task)
@@ -395,7 +512,7 @@ class EnvManager:
                 mt_benchmark = metaworld.MT50()
 
             env_cls = mt_benchmark.train_classes[env_name]
-            env = env_cls(render_mode="rgb_array")
+            env = env_cls(render_mode=render_mode)
             # Use the specific task from the config
             task = config["task_data"]
             env.set_task(task)
@@ -404,7 +521,7 @@ class EnvManager:
             # For ML10, use test_classes and test_tasks
             ml10 = metaworld.ML10()
             env_cls = ml10.test_classes[env_name]
-            env = env_cls(render_mode="rgb_array")
+            env = env_cls(render_mode=render_mode)
             # Use the specific task from the config
             task = config["task_data"]
             env.set_task(task)

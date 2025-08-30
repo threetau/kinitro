@@ -1,204 +1,220 @@
-import logging
+import asyncio
 import time
 from typing import Any, Dict, List
+import multiprocessing
 
+import capnp
+import numpy as np
 import ray
-from ray.actor import ActorProxy
+import torch
+from ray.util.queue import Queue
 
 from core.db.models import SnowflakeId
+from core.log import get_logger
 
-from ..rpc.client import AgentClient
+from ..rpc.rpc_process import RPCRequest
 from .envs import BenchmarkSpec, EnvManager, EnvResult, EnvSpec, EpisodeResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RolloutCluster:
     def __init__(self, cluster_name: str):
         self.name = cluster_name  # Ray namespace
-        self.workers: list[ActorProxy] = []
+        self.workers: list[ray.actor.ActorHandle] = []
 
-    def create_worker(self, rollout_worker_id: SnowflakeId) -> ActorProxy:
-        worker = RolloutWorker.remote(self, rollout_worker_id)
+    def create_worker(
+        self,
+        rollout_worker_id: SnowflakeId,
+        benchmark_specs: List[BenchmarkSpec],
+        submission_container_host: str,
+        submission_container_port: int,
+        submission_id: SnowflakeId | None = None,
+    ) -> ray.actor.ActorHandle:
+        logger.info(f"Creating worker: {rollout_worker_id}, {benchmark_specs}, {submission_container_host}, {submission_container_port}, {submission_id}")  
+        worker = RolloutWorker.remote(
+            self.name,
+            rollout_worker_id,
+            benchmark_specs,
+            submission_container_host,
+            submission_container_port,
+            submission_id,
+        )
         self.workers.append(worker)
         return worker
 
-    def delete_worker(self, worker: ActorProxy):
+    def delete_worker(self, worker: ray.actor.ActorHandle):
         self.workers.remove(worker)
         ray.kill(worker)
-        pass
 
 
 @ray.remote
 class RolloutWorker:
     def __init__(
         self,
-        cluster: RolloutCluster,
+        cluster_name: str,
         rollout_worker_id: SnowflakeId,
         benchmark_specs: list[BenchmarkSpec],
+        submission_container_host: str,
+        submission_container_port: int,
+        submission_id: SnowflakeId | None = None,
+
     ) -> None:
-        self.cluster = cluster
-        self.rollout_worker_id = rollout_worker_id  # Name of the ray actor
-        self.submission_container_host = (
-            "localhost"  # Address of the submission container
-        )
-        self.benchmark_specs = benchmark_specs
-        self.submission_container_port = 8000
-        self.submission_container_address = None
-        self.eval_start = None  # Start time of the evaluation
-        self.eval_end = None  # End time of the evaluation
-
-        self.agent = AgentClient(
-            host=self.submission_container_host, port=self.submission_container_port
-        )
-
-        # Environment manager
-        self.env_manager = EnvManager()
-
-        # Evaluation configuration
-        self.episodes_per_task = 1  # Number of episodes to run per task
-        self.max_steps_per_episode = 200  # Maximum steps per episode
-
-    def set_config(
-        self,
-        submission_container_address: str,
-        episodes_per_task: int = 1,
-        max_steps_per_episode: int = 200,
-    ):
-        """Configure the worker with submission address and evaluation parameters."""
-        self.submission_container_address = submission_container_address
-        self.episodes_per_task = episodes_per_task
-        self.max_steps_per_episode = max_steps_per_episode
-
         logger.info(
-            f"Worker {self.rollout_worker_id} configured for benchmarks {self.benchmark_specs}"
+            f"RolloutWorker init: {cluster_name}, {rollout_worker_id}, {benchmark_specs}, "
+            f"{submission_container_host}:{submission_container_port}, {submission_id}"
         )
+        self.cluster_name = cluster_name
+        self.rollout_worker_id = rollout_worker_id
+        self.submission_container_host = submission_container_host
+        self.submission_container_port = submission_container_port
+        self.benchmark_specs = benchmark_specs
+        self.submission_id = submission_id or rollout_worker_id
+        self.submission_container_address = f"{submission_container_host}:{submission_container_port}"
+        self.env_manager = EnvManager()
+        self.episodes_per_task = 1
+        self.max_steps_per_episode = 25
+        self.eval_start = None
+        self.eval_end = None
 
-    async def connect_to_agent(self):
-        """Connect to the agent server."""
-        if self.submission_container_address is None:
-            raise ValueError("Submission container address not set")
 
-        try:
-            await self.agent.connect()
-            logger.info(
-                f"Worker {self.rollout_worker_id} connected to agent at {self.submission_container_address}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to connect to agent: {e}")
-            raise
+    async def test_rpc(self, send_queue: Queue, recv_queue: Queue):
+        rpc_msg = RPCRequest.create_ping("ray-ping")
+        await send_queue.put_async(rpc_msg)
+        while True:
+            try:
+                resp = await recv_queue.get_async()
+                print(f"[Worker {self.rollout_worker_id}] RPC test ping response={resp}")
+                return resp
+            except asyncio.CancelledError:
+                print(f"[Worker {self.rollout_worker_id}] RPC test cancelled")
+                break
+            except Exception as e:
+                print(f"[Worker {self.rollout_worker_id}] Error getting response: {e}")
+                break
 
-    def run_all_benchmark_tasks(self) -> List[EnvResult]:
-        """Run the agent through every test task in every test environment in each benchmark."""
+
+    async def run_all_benchmark_tasks(self, send_queue: Queue, recv_queue: Queue) -> List[EnvResult]:
         if not self.benchmark_specs:
             raise ValueError("Benchmark specifications not set")
 
-        # Start evaluation timer
-        self.eval_start = time.time()
+        async def _run_all_tasks_inner():
+            if self.submission_container_address is None:
+                raise ValueError("Submission container address not set")
 
-        # Collect all tasks from all benchmarks
-        all_task_specs = []
-        for benchmark_spec in self.benchmark_specs:
-            print(f"Running all tasks for benchmark: {benchmark_spec.benchmark_name}")
+            self.eval_start = time.time()
 
-            # Get all environment and task combinations for this benchmark
-            task_specs = self.env_manager.get_benchmark_envs(
-                benchmark_spec
-            )  # This now returns all tasks
-            all_task_specs.extend(task_specs)
-            logger.info(
-                f"Worker {self.rollout_worker_id} discovered {len(task_specs)} tasks for {benchmark_spec}"
-            )
+            all_task_specs = []
+            for benchmark_spec in self.benchmark_specs:
+                logger.info("Running all tasks for benchmark: %s", benchmark_spec.benchmark_name)
+                task_specs = self.env_manager.get_benchmark_envs(benchmark_spec)
+                all_task_specs.extend(task_specs)
+                logger.info("Discovered %d tasks for %s", len(task_specs), benchmark_spec)
 
-        logger.info(
-            f"Worker {self.rollout_worker_id} will evaluate {len(all_task_specs)} total tasks"
-        )
+            logger.info("Will evaluate %d total tasks", len(all_task_specs))
 
-        # Run all tasks
-        task_results = []
-        for i, task_spec in enumerate(all_task_specs):
-            logger.info(f"Running task {i + 1}/{len(all_task_specs)}: {task_spec}")
-            try:
-                task_result = self.run_env(task_spec)  # This now runs a specific task
-                task_results.append(task_result)
+            task_results = []
+            for i, task_spec in enumerate(all_task_specs):
+                logger.info("Starting task %d/%d: %s", i + 1, len(all_task_specs), task_spec)
+                try:
+                    task_result = await self.run_env(task_spec, send_queue, recv_queue)
+                    task_results.append(task_result)
+                    logger.info("Completed task %s: success_rate=%f mean_reward=%f mean_steps=%f",
+                                task_spec, task_result.success_rate, task_result.mean_reward, task_result.mean_steps)
+                except Exception:
+                    logger.exception("Failed to run task %s", task_spec)
+                    continue
 
-                # Log task completion
-                logger.info(
-                    f"Task {task_spec} completed: "
-                    f"success_rate={task_result.success_rate:.3f}, "
-                    f"mean_reward={task_result.mean_reward:.3f}, "
-                    f"mean_steps={task_result.mean_steps:.1f}"
-                )
-            except Exception as e:
-                logger.error(f"Failed to run task {task_spec}: {e}")
-                # Continue with other tasks
-                continue
+            self.eval_end = time.time()
+            self._log_evaluation_summary(task_results)
+            return task_results
 
-        # End evaluation timer
-        self.eval_end = time.time()
+        async with capnp.kj_loop():
+            return await _run_all_tasks_inner()
 
-        # Log summary
-        self._log_evaluation_summary(task_results)
+    async def run_env(self, env_spec: EnvSpec, send_queue: Queue, recv_queue: Queue) -> EnvResult:
+        env = self.env_manager.make_env(env_spec, save_images=True, submission_id=str(self.submission_id))
 
-        return task_results
-
-    def run_env(self, env_spec: EnvSpec) -> EnvResult:
-        """Run all episodes for a single environment."""
-        # Create environment for this spec
-        env = self.env_manager.make_env(env_spec)
-
-        # Run multiple episodes for this environment
         episodes = []
         for episode_id in range(self.episodes_per_task):
             try:
-                episode_result = self.run_episode(
-                    env, self.agent, env_spec, episode_id, self.max_steps_per_episode
-                )
+                episode_result = await self.run_episode(env, env_spec, episode_id, self.max_steps_per_episode, send_queue, recv_queue)
                 episodes.append(episode_result)
-            except Exception as e:
-                logger.error(
-                    f"Failed to run episode {episode_id} for environment {env_spec}: {e}"
-                )
+            except Exception:
+                logger.exception("Failed episode %d for %s", episode_id, env_spec)
                 continue
 
-        # Clean up environment
         env.close()
+        return EnvResult.from_episodes(env_spec, episodes)
 
-        # Create environment result
-        env_result = EnvResult.from_episodes(env_spec, episodes)
+    async def run_episode(self, env, env_spec, episode_id, max_steps, send_queue: Queue, recv_queue: Queue):
+        logger.info("Starting episode %d for env %s", episode_id, env_spec)
 
-        return env_result
+        # Reset may return (obs, info) or just obs depending on gym
+        res = env.reset()
+        if isinstance(res, tuple) and len(res) == 2:
+            observation, info = res
+        else:
+            observation, info = res, {}
 
-    def run_episode(self, env, agent, env_spec, episode_id, max_steps):
-        """Run a single episode with the given environment and agent."""
-        logger.info(f"Starting episode {episode_id} for environment {env_spec}")
-
-        observation, info = env.reset()
         done = False
         step_count = 0
-        total_reward = 0
-
-        episode_start = time.time()
+        total_reward = 0.0
         episode_steps = []
+        episode_start = time.time()
 
         while not done and step_count < max_steps:
             try:
-                action = agent.act(observation)
-                observation, reward, terminated, truncated, info = env.step(action)
+                if step_count == 0:
+                    logger.debug("Episode first obs type=%s shape=%s", type(observation), getattr(observation, "shape", None))
 
-                total_reward += reward
+                if not hasattr(observation, "tobytes"):
+                    # if observation is a dict (gym.Dict), flatten to concatenated array or handle appropriately
+                    # simple fallback: try to convert dict of arrays to concatenated vector
+                    if isinstance(observation, dict):
+                        obs_arr = np.concatenate([np.asarray(v).ravel() for _, v in sorted(observation.items())])
+                    else:
+                        obs_arr = np.asarray(observation)
+                else:
+                    obs_arr = np.asarray(observation)
+
+                rpc_msg = RPCRequest.create_act(obs_arr)
+                await send_queue.put_async(rpc_msg)
+                resp = await recv_queue.get_async()
+                action_tensor = resp.result
+                if isinstance(action_tensor, torch.Tensor):
+                    action_arr = action_tensor.detach().cpu().numpy()
+                else:
+                    action_arr = np.asarray(action_tensor)
+
+                # Ensure action_arr is a proper numpy array
+                if not isinstance(action_arr, np.ndarray):
+                    action_arr = np.asarray(action_arr)
+
+                # Ensure it's not a 0-d array that might cause issues
+                if action_arr.ndim == 0:
+                    action_arr = np.array([action_arr.item()])
+
+                # Step env
+                step_result = env.step(action_arr)
+                # compat with gym >=0.26 (terminated, truncated) vs older (done)
+                if len(step_result) == 5:
+                    observation, reward, terminated, truncated, info = step_result
+                    done = bool(terminated or truncated)
+                else:
+                    observation, reward, done, info = step_result
+                    done = bool(done)
+
+                total_reward += float(reward)
                 step_count += 1
-                done = terminated or truncated
 
-                # Record step
-                episode_steps.append(
-                    {"step": step_count, "reward": reward, "done": done, "info": info}
-                )
+                episode_steps.append({"step": step_count, "reward": reward, "done": done, "info": info})
 
-            except Exception as e:
-                logger.error(
-                    f"Error during step {step_count} in episode {episode_id}: {e}"
-                )
+                if step_count % 10 == 0:
+                    logger.info("Episode %d progress: %d/%d steps, total_reward=%.3f", episode_id, step_count, max_steps, total_reward)
+
+            except Exception:
+                logger.exception("Error during step %d in episode %d", step_count, episode_id)
                 break
 
         episode_duration = time.time() - episode_start
@@ -212,76 +228,47 @@ class RolloutWorker:
             info={"duration": episode_duration, "episode_steps": episode_steps},
         )
 
-        logger.info(
-            f"Episode {episode_id} completed: {step_count} steps, "
-            f"reward={total_reward:.2f}, success={episode_result.success}"
-        )
-
+        logger.info("Episode %d completed: steps=%d reward=%.2f success=%s", episode_id, step_count, total_reward, episode_result.success)
         return episode_result
 
-    def run_episodes(self, env_specs: List[EnvSpec]) -> List[EnvResult]:
-        """Run episodes for a list of specific environments."""
-        # Start evaluation timer
+    async def run_episodes(self, env_specs: List[EnvSpec]) -> List[EnvResult]:
         self.eval_start = time.time()
-
-        # Run specified environments
         env_results = []
         for i, env_spec in enumerate(env_specs):
-            logger.info(f"Running environment {i + 1}/{len(env_specs)}: {env_spec}")
             try:
-                env_result = self.run_env(env_spec)
+                env_result = await self.run_env(env_spec)
                 env_results.append(env_result)
-
-                # Log environment completion
-                logger.info(
-                    f"Environment {env_spec} completed: "
-                    f"success_rate={env_result.success_rate:.3f}, "
-                    f"mean_reward={env_result.mean_reward:.3f}, "
-                    f"mean_steps={env_result.mean_steps:.1f}"
-                )
-            except Exception as e:
-                logger.error(f"Failed to run environment {env_spec}: {e}")
+                logger.info("Environment %s completed", env_spec)
+            except Exception:
+                logger.exception("Failed env %s", env_spec)
                 continue
-
-        # End evaluation timer
         self.eval_end = time.time()
-
-        # Log summary
         self._log_evaluation_summary(env_results)
-
         return env_results
 
     def _log_evaluation_summary(self, env_results: List[EnvResult]):
-        """Log summary statistics for the evaluation."""
         if not env_results:
             logger.warning("No environment results to summarize")
             return
 
-        # Calculate aggregate statistics
         total_episodes = sum(len(er.episodes) for er in env_results)
-        mean_success_rate = sum(er.success_rate for er in env_results) / len(
-            env_results
-        )
+        mean_success_rate = sum(er.success_rate for er in env_results) / len(env_results)
         mean_reward = sum(er.mean_reward for er in env_results) / len(env_results)
         mean_steps = sum(er.mean_steps for er in env_results) / len(env_results)
-
-        eval_duration = (
-            self.eval_end - self.eval_start if self.eval_start and self.eval_end else 0
-        )
+        eval_duration = (self.eval_end - self.eval_start) if (self.eval_start and self.eval_end) else 0.0
 
         logger.info("=== Evaluation Summary ===")
-        logger.info(f"Worker: {self.rollout_worker_id}")
-        logger.info(f"Benchmarks: {self.benchmark_specs}")
-        logger.info(f"Environments completed: {len(env_results)}")
-        logger.info(f"Total episodes: {total_episodes}")
-        logger.info(f"Mean success rate: {mean_success_rate:.3f}")
-        logger.info(f"Mean reward: {mean_reward:.3f}")
-        logger.info(f"Mean steps: {mean_steps:.1f}")
-        logger.info(f"Evaluation duration: {eval_duration:.1f}s")
+        logger.info("Worker: %s", self.rollout_worker_id)
+        logger.info("Benchmarks: %s", self.benchmark_specs)
+        logger.info("Environments completed: %d", len(env_results))
+        logger.info("Total episodes: %d", total_episodes)
+        logger.info("Mean success rate: %.3f", mean_success_rate)
+        logger.info("Mean reward: %.3f", mean_reward)
+        logger.info("Mean steps: %.1f", mean_steps)
+        logger.info("Evaluation duration: %.1fs", eval_duration)
         logger.info("========================")
 
     def get_status(self) -> Dict[str, Any]:
-        """Get the current status of the worker."""
         return {
             "worker_id": str(self.rollout_worker_id),
             "submission_address": self.submission_container_address,

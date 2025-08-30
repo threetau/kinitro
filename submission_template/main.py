@@ -27,7 +27,7 @@ def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Start the agent server")
     parser.add_argument(
-        "--host", type=str, default="*", help="Host to bind the server to"
+        "--host", type=str, default="0.0.0.0", help="Host to bind the server to"
     )
     parser.add_argument(
         "--port", type=int, default=8000, help="Port to bind the server to"

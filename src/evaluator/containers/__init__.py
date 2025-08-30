@@ -2,13 +2,16 @@ import os
 import time
 
 import yaml
-from kinitro_eval.db.models import SnowflakeId
 from kubernetes import client, config
 from kubernetes.stream import stream
 
+from core.db.models import SnowflakeId
+
 
 class Containers:
-    def create_container(self, submission_repo: str, submission_id: SnowflakeId) -> str:
+    def create_container(
+        self, submission_repo: str, submission_id: SnowflakeId, port: int = 8000
+    ) -> str:
         print(
             f"Creating container for submission {submission_id} from repo {submission_repo}"
         )
@@ -60,7 +63,7 @@ class Containers:
         for attempt in range(30):  # Wait up to 30 seconds
             try:
                 pod_info = k8v1api.read_namespaced_pod(container_name, "default")
-                phase = pod_info.status.phase
+                phase = pod_info.status.phase  # type: ignore
                 print(f"Attempt {attempt + 1}/30: Pod status - {phase}")
 
                 if phase == "Running":
@@ -68,8 +71,8 @@ class Containers:
                     break
                 elif phase == "Pending":
                     # Get more details on why it's still pending
-                    conditions = pod_info.status.conditions
-                    container_statuses = pod_info.status.container_statuses
+                    conditions = pod_info.status.conditions  # type: ignore
+                    container_statuses = pod_info.status.container_statuses  # type: ignore
 
                     if conditions:
                         print(
@@ -144,6 +147,39 @@ class Containers:
         )
 
         print(f"Container response: {resp}")
+
+        # After pod is running, create a Service to expose it on the specified port
+        service_name = container_name  # Use same name for service
+        service_manifest = {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {"name": service_name},
+            "spec": {
+                "selector": {"app": container_name},
+                "ports": [{"protocol": "TCP", "port": port, "targetPort": port}],
+                "type": "NodePort",
+            },
+        }
+
+        # Patch the pod to add the label for service selector
+        try:
+            k8v1api.patch_namespaced_pod(
+                name=container_name,
+                namespace="default",
+                body={"metadata": {"labels": {"app": container_name}}},
+            )
+            print(f"Patched pod {container_name} with label app={container_name}")
+        except Exception as e:
+            print(f"Error patching pod with label: {e}")
+
+        # Create the service
+        try:
+            k8v1api.create_namespaced_service(
+                namespace="default", body=service_manifest
+            )
+            print(f"Service {service_name} created to expose pod on port {port}")
+        except Exception as e:
+            print(f"Error creating service: {e}")
 
         return container_name
 
