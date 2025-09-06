@@ -1,5 +1,6 @@
 import asyncio
 import threading
+from datetime import datetime, timezone
 
 import asyncpg
 import ray
@@ -9,13 +10,14 @@ from pgqueuer.db import AsyncpgDriver
 from pgqueuer.models import Job
 from ray.util.queue import Queue
 
-from core.db.db_manager import create_database_manager
-from core.db.models import EvaluationJob
 from core.log import get_logger
+from core.messages import EvalJobMessage
 from evaluator.config import EvaluatorConfig
 from evaluator.containers import Containers
 from evaluator.rollout import BenchmarkSpec, RolloutCluster
 from evaluator.rpc.rpc_process import RPCProcess
+from validator.db.db_manager import create_database_manager
+from validator.db.models import EvaluationJob
 
 logger = get_logger(__name__)
 
@@ -36,7 +38,24 @@ class Orchestrator:
     async def process_job(self, job: Job):
         logger.info(f"Processing job: {job.id}")
         if job.payload:
-            evaluation_job = EvaluationJob.from_bytes(job.payload)
+            # TODO: there is probably a much better way to do this
+            eval_job_msg = EvalJobMessage.from_bytes(job.payload)
+            evaluation_job = EvaluationJob(
+                id=eval_job_msg.job_id,
+                competition_id=eval_job_msg.competition_id,
+                submission_id=eval_job_msg.submission_id,
+                miner_hotkey=eval_job_msg.miner_hotkey,
+                hf_repo_id=eval_job_msg.hf_repo_id,
+                env_provider=eval_job_msg.env_provider,
+                benchmark_name=eval_job_msg.benchmark_name,
+                config=eval_job_msg.config,
+                # TODO: where should this be set?
+                logs_path="./data/logs",
+                # created at will be the current datetime
+                created_at=datetime.now(timezone.utc),
+            )  # type: ignore
+
+            # evaluation_job = EvaluationJob.from_bytes(job.payload)
             # start a container for this evaluation job
             repo = "https://huggingface.co/" + evaluation_job.hf_repo_id
             logger.info(
@@ -79,23 +98,15 @@ class Orchestrator:
             if not node_ip:
                 raise RuntimeError("No node IP found in cluster")
 
-            submission_address = f"{node_ip}:{node_port}"
-
             # wait for some time
             # TODO: why exactly do we wait here though? just going to keep a WAIT_TIME here for now
             await asyncio.sleep(WAIT_TIME)
 
             # Create a benchmark spec for the job (example: MT1, can be customized)
-            config_dict = (
-                {"env_name": evaluation_job.env_name}
-                if hasattr(evaluation_job, "env_name")
-                else {}
-            )
-
             benchmark_spec = BenchmarkSpec(
                 provider=evaluation_job.env_provider,
-                benchmark_name=evaluation_job.env_name,
-                config=config_dict,
+                benchmark_name=evaluation_job.benchmark_name,
+                config=evaluation_job.config,
                 enable_image_obs=True,
                 render_mode="rgb_array",  # No rendering
             )

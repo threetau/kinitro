@@ -6,7 +6,7 @@ Exports:
 - database: ``DatabaseManager`` - PostgreSQL database management
 """
 
-from core.db import DatabaseManager
+from validator.db.db_manager import DatabaseManager
 
 from .agent_interface import AgentInterface
 from .rollout.envs import EnvManager, EnvSpec

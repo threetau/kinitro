@@ -72,8 +72,9 @@ def handle_commit_command(config: MinerConfig) -> None:
 
     # Prepare commitment data
     commit_data = ModelChainCommitment(
-        provider=ModelProvider.HUGGING_FACE,
+        prvdr=ModelProvider.HF,
         repo_id=config.settings["hf_repo_id"],
+        comp_id=config.settings["competition_id"],
     )
 
     # Commit to substrate chain

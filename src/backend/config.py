@@ -5,19 +5,19 @@ from core.config import Config, ConfigOpts
 from core.constants import NeuronType
 
 
-class ValidatorConfig(Config):
+class BackendConfig(Config):
     def __init__(self):
         # First, do a preliminary parse to check for --config argument
         custom_config_file = self._get_config_file_from_args()
 
         # Set up the settings files list
-        settings_files = ["validator.toml"]
+        settings_files = ["backend.toml"]
         if custom_config_file:
             settings_files = [custom_config_file]
 
         opts = ConfigOpts(
-            neuron_name="validator",
-            neuron_type=NeuronType.Validator,
+            neuron_name="backend",
+            neuron_type=NeuronType.Validator,  # Backend uses validator-like chain access
             settings_files=settings_files,
         )
         super().__init__(opts)
@@ -57,35 +57,51 @@ class ValidatorConfig(Config):
             default=None,
         )
 
-        # pg database
+        # database configuration
         self._parser.add_argument(
-            "--pg-database",
+            "--database-url",
             type=str,
-            help="PostgreSQL database URL",
+            help="PostgreSQL database URL for backend",
             default=self.settings.get(
-                "pg_database", "postgresql://user:password@localhost/dbname"
-            ),  # type: ignore
-        )
-
-        self._parser.add_argument(
-            "--backend-url",
-            type=str,
-            help="Backend WebSocket URL for validator connections",
-            default=self.settings.get(
-                "backend_url", "ws://localhost:8080/ws/validator"
+                "database_url",
+                "postgresql+asyncpg://postgres@localhost/kinitro_backend",
             ),
         )
 
+        # websocket server configuration
         self._parser.add_argument(
-            "--reconnect-interval",
-            type=int,
-            help="Seconds to wait before reconnecting to backend",
-            default=self.settings.get("reconnect_interval", 5),
+            "--websocket-host",
+            type=str,
+            help="WebSocket server host to bind to",
+            default=self.settings.get("websocket_host", "0.0.0.0"),
         )
 
         self._parser.add_argument(
-            "--heartbeat-interval",
+            "--websocket-port",
             type=int,
-            help="Seconds between heartbeat messages to backend",
-            default=self.settings.get("heartbeat_interval", 30),
+            help="WebSocket server port to bind to",
+            default=self.settings.get("websocket_port", 8080),
+        )
+
+        # chain monitoring configuration
+        self._parser.add_argument(
+            "--max-commitment-lookback",
+            type=int,
+            help="Maximum blocks to look back for commitments",
+            default=self.settings.get("max_commitment_lookback", 360),
+        )
+
+        self._parser.add_argument(
+            "--chain-sync-interval",
+            type=int,
+            help="Seconds between chain sync operations",
+            default=self.settings.get("chain_sync_interval", 30),
+        )
+
+        # miner filtering
+        self._parser.add_argument(
+            "--min-stake-threshold",
+            type=float,
+            help="Minimum stake threshold for miners to be queried",
+            default=self.settings.get("min_stake_threshold", 0.0),
         )

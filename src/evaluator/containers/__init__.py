@@ -5,7 +5,7 @@ import yaml
 from kubernetes import client, config
 from kubernetes.stream import stream
 
-from core.db.models import SnowflakeId
+from validator.db.models import SnowflakeId
 
 
 class Containers:

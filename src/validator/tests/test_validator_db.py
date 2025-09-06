@@ -16,7 +16,7 @@ from alembic.config import Config
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from core.db.db_manager import DatabaseManager
+from validator.db.db_manager import DatabaseManager
 
 
 def test_validator_state_persistence():

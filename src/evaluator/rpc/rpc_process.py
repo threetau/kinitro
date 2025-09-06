@@ -38,7 +38,7 @@ class RPCRequest:
     method: RPCMethod
     request_id: str
     params: dict[str, Any]
-    timeout: Optional[float] = DEFAULT_RPC_TIMEOUT
+    timeout: float = DEFAULT_RPC_TIMEOUT
 
     @classmethod
     def create_ping(

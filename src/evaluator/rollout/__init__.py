@@ -8,7 +8,7 @@ import ray
 import torch
 from ray.util.queue import Queue
 
-from core.db.models import SnowflakeId
+from validator.db.models import SnowflakeId
 from core.log import get_logger
 
 from ..rpc.rpc_process import RPCRequest

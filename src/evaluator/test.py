@@ -5,7 +5,7 @@ import asyncpg
 from pgqueuer import AsyncpgDriver, Queries
 from snowflake import SnowflakeGenerator
 
-from core.db.models import EvaluationJob, EvaluationStatus
+from validator.db.models import EvaluationJob, EvaluationStatus
 
 
 async def main():
@@ -19,7 +19,6 @@ async def main():
         submission_id=sub_id,  # type: ignore
         miner_hotkey="5CyY97KCfwRC5UZN58A1cLpZnMgSZAKWtqaaggUfzYiJ6B8d",
         hf_repo_id="rishiad/default_submission",
-        hf_repo_commit="6c27519d0faf8bce22764e70776cdd819a07de0c",
         env_provider="metaworld",
         env_name="MT10",
         id=job_id,  # type: ignore
@@ -41,7 +40,7 @@ async def main():
     job_bytes = job.to_bytes()
     print(f"Enqueuing job: {job!r}")
     await q.enqueue(["add_job"], [job_bytes], [0])
-    print(f"Job enqueued successfully.")
+    print("Job enqueued successfully.")
 
 
 if __name__ == "__main__":
