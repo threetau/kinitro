@@ -1070,7 +1070,9 @@ async def validator_websocket(websocket: WebSocket):
             and api_key_obj.role != UserRole.ADMIN
         ):
             await websocket.send_text(
-                json.dumps({"error": "API key does not have validator access"})
+                json.dumps(
+                    {"error": "API key does not have access to validator endpoints"}
+                )
             )
             await websocket.close()
             return
