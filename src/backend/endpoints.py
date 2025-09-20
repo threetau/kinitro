@@ -23,6 +23,7 @@ from backend.auth import (
     create_auth_dependency,
     create_role_dependencies,
     generate_api_key,
+    get_api_key_from_db,
     hash_api_key,
 )
 from backend.constants import (
@@ -1047,9 +1048,47 @@ async def validator_websocket(websocket: WebSocket):
             await websocket.close()
             return
 
+        # Check for API key in registration message
+        api_key = message.get("api_key")
+        if not api_key:
+            await websocket.send_text(json.dumps({"error": "Missing API key"}))
+            await websocket.close()
+            return
+
+        # Validate API key
+        api_key_obj = await get_api_key_from_db(api_key, backend_service)
+        if not api_key_obj:
+            await websocket.send_text(
+                json.dumps({"error": "Invalid, expired, or inactive API key"})
+            )
+            await websocket.close()
+            return
+
+        # Check if API key has validator role
+        if (
+            api_key_obj.role != UserRole.VALIDATOR
+            and api_key_obj.role != UserRole.ADMIN
+        ):
+            await websocket.send_text(
+                json.dumps({"error": "API key does not have validator access"})
+            )
+            await websocket.close()
+            return
+
         validator_hotkey = message.get("hotkey")
         if not validator_hotkey:
             await websocket.send_text(json.dumps({"error": "Missing hotkey"}))
+            await websocket.close()
+            return
+
+        # If API key has an associated hotkey, verify it matches
+        if (
+            api_key_obj.associated_hotkey
+            and api_key_obj.associated_hotkey != validator_hotkey
+        ):
+            await websocket.send_text(
+                json.dumps({"error": "Hotkey does not match API key association"})
+            )
             await websocket.close()
             return
 
@@ -1071,11 +1110,13 @@ async def validator_websocket(websocket: WebSocket):
                     id=next(backend_service.id_generator),
                     validator_hotkey=validator_hotkey,
                     connection_id=connection_id,
+                    api_key_id=api_key_obj.id,
                     is_connected=True,
                 )
                 session.add(validator_conn)
             else:
                 validator_conn.connection_id = connection_id
+                validator_conn.api_key_id = api_key_obj.id
                 validator_conn.last_connected_at = datetime.now(timezone.utc)
                 validator_conn.last_heartbeat = datetime.now(timezone.utc)
                 validator_conn.is_connected = True

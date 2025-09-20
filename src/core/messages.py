@@ -89,6 +89,7 @@ class ValidatorRegisterMessage(SQLModel):
 
     message_type: MessageType = MessageType.REGISTER
     hotkey: str
+    api_key: str  # API key for authentication
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

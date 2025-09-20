@@ -80,6 +80,7 @@ class ValidatorInfoResponse(SQLModel):
 
     validator_hotkey: str
     connection_id: str
+    api_key_id: Optional[SnowflakeId]
     is_connected: bool
     first_connected_at: datetime
     last_heartbeat: datetime
@@ -623,6 +624,13 @@ class ValidatorConnection(TimestampMixin, SQLModel, table=True):
         max_length=128, nullable=False, index=True
     )  # IP:port or other identifier
 
+    # Link to API key used for authentication
+    api_key_id: Optional[int] = Field(
+        sa_column=Column(
+            BigInteger, ForeignKey("api_keys.id"), nullable=True, index=True
+        )
+    )
+
     # Connection tracking
     first_connected_at: datetime = Field(
         sa_column=Column(
@@ -658,6 +666,9 @@ class ValidatorConnection(TimestampMixin, SQLModel, table=True):
         index=True,
         sa_column_kwargs={"server_default": "true"},
     )
+
+    # Relationships
+    api_key: Optional["ApiKey"] = Relationship(back_populates="validator_connections")
 
     __table_args__ = (
         CheckConstraint("total_jobs_sent >= 0", name="ck_jobs_sent_non_negative"),
@@ -741,6 +752,11 @@ class ApiKey(TimestampMixin, SQLModel, table=True):
     # Expiration (optional)
     expires_at: Optional[datetime] = Field(
         default=None, sa_column=Column(SADateTime(timezone=True), nullable=True)
+    )
+
+    # Relationships
+    validator_connections: List["ValidatorConnection"] = Relationship(
+        back_populates="api_key", cascade_delete=True
     )
 
     __table_args__ = (

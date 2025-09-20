@@ -7,9 +7,11 @@ via WebSocket and receives evaluation jobs from there
 
 import asyncio
 import json
+import os
 from typing import Optional
 
 import asyncpg
+import dotenv
 import websockets
 from fiber import SubstrateInterface
 from fiber.chain.interface import get_substrate
@@ -34,6 +36,8 @@ from core.neuron import Neuron
 
 from .config import ValidatorConfig
 
+dotenv.load_dotenv()
+
 logger = get_logger(__name__)
 
 
@@ -52,6 +56,13 @@ class WebSocketValidator(Neuron):
         )
         self.reconnect_interval = config.settings.get("reconnect_interval", 5)
         self.heartbeat_interval = config.settings.get("heartbeat_interval", 30)
+
+        # Get API key from environment variable only
+        self.api_key = os.environ.get("KINITRO_API_KEY")
+        if not self.api_key:
+            raise ValueError(
+                "Backend API key not provided. Set KINITRO_API_KEY environment variable"
+            )
 
         # Connection state
         self.websocket: Optional[websockets.ServerConnection] = None
@@ -166,7 +177,9 @@ class WebSocketValidator(Neuron):
 
     async def _register(self):
         """Register validator with backend."""
-        register_msg = ValidatorRegisterMessage(hotkey=self.hotkey)
+        register_msg = ValidatorRegisterMessage(
+            hotkey=self.hotkey, api_key=self.api_key
+        )
         await self._send_message(register_msg.model_dump())
 
         # Wait for acknowledgment
