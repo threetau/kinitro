@@ -16,8 +16,9 @@ from typing import Any, Dict, List, Optional
 from fastapi import (
     WebSocket,
 )
+from fiber.chain.fetch_nodes import _get_nodes_for_uid
 from fiber.chain.interface import get_substrate
-from fiber.chain.metagraph import Metagraph
+from fiber.chain.models import Node
 from snowflake import SnowflakeGenerator
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import (
@@ -31,6 +32,7 @@ from backend.constants import (
     CHAIN_SCAN_YIELD_INTERVAL,
     DEFAULT_CHAIN_SYNC_INTERVAL,
     DEFAULT_MAX_COMMITMENT_LOOKBACK,
+    EVAL_JOB_TIMEOUT,
     HEARTBEAT_INTERVAL,
     MAX_WORKERS,
     SCORE_EVALUATION_INTERVAL,
@@ -38,11 +40,13 @@ from backend.constants import (
     WEIGHT_BROADCAST_INTERVAL,
     WEIGHT_BROADCAST_STARTUP_DELAY,
 )
+from backend.realtime import event_broadcaster
 from core.chain import query_commitments_from_substrate
 from core.db.models import EvaluationStatus
 from core.log import get_logger
 from core.messages import (
     EvalJobMessage,
+    EventType,
     SetWeightsMessage,
 )
 from core.schemas import ChainCommitmentResponse
@@ -92,7 +96,7 @@ class BackendService:
         self.substrate: Optional[Any] = (
             None  # async_substrate_interface.sync_substrate.SubstrateInterface
         )
-        self.metagraph: Optional[Metagraph] = None
+        self.nodes: Optional[Dict[SS58Address, Node]] = None
 
         # WebSocket connections
         self.active_connections: Dict[ConnectionId, WebSocket] = {}
@@ -102,6 +106,7 @@ class BackendService:
         self._running = False
         self._chain_monitor_task = None
         self._heartbeat_monitor_task = None
+        self._stale_job_monitor_task = None
         self._score_evaluation_task = None
         self._weight_broadcast_task = None
 
@@ -143,6 +148,7 @@ class BackendService:
         self._heartbeat_monitor_task = asyncio.create_task(
             self._monitor_validator_heartbeats()
         )
+        self._stale_job_monitor_task = asyncio.create_task(self._monitor_stale_jobs())
 
         # Delay before starting scoring
         logger.info(
@@ -178,6 +184,7 @@ class BackendService:
         tasks_to_cancel = [
             (self._chain_monitor_task, "chain_monitor"),
             (self._heartbeat_monitor_task, "heartbeat_monitor"),
+            (self._stale_job_monitor_task, "stale_job_monitor"),
             (self._score_evaluation_task, "score_evaluation"),
             (self._weight_broadcast_task, "weight_broadcast"),
         ]
@@ -214,10 +221,11 @@ class BackendService:
                 subtensor_address=self.config.settings["subtensor"]["address"],
             )
 
-            self.metagraph = Metagraph(
-                netuid=self.config.settings["subtensor"]["netuid"],
-                substrate=self.substrate,
+            node_list = _get_nodes_for_uid(
+                self.substrate, self.config.settings["subtensor"]["netuid"]
             )
+
+            self.nodes = {node.hotkey: node for node in node_list}
 
             logger.info("Blockchain connection initialized")
         except Exception as e:
@@ -269,7 +277,7 @@ class BackendService:
         """Background task to monitor blockchain for commitments."""
         while self._running:
             try:
-                if self.substrate and self.metagraph and self.async_session:
+                if self.substrate and self.nodes and self.async_session:
                     await self._sync_metagraph()
 
                     async with self.async_session() as session:
@@ -323,6 +331,79 @@ class BackendService:
             except Exception as e:
                 logger.error(f"Error monitoring chain: {e}")
                 await asyncio.sleep(self.chain_sync_interval)
+
+    async def _monitor_stale_jobs(self) -> None:
+        """Monitor for stale jobs and mark them as failed."""
+        while self._running:
+            try:
+                if self.async_session:
+                    async with self.async_session() as session:
+                        # Define timeout threshold (jobs older than EVAL_JOB_TIMEOUT seconds without completion)
+                        current_time = datetime.now(timezone.utc)
+                        stale_threshold = current_time - timedelta(
+                            seconds=EVAL_JOB_TIMEOUT
+                        )
+                        # Remove timezone info to match database column type
+                        stale_threshold = stale_threshold.replace(tzinfo=None)
+
+                        # Find jobs that have been running for too long
+                        result = await session.execute(
+                            select(BackendEvaluationJob).where(
+                                BackendEvaluationJob.created_at < stale_threshold
+                            )
+                        )
+
+                        stale_jobs = result.scalars().all()
+
+                        for job in stale_jobs:
+                            # Check if this job has any recent status updates
+                            status_result = await session.execute(
+                                select(BackendEvaluationJobStatus)
+                                .where(BackendEvaluationJobStatus.job_id == job.id)
+                                .order_by(BackendEvaluationJobStatus.created_at.desc())
+                                .limit(1)
+                            )
+                            latest_status = status_result.scalar()
+
+                            # If no status or last status is not terminal, mark as failed
+                            if not latest_status or latest_status.status not in [
+                                EvaluationStatus.COMPLETED,
+                                EvaluationStatus.FAILED,
+                                EvaluationStatus.CANCELLED,
+                                EvaluationStatus.TIMEOUT,
+                            ]:
+                                logger.warning(f"Marking stale job {job.id} as TIMEOUT")
+
+                                # Create timeout status for all connected validators
+                                for (
+                                    validator_hotkey
+                                ) in self.validator_connections.values():
+                                    timeout_status = BackendEvaluationJobStatus(
+                                        id=next(self.id_generator),
+                                        job_id=job.id,
+                                        validator_hotkey=validator_hotkey,
+                                        status=EvaluationStatus.TIMEOUT,
+                                        detail="Job marked as timeout due to inactivity",
+                                    )
+                                    session.add(timeout_status)
+
+                                await session.commit()
+
+                                # Broadcast timeout event
+                                await event_broadcaster.broadcast_event(
+                                    EventType.JOB_STATUS_CHANGED,
+                                    {
+                                        "job_id": job.id,
+                                        "status": "TIMEOUT",
+                                        "detail": "Job marked as timeout due to inactivity",
+                                    },
+                                )
+
+                await asyncio.sleep(300)  # Check every 5 minutes
+
+            except Exception as e:
+                logger.error(f"Error monitoring stale jobs: {e}")
+                await asyncio.sleep(300)
 
     async def _monitor_validator_heartbeats(self) -> None:
         """Monitor validator heartbeats and cleanup stale connections."""
@@ -597,19 +678,17 @@ class BackendService:
             if not self.substrate:
                 logger.error("Substrate not initialized")
                 return
-            if not self.metagraph:
-                logger.error("Metagraph not initialized")
+            if not self.nodes:
+                logger.error("Node list not initialized")
                 return
 
             # Use cached scores from periodic evaluation
             miner_scores = self._latest_miner_scores.copy()
-            # get node uids from metagraph based on their hotkeys
-            nodes = self.metagraph.nodes if self.metagraph else {}
 
             # Build weights dict mapping UIDs to weights
             weights_dict: dict[int, float] = {}
             for hotkey, weight in miner_scores.items():
-                node = nodes.get(hotkey)
+                node = self.nodes.get(hotkey)
                 if node:
                     weights_dict[node.node_id] = weight
 
@@ -618,7 +697,7 @@ class BackendService:
                 return
 
             # Populate missing entries with 0.0 weight for all nodes
-            for node in nodes.values():
+            for node in self.nodes.values():
                 weights_dict.setdefault(node.node_id, 0.0)
 
             # Broadcast to validators
@@ -667,14 +746,21 @@ class BackendService:
             logger.error(f"Failed to get latest block: {e}")
             return -1
 
+    def _sync_nodes(self) -> None:
+        node_list = _get_nodes_for_uid(
+            self.substrate, self.config.settings["subtensor"]["netuid"]
+        )
+        self.nodes = {node.hotkey: node for node in node_list}
+
     async def _sync_metagraph(self) -> None:
-        """Sync metagraph nodes."""
+        """Sync metagraph nodes with memory leak prevention."""
         try:
-            if self.metagraph:
-                # Run in thread pool to avoid blocking
+            if self.nodes:
+                # Run sync in thread pool to avoid blocking
                 loop = asyncio.get_event_loop()
-                await loop.run_in_executor(self.thread_pool, self.metagraph.sync_nodes)
-                logger.debug("Metagraph synced")
+                await loop.run_in_executor(self.thread_pool, self._sync_nodes)
+
+                logger.debug("Nodes synced")
         except Exception as e:
             logger.error(f"Failed to sync metagraph: {e}")
 
@@ -687,7 +773,7 @@ class BackendService:
         for node in nodes:
             try:
                 miner_commitments = query_commitments_from_substrate(
-                    self.config, node.hotkey, block=block_num
+                    self.config, self.substrate, node.hotkey, block=block_num
                 )
                 if miner_commitments:
                     commitments.extend(miner_commitments)
@@ -702,16 +788,15 @@ class BackendService:
     ) -> List[ChainCommitmentResponse]:
         """Query commitments for a block."""
         try:
-            if not self.metagraph:
+            if not self.nodes:
                 return []
 
-            # Get nodes as a list for thread pool execution
-            nodes = list(self.metagraph.nodes.values())
+            node_list = list(self.nodes.values())
 
             # Run commitment querying in thread pool to avoid blocking
             loop = asyncio.get_event_loop()
             commitments = await loop.run_in_executor(
-                self.thread_pool, self._query_commitments_sync, block_num, nodes
+                self.thread_pool, self._query_commitments_sync, block_num, node_list
             )
 
             return commitments
@@ -805,6 +890,17 @@ class BackendService:
 
                 logger.debug(f"Created evaluation job: {eval_job}")
 
+                # Broadcast job created event to clients
+                # Convert the model to dict for JSON serialization
+                job_data = eval_job.model_dump()
+                # Convert datetime to ISO format string
+                if "created_at" in job_data and job_data["created_at"]:
+                    job_data["created_at"] = job_data["created_at"].isoformat()
+                if "updated_at" in job_data and job_data["updated_at"]:
+                    job_data["updated_at"] = job_data["updated_at"].isoformat()
+
+                await event_broadcaster.broadcast_event(EventType.JOB_CREATED, job_data)
+
                 # Broadcast to validators
                 await self._broadcast_job(eval_job)
                 logger.debug(f"Broadcasted job {job_id} to validators")
@@ -838,6 +934,24 @@ class BackendService:
                 )
                 session.add(status_record)
                 await session.commit()
+
+                # Broadcast status change event to clients using the model
+                status_data = status_record.model_dump()
+                # Convert datetime to ISO format string
+                if "created_at" in status_data and status_data["created_at"]:
+                    status_data["created_at"] = status_data["created_at"].isoformat()
+                if "updated_at" in status_data and status_data["updated_at"]:
+                    status_data["updated_at"] = status_data["updated_at"].isoformat()
+
+                await event_broadcaster.broadcast_event(
+                    EventType.JOB_STATUS_CHANGED, status_data
+                )
+
+                # If job is completed, also send JOB_COMPLETED event
+                if status == EvaluationStatus.COMPLETED:
+                    await event_broadcaster.broadcast_event(
+                        EventType.JOB_COMPLETED, status_data
+                    )
 
                 logger.debug(
                     f"Updated job {job_id} status to {status.value} for validator {validator_hotkey}"

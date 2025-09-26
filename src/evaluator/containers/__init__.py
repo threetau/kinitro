@@ -198,3 +198,31 @@ class Containers:
             print(f"Pod {container_name} deleted successfully")
         except Exception as e:
             print(f"Error deleting pod {container_name}: {e}")
+
+    def cleanup_container(self, submission_id: SnowflakeId) -> None:
+        """Clean up both the pod and service for a submission.
+
+        Args:
+            submission_id: The ID of the submission whose resources to clean up
+        """
+        config.load_kube_config()
+        v1 = client.CoreV1Api()
+
+        container_name = f"submission-{submission_id}"
+        service_name = container_name  # Service has the same name as the pod
+
+        # Delete the service first
+        try:
+            v1.delete_namespaced_service(name=service_name, namespace="default")
+            print(f"Service {service_name} deleted successfully")
+        except client.exceptions.ApiException as e:
+            if e.status != 404:  # Ignore if service doesn't exist
+                print(f"Error deleting service {service_name}: {e}")
+
+        # Delete the pod
+        try:
+            v1.delete_namespaced_pod(name=container_name, namespace="default")
+            print(f"Pod {container_name} deleted successfully")
+        except client.exceptions.ApiException as e:
+            if e.status != 404:  # Ignore if pod doesn't exist
+                print(f"Error deleting pod {container_name}: {e}")

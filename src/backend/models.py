@@ -112,7 +112,6 @@ class JobResponse(SQLModel):
     """Response model for job data."""
 
     id: SnowflakeId
-    job_id: str
     submission_id: int
     competition_id: str
     miner_hotkey: str
@@ -120,7 +119,6 @@ class JobResponse(SQLModel):
     env_provider: str
     benchmark_name: str
     config: dict
-    broadcast_time: Optional[datetime]
     created_at: datetime
 
     class Config:
@@ -131,7 +129,7 @@ class EvaluationResultResponse(SQLModel):
     """Response model for evaluation result data."""
 
     id: SnowflakeId
-    job_id: str
+    job_id: SnowflakeId
     validator_hotkey: str
     miner_hotkey: str
     competition_id: str

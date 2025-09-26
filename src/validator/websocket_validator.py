@@ -8,19 +8,19 @@ via WebSocket and receives evaluation jobs from there
 import asyncio
 import json
 import os
-from typing import Optional
+from typing import Dict, Optional
 
 import asyncpg
 import dotenv
 import websockets
-from fiber import SubstrateInterface
-from fiber.chain.interface import get_substrate
-from fiber.chain.metagraph import Metagraph
-from fiber.chain.weights import set_node_weights
+from fiber.chain.fetch_nodes import _get_nodes_for_uid
+from fiber.chain.models import Node
 from pgqueuer import Job, PgQueuer, Queries
 from pgqueuer.db import AsyncpgDriver
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
+from backend.models import SS58Address
+from core.chain import set_node_weights
 from core.log import get_logger
 from core.messages import (
     EpisodeDataMessage,
@@ -79,11 +79,7 @@ class WebSocketValidator(Neuron):
         if self.database_url is None:
             raise Exception("Database URL not provided")
 
-        self.q: Optional[Queries] = None
-
-        # Chain connection objects
-        self.substrate: SubstrateInterface = None
-        self.metagraph: Metagraph = None
+        self.nodes: Optional[Dict[SS58Address, Node]] = None
         self.validator_node_id: int = None  # Our node ID on the chain
 
         logger.info(f"WebSocket Validator initialized for hotkey: {self.hotkey}")
@@ -386,30 +382,20 @@ class WebSocketValidator(Neuron):
         await self._send_message(step_data.model_dump())
 
     async def _init_chain(self) -> None:
-        """Initialize blockchain connection."""
+        """Initialize blockchain info."""
         try:
-            logger.info("Initializing blockchain connection...")
+            logger.info("Getting nodes from chain...")
 
-            self.substrate = get_substrate(
-                subtensor_network=self.config.settings["subtensor"]["network"],
-                subtensor_address=self.config.settings["subtensor"]["address"],
-            )
+            # Sync nodes from chain
+            await self._sync_nodes()
 
-            self.metagraph = Metagraph(
-                netuid=self.config.settings["subtensor"]["netuid"],
-                substrate=self.substrate,
-            )
-
-            # Sync metagraph to get our validator node_id
-            self.metagraph.sync_nodes()
-
-            # Get our validator node_id from the metagraph
-            validator_node = self.metagraph.nodes.get(self.hotkey)
+            # Get our validator node_id from the nodes
+            validator_node = self.nodes.get(self.hotkey) if self.nodes else None
             if validator_node:
                 self.validator_node_id = validator_node.node_id
                 logger.info(f"Validator node_id: {self.validator_node_id}")
             else:
-                logger.warning(f"Validator hotkey {self.hotkey} not found in metagraph")
+                logger.warning(f"Validator hotkey {self.hotkey} not found in nodes")
                 self.validator_node_id = None
 
             logger.info("Blockchain connection initialized")
@@ -418,12 +404,30 @@ class WebSocketValidator(Neuron):
             # Continue without chain connection - validator can still process jobs
             logger.warning("Continuing without blockchain connection")
 
+    async def _sync_nodes(self) -> None:
+        """Sync nodes from the chain."""
+        try:
+            # Run in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            node_list = await loop.run_in_executor(
+                None,
+                _get_nodes_for_uid,
+                self.substrate,
+                self.config.settings["subtensor"]["netuid"],
+            )
+            self.nodes = {node.hotkey: node for node in node_list}
+            logger.info(f"Synced {len(self.nodes)} nodes")
+        except Exception as e:
+            logger.error(f"Failed to sync nodes: {e}")
+            if not self.nodes:
+                self.nodes = {}
+
     async def _handle_set_weights(self, weights_msg: SetWeightsMessage):
         """Handle weight setting message from backend.
 
         This function:
         1. Receives weights dict (UID->weight mapping) from the backend
-        2. Syncs the metagraph to get latest chain state
+        2. Syncs the nodes to get latest chain state
         3. Sets the weights on chain using the validator's keypair
         """
         try:
@@ -431,22 +435,22 @@ class WebSocketValidator(Neuron):
                 f"Received weight update: {len(weights_msg.weights)} weights for miners {list(weights_msg.weights.keys())[:5]}..."
             )
 
-            if not self.substrate or not self.metagraph:
+            if not self.substrate or not self.nodes:
                 logger.error("Chain connection not initialized, cannot set weights")
                 return
 
-            # Sync metagraph to get latest state
-            logger.info("Syncing metagraph before setting weights...")
-            self.metagraph.sync_nodes()
+            # Sync nodes to get latest state
+            logger.info("Syncing nodes before setting weights...")
+            await self._sync_nodes()
 
             # Get validator node_id if not already set
             if self.validator_node_id is None:
-                validator_node = self.metagraph.nodes.get(self.hotkey)
+                validator_node = self.nodes.get(self.hotkey) if self.nodes else None
                 if validator_node:
                     self.validator_node_id = validator_node.node_id
                 else:
                     logger.error(
-                        f"Validator hotkey {self.hotkey} not found in metagraph, cannot set weights"
+                        f"Validator hotkey {self.hotkey} not found in nodes, cannot set weights"
                     )
                     return
 

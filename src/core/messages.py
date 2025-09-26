@@ -7,7 +7,7 @@ communication between the Kinitro Backend and Validators.
 
 from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from sqlmodel import Field, SQLModel
 
@@ -28,6 +28,50 @@ class MessageType(StrEnum):
     EPISODE_DATA = "episode_data"
     EPISODE_STEP_DATA = "episode_step_data"
     ERROR = "error"
+
+    # Client-Backend WebSocket messages
+    SUBSCRIBE = "subscribe"
+    UNSUBSCRIBE = "unsubscribe"
+    PING = "ping"
+    PONG = "pong"
+    SUBSCRIPTION_ACK = "subscription_ack"
+    UNSUBSCRIPTION_ACK = "unsubscription_ack"
+    EVENT = "event"
+
+
+class EventType(StrEnum):
+    """Types of real-time events that can be broadcast to clients."""
+
+    # Job events
+    JOB_CREATED = "job_created"
+    JOB_STATUS_CHANGED = "job_status_changed"
+    JOB_COMPLETED = "job_completed"
+
+    # Evaluation events
+    EVALUATION_STARTED = "evaluation_started"
+    EVALUATION_PROGRESS = "evaluation_progress"
+    EVALUATION_COMPLETED = "evaluation_completed"
+
+    # Episode events
+    EPISODE_STARTED = "episode_started"
+    EPISODE_STEP = "episode_step"
+    EPISODE_COMPLETED = "episode_completed"
+
+    # Competition events
+    COMPETITION_CREATED = "competition_created"
+    COMPETITION_UPDATED = "competition_updated"
+    COMPETITION_ACTIVATED = "competition_activated"
+    COMPETITION_DEACTIVATED = "competition_deactivated"
+
+    # Submission events
+    SUBMISSION_RECEIVED = "submission_received"
+
+    # Validator events
+    VALIDATOR_CONNECTED = "validator_connected"
+    VALIDATOR_DISCONNECTED = "validator_disconnected"
+
+    # Stats events
+    STATS_UPDATED = "stats_updated"
 
 
 class EvalJobMessage(SQLModel):
@@ -168,3 +212,86 @@ class ErrorMessage(SQLModel):
     error: str
     details: Optional[str] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ============================================================================
+# Client-Backend WebSocket Messages
+# ============================================================================
+
+
+class SubscriptionRequest(SQLModel):
+    """Request to subscribe to specific events."""
+
+    event_types: List[EventType]
+    filters: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    # Filter examples:
+    # {"job_id": 123} - only events for specific job
+    # {"competition_id": "abc"} - only events for specific competition
+    # {"miner_hotkey": "5xyz..."} - only events for specific miner
+    # {"validator_hotkey": "5abc..."} - only events for specific validator
+
+
+class ClientMessage(SQLModel):
+    """Base message from client to backend."""
+
+    message_type: MessageType
+    request_id: Optional[str] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class SubscribeMessage(ClientMessage):
+    """Subscribe to events."""
+
+    message_type: MessageType = MessageType.SUBSCRIBE
+    subscription: SubscriptionRequest
+
+
+class UnsubscribeMessage(ClientMessage):
+    """Unsubscribe from events."""
+
+    message_type: MessageType = MessageType.UNSUBSCRIBE
+    subscription_id: str
+
+
+class PingMessage(ClientMessage):
+    """Ping message for keepalive."""
+
+    message_type: MessageType = MessageType.PING
+
+
+class ServerMessage(SQLModel):
+    """Base message from backend to client."""
+
+    message_type: MessageType
+    request_id: Optional[str] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class SubscriptionAckMessage(ServerMessage):
+    """Acknowledgment of subscription."""
+
+    message_type: MessageType = MessageType.SUBSCRIPTION_ACK
+    subscription_id: str
+    subscribed_events: List[EventType]
+
+
+class UnsubscriptionAckMessage(ServerMessage):
+    """Acknowledgment of unsubscription."""
+
+    message_type: MessageType = MessageType.UNSUBSCRIPTION_ACK
+    subscription_id: str
+
+
+class PongMessage(ServerMessage):
+    """Pong response to ping."""
+
+    message_type: MessageType = MessageType.PONG
+
+
+class EventMessage(ServerMessage):
+    """Event notification to client."""
+
+    message_type: MessageType = MessageType.EVENT
+    event_type: EventType
+    event_data: Dict[str, Any]
+    subscription_id: Optional[str] = None

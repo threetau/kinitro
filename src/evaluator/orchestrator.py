@@ -1,7 +1,8 @@
 import asyncio
+import gc
 import threading
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import asyncpg
 import ray
@@ -48,6 +49,24 @@ class Orchestrator:
         # Track running jobs for concurrent execution
         self.running_jobs: Dict[str, Dict] = {}  # job_id -> job_info
         self.max_concurrent_jobs = config.max_concurrent_jobs
+        self.job_timeout = config.settings.get("job_timeout_seconds", EVAL_TIMEOUT)
+
+        # Initialize Ray with explicit configuration
+        if not ray.is_initialized():
+            init_kwargs = {
+                "num_cpus": config.settings.get("ray_num_cpus", 4),
+                "num_gpus": config.settings.get("ray_num_gpus", 0),
+                "object_store_memory": config.settings.get(
+                    "ray_object_store_memory", None
+                ),
+                "_memory": config.settings.get("ray_memory", None),
+                "logging_level": "info",
+            }
+
+            ray.init(**init_kwargs)
+            logger.info("Ray initialized with explicit configuration")
+        else:
+            logger.info("Ray already initialized")
 
         logger.info(f"Orchestrator initialized with config: {self.config}")
 
@@ -70,7 +89,7 @@ class Orchestrator:
             created_at=datetime.now(timezone.utc),
         )
 
-        # Create job entry in the database
+        # Create job entry in the database with QUEUED status
         try:
             self.db.create_evaluation_job(evaluation_job)
         except Exception as e:
@@ -78,6 +97,18 @@ class Orchestrator:
                 f"Failed to create evaluation job {eval_job_msg.job_id} in DB: {e}"
             )
             return None
+
+        # Update status to STARTING
+        try:
+            self.db.update_evaluation_job(
+                eval_job_msg.job_id,
+                {
+                    "status": EvaluationStatus.STARTING,
+                    "started_at": datetime.now(timezone.utc),
+                },
+            )
+        except Exception as e:
+            logger.error(f"Failed to update job status to STARTING: {e}")
 
         # Start a container for this evaluation job
         repo = "https://huggingface.co/" + eval_job_msg.hf_repo_id
@@ -162,24 +193,116 @@ class Orchestrator:
         res = await worker.test_rpc.remote(worker_to_rpc_queue, rpc_to_worker_queue)
         logger.info(f"RPC test result for job {eval_job_msg.job_id}: {res}")
 
+        # Update status to RUNNING
+        try:
+            self.db.update_evaluation_job(
+                eval_job_msg.job_id, {"status": EvaluationStatus.RUNNING}
+            )
+        except Exception as e:
+            logger.error(f"Failed to update job status to RUNNING: {e}")
+
         # Start the evaluation (non-blocking)
         logger.info(f"Starting evaluation for job {eval_job_msg.job_id}")
         evaluation_future = worker.run_all_benchmark_tasks.remote(
             worker_to_rpc_queue, rpc_to_worker_queue
         )
 
-        return {
+        job_context = {
             "job_id": eval_job_msg.job_id,
+            "submission_id": eval_job_msg.submission_id,
             "eval_job_msg": eval_job_msg,
             "worker": worker,
             "cluster": cluster,
             "evaluation_future": evaluation_future,
+            "worker_to_rpc_queue": worker_to_rpc_queue,
+            "rpc_to_worker_queue": rpc_to_worker_queue,
             "start_time": datetime.now(timezone.utc),
         }
+
+        logger.info(
+            f"Created job context for {eval_job_msg.job_id} with queues: worker_to_rpc={worker_to_rpc_queue is not None}, rpc_to_worker={rpc_to_worker_queue is not None}"
+        )
+
+        return job_context
+
+    def _cleanup_queues(self, job_context: Dict):
+        """Clean up Ray Queue actors for a job."""
+        job_id = job_context.get("job_id")
+
+        # Track cleanup calls
+        if not hasattr(self, "_cleanup_calls"):
+            self._cleanup_calls = {}
+        self._cleanup_calls[job_id] = self._cleanup_calls.get(job_id, 0) + 1
+
+        logger.info(f"Cleanup call #{self._cleanup_calls[job_id]} for job {job_id}")
+
+        # Debug: Log what's in job_context
+        logger.info(f"Job context keys for job {job_id}: {list(job_context.keys())}")
+
+        logger.info(f"Starting queue cleanup for job {job_id}")
+        try:
+            # Get queue actors
+            worker_to_rpc = job_context.get("worker_to_rpc_queue")
+            rpc_to_worker = job_context.get("rpc_to_worker_queue")
+
+            logger.info(
+                f"Retrieved from context - worker_to_rpc type: {type(worker_to_rpc)}, rpc_to_worker type: {type(rpc_to_worker)}"
+            )
+
+            # Shutdown queue actors
+            if worker_to_rpc is not None:
+                try:
+                    if (
+                        hasattr(worker_to_rpc, "actor")
+                        and worker_to_rpc.actor is not None
+                    ):
+                        logger.info(
+                            f"Shutting down worker_to_rpc queue for job {job_id}"
+                        )
+                        worker_to_rpc.shutdown(force=True)
+                        logger.info(
+                            f"Successfully shutdown worker_to_rpc queue for job {job_id}"
+                        )
+                    else:
+                        logger.info(
+                            f"worker_to_rpc queue already shutdown for job {job_id}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to shutdown worker_to_rpc queue: {e}")
+            else:
+                logger.warning(f"worker_to_rpc queue is None for job {job_id}")
+
+            if rpc_to_worker is not None:
+                try:
+                    if (
+                        hasattr(rpc_to_worker, "actor")
+                        and rpc_to_worker.actor is not None
+                    ):
+                        logger.info(
+                            f"Shutting down rpc_to_worker queue for job {job_id}"
+                        )
+                        rpc_to_worker.shutdown(force=True)
+                        logger.info(
+                            f"Successfully shutdown rpc_to_worker queue for job {job_id}"
+                        )
+                    else:
+                        logger.info(
+                            f"rpc_to_worker queue already shutdown for job {job_id}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to shutdown rpc_to_worker queue: {e}")
+            else:
+                logger.warning(f"rpc_to_worker queue is None for job {job_id}")
+
+            logger.info(f"Completed Ray Queue actors cleanup for job {job_id}")
+
+        except Exception as e:
+            logger.warning(f"Failed to cleanup queues: {e}")
 
     async def monitor_job(self, job_context: Dict):
         """Monitor a running job and handle completion."""
         job_id = job_context["job_id"]
+        submission_id = job_context["submission_id"]
         eval_job_msg = job_context["eval_job_msg"]
         evaluation_future = job_context["evaluation_future"]
 
@@ -218,7 +341,11 @@ class Orchestrator:
                 # Update database
                 try:
                     self.db.update_evaluation_job(
-                        job_id, {"status": EvaluationStatus.COMPLETED}
+                        job_id,
+                        {
+                            "status": EvaluationStatus.COMPLETED,
+                            "completed_at": datetime.now(timezone.utc),
+                        },
                     )
                 except Exception as e:
                     logger.error(f"Failed to update job status for job {job_id}: {e}")
@@ -242,25 +369,131 @@ class Orchestrator:
                 )
                 await self.db.queue_evaluation_result_msg(eval_result_msg)
 
+                # Clean up Ray worker and container resources
+                try:
+                    # Clean up queues first
+                    self._cleanup_queues(job_context)
+
+                    # Clean up Ray worker
+                    cluster = job_context.get("cluster")
+                    worker = job_context.get("worker")
+                    if cluster and worker:
+                        # Call cleanup on the worker before killing it
+                        try:
+                            ray.get(worker.cleanup.remote(), timeout=5)
+                        except Exception as e:
+                            logger.warning(f"Worker cleanup failed: {e}")
+                        cluster.delete_worker(worker)
+                        logger.info(f"Cleaned up Ray worker for job {job_id}")
+
+                    # Then clean up container
+                    containers = Containers()
+                    containers.cleanup_container(submission_id)
+                    logger.info(
+                        f"Cleaned up container resources for submission {submission_id}"
+                    )
+
+                    # Clear references
+                    del results
+                    gc.collect()
+                except Exception as e:
+                    logger.error(
+                        f"Failed to clean up resources for submission {submission_id}: {e}"
+                    )
+
                 return True  # Job completed
 
             # Check for timeout
             elapsed = (
                 datetime.now(timezone.utc) - job_context["start_time"]
             ).total_seconds()
-            if elapsed > EVAL_TIMEOUT:
+            if elapsed > self.job_timeout:
                 logger.error(f"Job {job_id} timed out after {elapsed} seconds")
                 ray.cancel(evaluation_future)
                 self.db.update_evaluation_job(
-                    job_id, {"status": EvaluationStatus.FAILED}
+                    job_id,
+                    {
+                        "status": EvaluationStatus.TIMEOUT,
+                        "error_message": f"Job timed out after {elapsed:.1f} seconds",
+                        "completed_at": datetime.now(timezone.utc),
+                    },
                 )
+
+                # Clean up Ray worker and container resources on timeout
+                try:
+                    # Clean up queues first
+                    self._cleanup_queues(job_context)
+
+                    # Clean up Ray worker
+                    cluster = job_context.get("cluster")
+                    worker = job_context.get("worker")
+                    if cluster and worker:
+                        # Try to call cleanup on the worker before killing it
+                        try:
+                            ray.get(worker.cleanup.remote(), timeout=2)
+                        except Exception as e:
+                            logger.warning(f"Worker cleanup failed on timeout: {e}")
+                        cluster.delete_worker(worker)
+                        logger.info(f"Cleaned up Ray worker for timed out job {job_id}")
+
+                    # Then clean up container
+                    containers = Containers()
+                    containers.cleanup_container(submission_id)
+                    logger.info(
+                        f"Cleaned up container resources for timed out submission {submission_id}"
+                    )
+
+                    gc.collect()
+                except Exception as e:
+                    logger.error(
+                        f"Failed to clean up resources for timed out submission {submission_id}: {e}"
+                    )
+
                 return True  # Job timed out
 
             return False  # Job still running
 
         except Exception as e:
             logger.error(f"Error monitoring job {job_id}: {e}")
-            self.db.update_evaluation_job(job_id, {"status": EvaluationStatus.FAILED})
+            self.db.update_evaluation_job(
+                job_id,
+                {
+                    "status": EvaluationStatus.FAILED,
+                    "error_message": str(e),
+                    "completed_at": datetime.now(timezone.utc),
+                },
+            )
+
+            # Clean up Ray worker and container resources on error
+            try:
+                # Clean up queues first
+                self._cleanup_queues(job_context)
+
+                # Clean up Ray worker
+                cluster = job_context.get("cluster")
+                worker = job_context.get("worker")
+                if cluster and worker:
+                    # Try to call cleanup on the worker before killing it
+                    try:
+                        ray.get(worker.cleanup.remote(), timeout=2)
+                    except Exception as e:
+                        logger.warning(f"Worker cleanup failed on error: {e}")
+                    cluster.delete_worker(worker)
+                    logger.info(f"Cleaned up Ray worker for failed job {job_id}")
+
+                # Then clean up container
+                containers = Containers()
+                containers.cleanup_container(submission_id)
+                logger.info(
+                    f"Cleaned up container resources for failed submission {submission_id}"
+                )
+
+                gc.collect()
+            except Exception as ex:
+                logger.error(
+                    f"Failed to clean up resources for failed submission {submission_id}: {ex}"
+                )
+
             return True  # Job failed
 
     async def process_job(self, job: Job):
@@ -285,6 +518,11 @@ class Orchestrator:
 
                 # Remove completed jobs
                 for job_id in completed_jobs:
+                    # Clear job context before deletion
+                    job_context = self.running_jobs.get(job_id)
+                    if job_context:
+                        # Clear references to heavy objects
+                        job_context.clear()
                     del self.running_jobs[job_id]
                     logger.info(
                         f"Job {job_id} removed from running jobs. Remaining: {len(self.running_jobs)}"
@@ -292,8 +530,122 @@ class Orchestrator:
 
             await asyncio.sleep(1)  # Check every second
 
+    async def recover_stale_jobs(self):
+        """Recover jobs that were running when orchestrator crashed."""
+        logger.info("Checking for stale jobs from previous orchestrator run...")
+
+        # Find jobs that are stuck in STARTING or RUNNING state
+        stale_statuses = [EvaluationStatus.STARTING, EvaluationStatus.RUNNING]
+        for status in stale_statuses:
+            stale_jobs = self.db.get_evaluation_jobs_by_status(status)
+            logger.info(f"Found {len(stale_jobs)} jobs in {status.value} state")
+            if stale_jobs:
+                for job in stale_jobs:
+                    logger.info(f"Marking stale job {job.id} as FAILED")
+                    # Update job status to FAILED with error message
+                    self.db.update_evaluation_job(
+                        job.id,
+                        {
+                            "status": EvaluationStatus.FAILED,
+                            "error_message": "Job was interrupted due to orchestrator restart",
+                            "completed_at": datetime.now(timezone.utc),
+                        },
+                    )
+
+                    # Queue failure result message to backend
+                    eval_result_msg = EvalResultMessage(
+                        job_id=job.id,
+                        validator_hotkey=self.keypair.ss58_address,
+                        miner_hotkey=job.miner_hotkey,
+                        competition_id=job.competition_id,
+                        env_provider=job.env_provider,
+                        benchmark_name=job.benchmark_name,
+                        config=job.config,
+                        score=0.0,
+                        success_rate=0.0,
+                        avg_reward=0.0,
+                        total_episodes=0,
+                        logs="Job failed due to orchestrator restart",
+                        error="Orchestrator restart - job was not completed",
+                        extra_data=None,
+                    )
+                    await self.db.queue_evaluation_result_msg(eval_result_msg)
+
+                    # Clean up any orphaned containers for this job
+                    if job.submission_id:
+                        try:
+                            containers = Containers()
+                            containers.cleanup_container(job.submission_id)
+                            logger.info(
+                                f"Cleaned up orphaned container for submission {job.submission_id}"
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to cleanup container for submission {job.submission_id}: {e}"
+                            )
+
+        logger.info("Stale job recovery completed")
+
+    async def periodic_cleanup(self):
+        """Periodic cleanup of orphaned containers and resources."""
+        while True:
+            try:
+                await asyncio.sleep(600)  # Run every 10 minutes
+                logger.info("Starting periodic cleanup...")
+
+                containers = Containers()
+
+                # Get all completed/failed jobs from the last 24 hours
+                # that might have orphaned containers
+                failed_jobs = self.db.get_evaluation_jobs_by_status(
+                    EvaluationStatus.FAILED
+                )
+                timeout_jobs = self.db.get_evaluation_jobs_by_status(
+                    EvaluationStatus.TIMEOUT
+                )
+                completed_jobs = self.db.get_evaluation_jobs_by_status(
+                    EvaluationStatus.COMPLETED
+                )
+
+                # Clean up containers for old completed/failed jobs
+                for job_list in [failed_jobs, timeout_jobs, completed_jobs]:
+                    for job in job_list:
+                        # Only cleanup jobs older than 1 hour
+                        if job.completed_at:
+                            # Ensure both datetimes have timezone info for comparison
+                            current_time = datetime.now(timezone.utc)
+                            completed_time = job.completed_at
+                            if completed_time.tzinfo is None:
+                                completed_time = completed_time.replace(
+                                    tzinfo=timezone.utc
+                                )
+
+                            if (
+                                current_time - completed_time
+                            ).total_seconds() > EVAL_TIMEOUT:
+                                try:
+                                    if job.submission_id:
+                                        containers.cleanup_container(job.submission_id)
+                                        logger.debug(
+                                            f"Cleaned up container for old job {job.id}"
+                                        )
+                                except Exception as e:
+                                    logger.debug(
+                                        f"Container cleanup failed for job {job.id}: {e}"
+                                    )
+
+                gc.collect()
+
+                logger.info("Periodic cleanup completed")
+            except Exception as e:
+                logger.error(f"Error during periodic cleanup: {e}")
+
     async def start(self):
         logger.info("Starting orchestrator...")
+
+        # Recover any stale jobs from previous run
+        await self.recover_stale_jobs()
+
         conn = await asyncpg.connect(dsn=self.config.pg_database)
 
         driver = AsyncpgDriver(conn)
@@ -302,6 +654,10 @@ class Orchestrator:
         # Start the job monitoring task
         monitor_task = asyncio.create_task(self.monitor_running_jobs())
         logger.info("Started job monitoring task")
+
+        # Start periodic cleanup task
+        cleanup_task = asyncio.create_task(self.periodic_cleanup())
+        logger.info("Started periodic cleanup task")
 
         @pgq.entrypoint("add_job")
         async def process(job: Job) -> None:
@@ -325,13 +681,44 @@ class Orchestrator:
             await pgq.run()
         finally:
             monitor_task.cancel()
+            cleanup_task.cancel()
 
         await asyncio.Future()
 
     def stop(self):
         logger.info("Stopping orchestrator...")
-        # Add cleanup logic here
-        pass
+        # Clean up all running jobs
+        for job_id in list(self.running_jobs.keys()):
+            job_context = self.running_jobs.get(job_id)
+            if job_context:
+                try:
+                    # Clean up queues first
+                    self._cleanup_queues(job_context)
+
+                    cluster = job_context.get("cluster")
+                    worker = job_context.get("worker")
+                    if cluster and worker:
+                        # Try to call cleanup on the worker before killing it
+                        try:
+                            ray.get(worker.cleanup.remote(), timeout=2)
+                        except Exception as e:
+                            logger.warning(
+                                f"Worker cleanup failed during shutdown: {e}"
+                            )
+                        cluster.delete_worker(worker)
+                    submission_id = job_context.get("submission_id")
+                    if submission_id:
+                        containers = Containers()
+                        containers.cleanup_container(submission_id)
+                except Exception as e:
+                    logger.error(f"Error cleaning up job {job_id}: {e}")
+
+        self.running_jobs.clear()
+
+        # Shutdown Ray if initialized
+        if ray.is_initialized():
+            ray.shutdown()
+            logger.info("Ray shutdown complete")
 
 
 if __name__ == "__main__":

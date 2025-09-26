@@ -5,6 +5,7 @@ This module provides utilities for logging episode data and step-level
 observations to both database and R2 storage with configurable intervals.
 """
 
+import asyncio
 import logging
 from concurrent.futures import (
     ThreadPoolExecutor,
@@ -29,9 +30,23 @@ from core.storage import R2Config, R2StorageClient
 
 logger = logging.getLogger(__name__)
 
+# Upload configuration
 OBS_UPLOAD_CLEANUP_TIMEOUT = 5.0
 OBS_UPLOAD_TIMEOUT = 20.0
 MAX_UPLOAD_WORKERS = 4
+
+# Database connection pool configuration
+DB_POOL_MIN_SIZE = 1
+DB_POOL_MAX_SIZE = 5
+DB_POOL_MAX_QUERIES = 50000
+DB_POOL_MAX_INACTIVE_LIFETIME = 300  # seconds
+DB_POOL_COMMAND_TIMEOUT = 60  # seconds
+
+# Retry configuration
+DB_CONNECTION_MAX_RETRIES = 3
+DB_CONNECTION_INITIAL_RETRY_DELAY = 1.0  # seconds
+DB_CONNECTION_RETRY_BACKOFF = 2.0  # exponential backoff multiplier
+DB_QUEUE_INITIAL_RETRY_DELAY = 0.5  # seconds
 
 
 @dataclass
@@ -82,6 +97,9 @@ class EpisodeLogger:
     _upload_futures: List[Any] = field(default_factory=list, init=False)
     _pending_uploads: Dict[str, Any] = field(default_factory=dict, init=False)
 
+    # Database connection pool
+    _db_pool: Optional[asyncpg.Pool] = field(default=None, init=False)
+
     def __post_init__(self):
         """Initialize storage client and upload executor if R2 is enabled."""
         if self.config.enable_r2_upload and self.config.r2_config:
@@ -97,6 +115,9 @@ class EpisodeLogger:
                 logger.warning("Falling back to local storage only")
                 self._storage_client = None
                 self._upload_executor = None
+
+        # Initialize database pool asynchronously when needed
+        # Pool will be created on first use
 
     def start_episode(self, episode_id: int) -> None:
         """Start tracking a new episode.
@@ -397,6 +418,121 @@ class EpisodeLogger:
                 ):
                     step_data["observation_refs"] = {}
 
+    async def _ensure_db_pool(self) -> Optional[asyncpg.Pool]:
+        """Ensure database pool is created with retry logic.
+
+        Returns:
+            Database connection pool or None if creation fails
+        """
+        if self._db_pool is None and self.config.database_url:
+            retry_delay = DB_CONNECTION_INITIAL_RETRY_DELAY
+
+            for attempt in range(DB_CONNECTION_MAX_RETRIES):
+                try:
+                    self._db_pool = await asyncpg.create_pool(
+                        dsn=self.config.database_url,
+                        min_size=DB_POOL_MIN_SIZE,
+                        max_size=DB_POOL_MAX_SIZE,
+                        max_queries=DB_POOL_MAX_QUERIES,
+                        max_inactive_connection_lifetime=DB_POOL_MAX_INACTIVE_LIFETIME,
+                        command_timeout=DB_POOL_COMMAND_TIMEOUT,
+                        server_settings={
+                            "jit": "off"  # Disable JIT to avoid potential issues
+                        },
+                    )
+                    logger.info("Database connection pool created successfully")
+                    return self._db_pool
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to create database pool (attempt {attempt + 1}/{DB_CONNECTION_MAX_RETRIES}): {e}"
+                    )
+                    if attempt < DB_CONNECTION_MAX_RETRIES - 1:
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= DB_CONNECTION_RETRY_BACKOFF
+                    else:
+                        logger.error("Failed to create database pool after all retries")
+                        return None
+
+        # Check if existing pool is healthy
+        if self._db_pool:
+            try:
+                async with self._db_pool.acquire() as conn:
+                    await conn.fetchval("SELECT 1")
+                return self._db_pool
+            except Exception as e:
+                logger.warning(
+                    f"Database pool health check failed: {e}. Recreating pool..."
+                )
+                await self._close_db_pool()
+                self._db_pool = None
+                return await self._ensure_db_pool()
+
+        return self._db_pool
+
+    async def _close_db_pool(self) -> None:
+        """Close the database connection pool."""
+        if self._db_pool:
+            try:
+                await self._db_pool.close()
+                logger.info("Database connection pool closed")
+            except Exception as e:
+                logger.error(f"Error closing database pool: {e}")
+            finally:
+                self._db_pool = None
+
+    async def _queue_with_retry(
+        self, queue_name: str, message_json: str, max_retries: int = None
+    ) -> bool:
+        """Queue a message with retry logic.
+
+        Args:
+            queue_name: Name of the queue
+            message_json: JSON message to queue
+            max_retries: Maximum number of retry attempts (defaults to DB_CONNECTION_MAX_RETRIES)
+
+        Returns:
+            True if queued successfully, False otherwise
+        """
+        if max_retries is None:
+            max_retries = DB_CONNECTION_MAX_RETRIES
+
+        pool = await self._ensure_db_pool()
+        if not pool:
+            logger.error("No database pool available for queuing")
+            return False
+
+        retry_delay = DB_QUEUE_INITIAL_RETRY_DELAY
+
+        for attempt in range(max_retries):
+            try:
+                async with pool.acquire() as conn:
+                    driver = AsyncpgDriver(conn)
+                    q = Queries(driver)
+                    await q.enqueue([queue_name], [message_json.encode("utf-8")], [0])
+                    return True
+
+            except asyncpg.exceptions.InterfaceError as e:
+                logger.warning(
+                    f"Connection error on attempt {attempt + 1}/{max_retries}: {e}"
+                )
+                # Connection is closed, recreate pool
+                await self._close_db_pool()
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= DB_CONNECTION_RETRY_BACKOFF
+
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error queuing message (attempt {attempt + 1}/{max_retries}): {e}"
+                )
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= DB_CONNECTION_RETRY_BACKOFF
+                else:
+                    return False
+
+        return False
+
     async def _queue_episode_data(self, episode_data: Dict[str, Any]) -> None:
         """Queue episode data to be sent to backend via pgqueuer.
 
@@ -413,20 +549,20 @@ class EpisodeLogger:
 
             # Create message
             episode_msg = EpisodeDataMessage(**episode_data_copy)
-
-            # Queue to pgqueuer
-            conn = await asyncpg.connect(dsn=self.config.database_url)
-            driver = AsyncpgDriver(conn)
-            q = Queries(driver)
-
             message_json = episode_msg.model_dump_json()
-            await q.enqueue(["episode_data"], [message_json.encode("utf-8")], [0])
 
-            await conn.close()
-            logger.debug(f"Queued episode {episode_data['episode_id']} for backend")
+            # Queue with retry logic
+            success = await self._queue_with_retry("episode_data", message_json)
+
+            if success:
+                logger.debug(f"Queued episode {episode_data['episode_id']} for backend")
+            else:
+                logger.error(
+                    f"Failed to queue episode {episode_data['episode_id']} after all retries"
+                )
 
         except Exception as e:
-            logger.error(f"Failed to queue episode data: {e}")
+            logger.error(f"Failed to prepare episode data for queuing: {e}")
 
     async def _queue_step_data(self, step_data: Dict[str, Any]) -> None:
         """Queue step data to be sent to backend via pgqueuer.
@@ -457,20 +593,20 @@ class EpisodeLogger:
 
             # Create message
             step_msg = EpisodeStepDataMessage(**step_data_copy)
-
-            # Queue to pgqueuer
-            conn = await asyncpg.connect(dsn=self.config.database_url)
-            driver = AsyncpgDriver(conn)
-            q = Queries(driver)
-
             message_json = step_msg.model_dump_json()
-            await q.enqueue(["episode_step_data"], [message_json.encode("utf-8")], [0])
 
-            await conn.close()
-            logger.debug(f"Queued step {step_data['step']} for backend")
+            # Queue with retry logic
+            success = await self._queue_with_retry("episode_step_data", message_json)
+
+            if success:
+                logger.debug(f"Queued step {step_data['step']} for backend")
+            else:
+                logger.error(
+                    f"Failed to queue step {step_data['step']} after all retries"
+                )
 
         except Exception as e:
-            logger.error(f"Failed to queue step data: {e}")
+            logger.error(f"Failed to prepare step data for queuing: {e}")
 
     def cleanup(self) -> None:
         """Clean up resources, shutdown upload executor."""
@@ -482,6 +618,18 @@ class EpisodeLogger:
             self._upload_executor.shutdown(wait=True, cancel_futures=True)
             self._upload_executor = None
             logger.info("Upload executor shutdown complete")
+
+        # Close database pool
+        if self._db_pool:
+            # Create a new event loop if needed for async cleanup
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                loop.run_until_complete(self._close_db_pool())
+            except Exception as e:
+                logger.error(f"Error during database pool cleanup: {e}")
 
     def get_statistics(self) -> Dict[str, Any]:
         """Get current logging statistics.

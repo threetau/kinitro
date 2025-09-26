@@ -1,6 +1,10 @@
 """Chain interaction helpers"""
 
-from fiber.chain.chain_utils import load_hotkey_keypair
+from fiber import Keypair, SubstrateInterface
+from fiber.chain.chain_utils import (
+    load_hotkey_keypair,
+    query_substrate,
+)
 from fiber.chain.commitments import (
     CommitmentDataFieldType,
     query_commitment,
@@ -8,6 +12,12 @@ from fiber.chain.commitments import (
 )
 from fiber.chain.interface import get_substrate
 from fiber.chain.metagraph import Metagraph
+from fiber.chain.weights import (
+    _normalize_and_quantize_weights,
+    _set_weights_with_commit_reveal,
+    _set_weights_without_commit_reveal,
+    can_set_weights,
+)
 from pydantic import ValidationError
 
 from .config import Config
@@ -83,7 +93,10 @@ def commit_to_substrate(config: Config, commit_data: ChainCommitment) -> None:
 
 # check commitment in substrate
 def query_commitments_from_substrate(
-    config: Config, miner_hotkey: str, block: int | None = None
+    config: Config,
+    substrate: SubstrateInterface,
+    miner_hotkey: str,
+    block: int | None = None,
 ) -> list[ChainCommitmentResponse]:
     """
     Query commitments from substrate chain.
@@ -100,11 +113,6 @@ def query_commitments_from_substrate(
     """
 
     try:
-        substrate = get_substrate(
-            subtensor_network=config.settings["subtensor"]["network"],
-            subtensor_address=config.settings["subtensor"]["address"],
-        )
-
         commitment_query = query_commitment(
             substrate=substrate,  # type: ignore
             netuid=config.settings["subtensor"]["netuid"],
@@ -166,3 +174,70 @@ def query_commitments_from_substrate(
 
     except Exception as e:
         raise CommitmentError(f"Failed to query commitment: {e}") from e
+
+
+def set_node_weights(
+    substrate: SubstrateInterface,
+    keypair: Keypair,
+    node_ids: list[int],
+    node_weights: list[float],
+    netuid: int,
+    validator_node_id: int,
+    version_key: int = 0,
+    wait_for_inclusion: bool = False,
+    wait_for_finalization: bool = False,
+    max_attempts: int | None = None,  # NOTE: DEPRECATED
+) -> bool:
+    if max_attempts is not None:
+        logger.warning(
+            "Parameter 'max_attempts' is deprecated and will be removed in version 2.2.0"
+        )
+    node_ids_formatted, node_weights_formatted = _normalize_and_quantize_weights(
+        node_ids, node_weights
+    )
+
+    if not can_set_weights(substrate, netuid, validator_node_id):
+        return False
+
+    # NOTE: Sadly this can't be an argument of the function, the hyperparam must be set on chain
+    # For it to function properly
+    substrate, commit_reveal_enabled = query_substrate(
+        substrate,
+        "SubtensorModule",
+        "CommitRevealWeightsEnabled",
+        [netuid],
+        return_value=True,
+    )
+
+    logger.info(
+        f"Commit reveal enabled hyperparameter is set to {commit_reveal_enabled}"
+    )
+
+    if commit_reveal_enabled is False:
+        return _set_weights_without_commit_reveal(
+            substrate,
+            keypair,
+            node_ids_formatted,
+            node_weights_formatted,
+            netuid,
+            version_key,
+            wait_for_inclusion,
+            wait_for_finalization,
+        )
+
+    elif commit_reveal_enabled is True:
+        return _set_weights_with_commit_reveal(
+            substrate,
+            keypair,
+            node_ids_formatted,
+            node_weights_formatted,
+            netuid,
+            version_key,
+            wait_for_inclusion,
+            wait_for_finalization,
+        )
+
+    else:
+        raise ValueError(
+            f"Commit reveal enabled hyperparameter is set to {commit_reveal_enabled}, which is not a valid value"
+        )

@@ -1,13 +1,12 @@
-import logging as pylog
 import sys
-import time
 from abc import ABC
-from typing import cast
+from typing import Dict, Optional, cast
 
 # import httpx
 # from fastapi import FastAPI
 from fiber.chain import chain_utils, interface
-from fiber.chain.metagraph import Metagraph
+from fiber.chain.fetch_nodes import _get_nodes_for_uid
+from fiber.chain.models import Node
 
 # from storb import __spec_version__, get_spec_version
 from .config import Config
@@ -59,15 +58,12 @@ class Neuron(ABC):
 
         assert self.netuid, "Netuid must be defined"
 
-        self.metagraph = Metagraph(
-            netuid=cast(str, self.netuid),
-            substrate=self.substrate,  # type: ignore[arg-type]
-        )
-        assert self.metagraph, "Metagraph must be initialised"
-        self.metagraph.sync_nodes()
+        # Initialize nodes dictionary
+        self.nodes: Optional[Dict[str, Node]] = None
+        self.sync_nodes()
 
         self.check_registration()
-        node = self.metagraph.nodes.get(self.keypair.ss58_address)
+        node = self.nodes.get(self.keypair.ss58_address) if self.nodes else None
         self.uid = getattr(node, "node_id", None) if node else None
         assert self.uid, "UID must be defined"
 
@@ -78,7 +74,7 @@ class Neuron(ABC):
     # async def stop(self): ...
 
     def check_registration(self):
-        node = self.metagraph.nodes.get(self.keypair.ss58_address)
+        node = self.nodes.get(self.keypair.ss58_address) if self.nodes else None
         if not node or not getattr(node, "node_id", None):
             logger.error(
                 f"Wallet is not registered on netuid {self.netuid}."
@@ -86,35 +82,13 @@ class Neuron(ABC):
             )
             sys.exit(1)
 
-    def sync_metagraph(self):
-        """Synchronize local metagraph state with chain.
-
-        Creates new metagraph instance if needed and syncs node data.
-
-        Raises
-        ------
-        Exception
-            If metagraph sync fails
-        """
-
+    def sync_nodes(self):
+        """Synchronize nodes from chain."""
         try:
-            self.substrate = interface.get_substrate(
-                subtensor_address=self.substrate.url
-            )
-            self.metagraph.sync_nodes()
-            self.metagraph.save_nodes()
-
-            logger.info("Metagraph synced successfully")
+            node_list = _get_nodes_for_uid(self.substrate, self.netuid)
+            self.nodes = {node.hotkey: node for node in node_list}
+            logger.info(f"Synced {len(self.nodes)} nodes")
         except Exception as e:
-            logger.error(f"Failed to sync metagraph: {str(e)}")
-
-    def run(self):
-        """Background task to sync metagraph"""
-
-        while True:
-            try:
-                self.sync_metagraph()
-                time.sleep(cast(int, self.settings["neuron"]["sync_frequency"]))
-            except Exception as e:
-                logger.error(f"Error in sync metagraph: {e}")
-                time.sleep(cast(int, self.settings["neuron"]["sync_frequency"]) // 2)
+            logger.error(f"Failed to sync nodes: {str(e)}")
+            if not self.nodes:
+                self.nodes = {}

@@ -31,6 +31,7 @@ from backend.constants import (
     MAX_PAGE_LIMIT,
     MIN_PAGE_LIMIT,
 )
+from backend.realtime import event_broadcaster
 from backend.service import BackendService
 from core import __version__ as VERSION
 from core.db.models import EvaluationStatus, SnowflakeId
@@ -39,6 +40,7 @@ from core.messages import (
     EpisodeDataMessage,
     EpisodeStepDataMessage,
     EvalResultMessage,
+    EventType,
     MessageType,
 )
 
@@ -86,10 +88,20 @@ async def lifespan(app: FastAPI):
     # Initialize the service but don't start background tasks yet
     await backend_service.startup()
 
+    # Set backend service reference in event broadcaster
+    event_broadcaster.set_backend_service(backend_service)
+
+    # Start the event broadcaster
+    await event_broadcaster.start()
+
     # Start background tasks after FastAPI is ready
     asyncio.create_task(backend_service.start_background_tasks())
 
     yield
+
+    # Stop the event broadcaster
+    await event_broadcaster.stop()
+
     await backend_service.shutdown()
 
 
@@ -1142,6 +1154,16 @@ async def validator_websocket(websocket: WebSocket):
 
         logger.info(f"Validator registered: {validator_hotkey} ({connection_id})")
 
+        # Broadcast validator connected event
+        await event_broadcaster.broadcast_event(
+            EventType.VALIDATOR_CONNECTED,
+            {
+                "validator_hotkey": validator_hotkey,
+                "connection_id": connection_id,
+                "connected_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
         # Handle messages
         while True:
             data = await websocket.receive_text()
@@ -1245,6 +1267,26 @@ async def validator_websocket(websocket: WebSocket):
                             f"Stored result from {validator_hotkey} for job {result_msg.job_id}"
                         )
 
+                        # Broadcast evaluation completed event to clients using the model
+                        result_data = eval_result.model_dump()
+                        # Convert datetime to ISO format string
+                        if "created_at" in result_data and result_data["created_at"]:
+                            result_data["created_at"] = result_data[
+                                "created_at"
+                            ].isoformat()
+                        if "updated_at" in result_data and result_data["updated_at"]:
+                            result_data["updated_at"] = result_data[
+                                "updated_at"
+                            ].isoformat()
+                        if "result_time" in result_data and result_data["result_time"]:
+                            result_data["result_time"] = result_data[
+                                "result_time"
+                            ].isoformat()
+
+                        await event_broadcaster.broadcast_event(
+                            EventType.EVALUATION_COMPLETED, result_data
+                        )
+
                         # Send acknowledgment
                         await websocket.send_text(
                             json.dumps(
@@ -1288,6 +1330,19 @@ async def validator_websocket(websocket: WebSocket):
 
                     session.add(episode_record)
                     await session.commit()
+
+                    # Broadcast episode completed event to clients using the model
+                    episode_data = episode_record.model_dump()
+                    # Convert datetime to ISO format string
+                    for field in ["created_at", "updated_at", "start_time", "end_time"]:
+                        if field in episode_data and episode_data[field]:
+                            episode_data[field] = episode_data[field].isoformat()
+                    # Add validator hotkey since it's relevant context
+                    episode_data["validator_hotkey"] = validator_hotkey
+
+                    await event_broadcaster.broadcast_event(
+                        EventType.EPISODE_COMPLETED, episode_data
+                    )
 
                     # Check if this is the first episode for this job-validator combination
                     # If so, update status to RUNNING
@@ -1356,6 +1411,20 @@ async def validator_websocket(websocket: WebSocket):
                         session.add(step_record)
                         await session.commit()
 
+                        # Broadcast episode step event to clients
+                        step_data = step_record.model_dump()
+                        # Convert datetime to ISO format string
+                        for field in ["created_at", "updated_at", "timestamp"]:
+                            if field in step_data and step_data[field]:
+                                step_data[field] = step_data[field].isoformat()
+                        # Add validator hotkey and job_id for context
+                        step_data["validator_hotkey"] = validator_hotkey
+                        step_data["job_id"] = episode_record.job_id
+
+                        await event_broadcaster.broadcast_event(
+                            EventType.EPISODE_STEP, step_data
+                        )
+
                         logger.info(
                             f"Stored step data from {validator_hotkey} for episode {step_msg.episode_id}, step {step_msg.step}"
                         )
@@ -1388,3 +1457,57 @@ async def validator_websocket(websocket: WebSocket):
                     if validator_conn:
                         validator_conn.is_connected = False
                         await session.commit()
+
+            # Broadcast validator disconnected event
+            await event_broadcaster.broadcast_event(
+                EventType.VALIDATOR_DISCONNECTED,
+                {
+                    "validator_hotkey": hotkey,
+                    "connection_id": connection_id,
+                    "disconnected_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
+
+# ============================================================================
+# WebSocket Endpoint for Frontend Clients
+# ============================================================================
+
+
+@app.websocket("/ws/client")
+async def client_websocket(websocket: WebSocket):
+    """WebSocket endpoint for frontend client connections (no auth required)."""
+    await websocket.accept()
+    # Generate a connection ID
+    connection_id = uuid.uuid4().hex
+
+    try:
+        # Add client to broadcaster
+        await event_broadcaster.add_client(connection_id, websocket)
+
+        # Send connection acknowledgment
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "message_type": MessageType.REGISTRATION_ACK,
+                    "status": "connected",
+                    "connection_id": connection_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        )
+
+        logger.info(f"Client connected: {connection_id}")
+
+        # Handle messages
+        while True:
+            data = await websocket.receive_text()
+            await event_broadcaster.handle_client_message(connection_id, data)
+
+    except WebSocketDisconnect:
+        logger.info(f"Client disconnected: {connection_id}")
+    except Exception as e:
+        logger.error(f"Error in client WebSocket: {e}")
+    finally:
+        # Cleanup
+        await event_broadcaster.remove_client(connection_id)
