@@ -1,60 +1,87 @@
-# Kinitro: Advancing Embodied Intelligence With Directed Incentives
+# Kinitro: Incentivized Evaluation for Embodied AI
 
-Kinitro drives the future of robotic policy and planning models with incentivized competitions.
+Kinitro coordinates miners, validators, and evaluators to produce trustworthy scores for robotic and embodied intelligence agents. Miners publish submissions, validators coordinate secure evaluations, and the backend keeps the system in sync with the Bittensor network while streaming real-time results for anyone watching competitions unfold.
 
-> [!NOTE]
-> We'll be onboarding miners very soon. Please take a look at this repository and the [Kinitro agent template](https://github.com/threetau/kinitro-agent-template) to get an idea of how things work, and to start creating your miners. We are not running any validator code right now, so miners will not be given tasks.
+## Platform Components
+- **Backend service** (`src/backend/`): FastAPI API with a realtime broadcaster, chain monitor, job scheduler, and scoring engine backed by PostgreSQL.
+- **Validator node** (`src/validator/`): WebSocket client that authenticates with the backend, relays evaluation jobs into a persistent `pgqueuer` queue, and streams results and episode logs back.
+- **Evaluator cluster** (`src/evaluator/`): Ray-powered orchestrator that spins Kubernetes submission pods, runs rollout workers, logs per-step data, and pushes metrics/results into the validator queue.
+- **Miner tooling** (`src/miner/`): CLI helpers that package models, upload artifacts to Hugging Face, and notarize submissions on the Bittensor chain.
+- **Shared core** (`src/core/`): Message formats, chain helpers, database models, and logging utilities that keep every component speaking the same language.
 
-## How it works
+For a visual overview of how these pieces interact, see the [architecture introduction](docs/architecture/introduction.md).
 
-1. **Define**: Competitions are posted on the Kinitro platform, each with their own set of tasks
-2. **Compete**: Miners train and submit agents.
-3. **Validate & reward**: Validators evaluate the agents, and the best miners earn rewards.
+## Repository Setup
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/threetau/kinitro
+   cd kinitro
+   ```
+2. **Create a virtual environment and install dependencies**
+   ```bash
+   uv venv .venv
+   source .venv/bin/activate
+   uv sync --dev
+   uv pip install -e .
+   ```
+3. **Copy configuration templates that you need**
+   ```bash
+   cp config/backend.toml.example backend.toml        # backend service
+   cp config/validator.toml.example validator.toml    # validator websocket app
+   cp config/evaluator.toml.example evaluator.toml    # evaluator orchestrator
+   cp config/miner.toml.example miner.toml            # miner CLI
+   ```
+   Update the copied files with your database URLs, wallet information, Hugging Face repos, R2 credentials, and API keys as required. Each process also reads environment variables via `python-dotenv`. Copy the relevant template when you run a component, for example `cp .env.validator.example .env` before starting the validator, or export the variables manually in your shell.
 
-For an overview on the overall architecture, please see the [architecture documentation](docs/architecture/introduction.md).
+## Running the Services
+### Backend API & Realtime Gateway
+The backend hosts REST endpoints, WebSocket endpoints for validators and dashboards, and background jobs that mirror chain commitments into evaluation jobs.
+```bash
+python -m backend
+```
+This launches `uvicorn` with the FastAPI application defined in `src/backend/endpoints.py`. The backend automatically boots the realtime broadcaster (`src/backend/realtime.py`) so connected clients receive competition, job, and evaluation events instantly. Runtime settings come from `backend.toml`, environment variables, or CLI flags on `BackendConfig`.
 
-## Installation
+Useful CLI administration commands live in `python -m backend.cli` (API key creation, listing, activation, etc.).
 
-Below are the basic installation steps for miners and validators.
+### Validator WebSocket Node
+Validators maintain an authenticated WebSocket connection to the backend, cache jobs in PostgreSQL via `pgqueuer`, keep heartbeats alive, and forward evaluation results back to the backend.
+```bash
+export KINITRO_API_KEY=<validator-api-key>
+python -m validator --config validator.toml
+```
+The validator process expects a database with the pgq extension for durable queues. Use `scripts/reset_validator_db.sh` or `scripts/migrate_validator_db.sh` to prepare and update that database.
 
-1. **Clone the repository**:
+### Evaluator Orchestrator
+The evaluator pulls jobs from the validator queue, launches rollout workers on Ray, provisions submission containers via Kubernetes, and pushes per-episode metrics back through the queue.
+```bash
+python -m evaluator.orchestrator --config evaluator.toml
+```
+Ensure your evaluator settings point at the same database as the validator, include R2 credentials for artifact uploads, and declare the wallet that signs weight updates.
 
-    ```bash
-    https://github.com/threetau/kinitro
-    cd kinitro
-    ```
+### Miner Workflow
+Miners package and publish agents, then commit metadata on-chain so the backend can discover new submissions.
+```bash
+python -m miner upload --config miner.toml
+python -m miner commit --config miner.toml
+```
+This uploads to Hugging Face and records the submission commitment on Bittensor. Inspect the [miner docs](docs/miner.md) for environment variables and advanced options.
 
-2. **Set up environment and dependencies**:
+## Project Layout
+- `src/backend/`: FastAPI app, database models, realtime broadcaster, chain monitor, and scoring tasks.
+- `src/validator/`: WebSocket validator service, pgqueuer integration, and validator database migrations.
+- `src/evaluator/`: Ray orchestrator, rollout workers, RPC bridge to submission containers, and episode logging.
+- `src/miner/`: CLI wrappers for packaging, uploading, and committing miner submissions.
+- `src/core/`: Shared utilities, SQLModel definitions, chain helpers, message schemas, and logging.
+- `docs/`: User guides and deep dives (architecture, miner, validator, overview).
+- `scripts/`: Database migration/reset helpers and operational scripts.
 
-    We need the following build dependencies:
+## Documentation & Support
+- [Overview](docs/overview.mdx)
+- [Architecture](docs/architecture/introduction.md)
+- [Miner Guide](docs/miner.md)
+- [Validator Guide](docs/validator.md)
 
-    ```bash
-    sudo apt install libpq-dev python3-dev
-    ```
-
-    Set up your Python environment:
-
-    ```bash
-    uv venv .venv
-    source .venv/bin/activate
-    uv sync --dev
-    uv pip install -e .
-    ```
-
-### Miner Setup
-To set up a miner, please refer to the [miner documentation](docs/miner.md) for detailed instructions.
-
-### Validator Setup
-To set up a validator, please refer to the [validator documentation](docs/validator.md)
-
-## Contributing
-
-We welcome contributions to enhance Kinitro. Please fork the repository and submit a pull request with your improvements.
+Questions or ideas? Open an issue or reach out on the Kinitro or Bittensor Discord servers. Contributions via pull requests are welcome.
 
 ## License
-
-This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
-
-## Contact
-
-For questions or support, please open an issue in this repository or contact the maintainers on the Kinitro or Bittensor Discord server.
+Released under the MIT License. See [LICENSE](LICENSE) for details.

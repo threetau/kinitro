@@ -4,22 +4,18 @@ section: 'Get Started'
 
 # Overview
 
-Kinitro accelerates robotic intelligence through incentivized competitions, training agents to understand and act in the real world.
+Kinitro accelerates embodied intelligence by combining open competitions, verifiable evaluations, and on-chain incentives. Miners publish agents, validators coordinate secure rollouts, and the backend turns live results into network weights.
 
-These incentivized competitions are achieved by utilizing the Bittensor ecosystem
+## Platform Roles
+- **Miners** upload agent artifacts to Hugging Face and notarize them via the Bittensor chain. Use the [miner guide](./miner.md) to configure packaging, uploading, and on-chain commits.
+- **Validators** maintain a websocket connection to the backend, persist jobs in pgqueuer, and relay results and episode logs. Follow the [validator guide](./validator.md) for environment setup and operations.
+- **Evaluator operators** run the Ray orchestrator that spins up submission containers, executes benchmarks, and logs telemetry. See the [evaluator architecture notes](./architecture/evaluator.md) for details.
+- **Backend operators** deploy the FastAPI service that monitors the chain, schedules jobs, and emits realtime updates. The [project README](../README.md) covers setup and runtime commands.
 
-## Miners
+## Learn the Architecture
+Start with the [architecture introduction](./architecture/introduction.md) for a system-level diagram and data flow. Then dive into specific components:
+- [Orchestrator internals](./architecture/orchestrator.md)
+- [Evaluator workers](./architecture/evaluator.md)
+- [Incentive mechanism](./architecture/incentive.md)
 
-For miners, please check out the [miner docs](./miner.md).
-
-## Validators
-
-For validators, please check out the [validator docs](./validator.md).
-
-## Backend
-
-To set up the Kinitro platform backend, please refer to the [backend docs](./backend.md). You do not need to run this if you are a miner or validator.
-
-## Architecture
-
-To learn more about our architecture, [start here](./architecture/introduction.md).
+Have suggestions or corrections? Open an issue—documentation updates are always welcome.
