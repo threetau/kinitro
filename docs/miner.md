@@ -12,9 +12,9 @@ cp .env.miner.example .env
 ### Configuration
 Copy the example configuration file, and edit it to include parameters like your Hugging Face submission repo, Bittensor wallet location, etc.
 ```bash
-cp configs/miner.toml.example miner.toml
+cp config/miner.toml.example miner.toml
 ```
-Edit `configs/miner.toml` to set your desired parameters.
+Edit `miner.toml` to set your desired parameters.
 
 ### Uploading your agent
 To upload your agent to the Kinitro platform, use the following command:

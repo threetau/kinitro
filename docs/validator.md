@@ -18,16 +18,16 @@ cp .env.validator.example .env
 To configure the validator websocket app, you will need to create a configuration file. You can start by copying the example configuration file:
 
 ```bash
-cp configs/validator.toml.example validator.toml
+cp config/validator.toml.example validator.toml
 ```
-Edit `configs/validator.yaml` to set your desired parameters, such as the Bittensor wallet to use, the RPC server address, and other settings.
+Edit `validator.toml` to set your desired parameters, such as the Bittensor wallet to use, the backend websocket URL, and other settings.
 
 You will also need to set up the evaluator configuration file. You can start by copying the example configuration file:
 
 ```bash
 cp config/evaluator.toml.example evaluator.toml
 ```
-Edit `config/evaluator.toml` to set your desired parameters, such as the PostgreSQL database connection string and logging intervals.
+Edit `evaluator.toml` to set your desired parameters, such as the PostgreSQL database connection string, R2 credentials, and logging intervals.
 
 ### Setting up database
 The validator requires a PostgreSQL database for queuing evaluation jobs and results.
@@ -49,7 +49,7 @@ To set up the database, you can either:
 The migration script will check if the database exists and run Alembic migrations to bring it up to date. It will also ensure the pgq extension is installed if needed.
 
 ### Running the Websocket app
-The websocket app will connect to the Kinitro platform and listen for evaluation jobs, and forward them to the evaluator to execute.
+The websocket app will connect to the Kinitro backend, listen for evaluation jobs, and forward them to the evaluator to execute.
 Once your configuration file is set up, you can run the validator using the following command:
 ```bash
 python -m validator --config validator.toml
