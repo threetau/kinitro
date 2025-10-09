@@ -31,7 +31,7 @@ WAIT_TIME = 5
 PROCESS_JOB_WAIT_TIME = 1
 QUEUE_MAXSIZE = 100
 # TODO: this might be way too long
-EVAL_TIMEOUT = 3600
+EVAL_TIMEOUT = 900
 RAY_WAIT_TIMEOUT = 0.1
 MIN_CONCURRENT_JOBS = 4
 
@@ -56,7 +56,7 @@ class Orchestrator:
                 MIN_CONCURRENT_JOBS,
             )
         self.max_concurrent_jobs = max(MIN_CONCURRENT_JOBS, config.max_concurrent_jobs)
-        self.job_timeout = config.settings.get("job_timeout_seconds", EVAL_TIMEOUT)
+        self.job_timeout = config.settings.get("job_timeout", EVAL_TIMEOUT)
         self.concurrent_slots = asyncio.Semaphore(self.max_concurrent_jobs)
 
         # Initialize Ray with explicit configuration
@@ -663,7 +663,6 @@ class Orchestrator:
                 # Clean up containers for old completed/failed jobs
                 for job_list in [failed_jobs, timeout_jobs, completed_jobs]:
                     for job in job_list:
-                        # Only cleanup jobs older than 1 hour
                         if job.completed_at:
                             # Ensure both datetimes have timezone info for comparison
                             current_time = datetime.now(timezone.utc)
@@ -675,7 +674,7 @@ class Orchestrator:
 
                             if (
                                 current_time - completed_time
-                            ).total_seconds() > EVAL_TIMEOUT:
+                            ).total_seconds() > self.job_timeout:
                                 try:
                                     if job.submission_id:
                                         containers.cleanup_container(job.submission_id)

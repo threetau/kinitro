@@ -213,7 +213,6 @@ class MetaworldObsWrapper(ObservationWrapper):
             dtype=np.uint8,
         )
 
-        # TODO: replace base with "observation.state"
         space_dict: dict[str, Box | gym.spaces.Space] = {
             "observation.state": env.observation_space
         }
