@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # Initialize version counter
-version=1.4
+version=0.1
 
 # Run continuously
 while true; do
@@ -11,7 +11,6 @@ while true; do
 
     # Run both miner commits with current version
     python -m miner commit --chain-commitment-version "$version" && \
-    # python -m miner commit --wallet-name charlie --hotkey-name hotkey0 --chain-commitment-version "$version"
 
     # Increment version
     version=$(echo "$version + 0.1" | bc)

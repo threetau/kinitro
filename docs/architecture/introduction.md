@@ -16,95 +16,52 @@ Kinitro links miners, validators, evaluators, and external infrastructure to del
 ## System Architecture
 
 ```mermaid
-graph LR
-    %% External Infrastructure
-    subgraph "External Services"
-        BT[Bittensor Chain]
-        HF[Hugging Face Hub]
-        R2[Cloudflare R2 Storage]
-    end
+flowchart LR
 
-    %% Miner
-    subgraph Miner
-        MC[Miner CLI]
-        SB[Submission Bundle]
-    end
+  %% External systems
+  subgraph EXT[External]
+    BT([Bittensor]):::external
+    HF([Hugging Face]):::external
+    R2([R2 Storage]):::external
+  end
 
-    %% Backend
-    subgraph "Backend Service"
-        CM[Chain Monitor & Scheduler]
-        API[FastAPI REST + Validator WS]
-        RT[Realtime Broadcaster]
-        SCORE[Scoring & Weight Engine]
-        BDB[(Backend PostgreSQL)]
-    end
+  %% Core systems
+  subgraph MNR[Miner]
+    MIN["Miner"]:::miner
+  end
+  subgraph BE[Backend]
+    BEC["Backend Service"]:::backend
+  end
+  subgraph VAL[Validator]
+    VALN["Validator"]:::validator
+  end
+  subgraph EVAL[Evaluator]
+    EVN["Evaluator Cluster"]:::evaluator
+  end
+  subgraph OBS[Clients]
+    CLN["Dashboards / Tools"]:::clients
+  end
 
-    %% Validator
-    subgraph "Validator Node"
-        WV[WebSocket Client]
-        VDB[(Validator PostgreSQL)]
-        PQ[pgqueuer Runner]
-    end
+  %% Simplified flows
+  MIN -- "Commit metadata" --> BT
+  MIN -- "Upload model" --> HF
+  MIN -- "Store logs" --> R2
 
-    %% Evaluator
-    subgraph "Evaluator Cluster"
-        ORC[Evaluator Orchestrator]
-        POD[Submission Pods]
-        RAY[Ray Rollout Workers]
-        LOG[Episode Logger]
-    end
+  BEC -- "Create jobs" --> VALN
+  VALN -- "Dispatch eval" --> EVN
+  EVN -- "Results" --> VALN
+  VALN -- "Report results" --> BEC
 
-    %% Observers
-    subgraph "Realtime Clients"
-        DASH[Dashboards & Tools]
-    end
+  BEC -- "Broadcast updates" --> CLN
+  BEC -- "Set weights" --> BT
 
-    MC -->|Package model| SB
-    SB -->|Upload artifact| HF
-    MC -->|Commit metadata| BT
-
-    CM -->|Scan commitments| BT
-    CM -->|Create jobs| BDB
-    CM -->|Send EvalJob| WV
-    API -->|Persist & expose| BDB
-    API -->|Emit events| RT
-    RT -->|Subscriptions| DASH
-
-    WV -->|Queue job| VDB
-    VDB -->|pgq event| PQ
-    PQ -->|Dispatch job| ORC
-
-    ORC -->|Start pod| POD
-    ORC -->|Coordinate| RAY
-    RAY -->|RPC requests| POD
-    RAY -->|Log episodes| LOG
-    LOG -->|Upload artifacts| R2
-    LOG -->|Queue telemetry| VDB
-    ORC -->|Queue results| VDB
-
-    VDB -->|pgq event| PQ
-    PQ -->|Send results| WV
-    WV -->|EvalResult & telemetry| API
-    API -->|Store updates| BDB
-    API -->|Broadcast events| RT
-
-    SCORE -->|Read metrics| BDB
-    SCORE -->|SetWeights message| WV
-    WV -->|set\_node\_weights| BT
-
-    classDef external fill:#0277bd,color:#fff,stroke:#01579b,stroke-width:2px
-    classDef miner fill:#6a1b9a,color:#fff,stroke:#4a148c,stroke-width:2px
-    classDef backend fill:#2e7d32,color:#fff,stroke:#1b5e20,stroke-width:2px
-    classDef validator fill:#ef6c00,color:#fff,stroke:#e65100,stroke-width:2px
-    classDef evaluator fill:#ad1457,color:#fff,stroke:#880e4f,stroke-width:2px
-    classDef clients fill:#546e7a,color:#fff,stroke:#37474f,stroke-width:2px
-
-    class BT,HF,R2 external
-    class MC,SB miner
-    class CM,API,RT,SCORE,BDB backend
-    class WV,VDB,PQ validator
-    class ORC,POD,RAY,LOG evaluator
-    class DASH clients
+  %% Styles
+  classDef external fill:#0288d1,stroke:#01579b,color:#fff
+  classDef miner fill:#7c3aed,stroke:#4c1d95,color:#fff
+  classDef backend fill:#16a34a,stroke:#166534,color:#fff
+  classDef validator fill:#fb8c00,stroke:#e65100,color:#fff
+  classDef evaluator fill:#db2777,stroke:#9d174d,color:#fff
+  classDef clients fill:#64748b,stroke:#334155,color:#fff
 ```
 
 ## Component Responsibilities
