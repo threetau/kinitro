@@ -9,8 +9,8 @@ Kinitro links miners, validators, evaluators, and external infrastructure to del
 ## Platform Flow
 1. **Submission** – A miner uploads an agent to Hugging Face and publishes the commitment on the Bittensor chain.
 2. **Ingestion** – The backend monitors the chain, records new submissions, and schedules evaluation jobs.
-3. **Distribution** – Validators connect to the backend over WebSocket, receive jobs, and persist them to a durable queue.
-4. **Evaluation** – The evaluator orchestrator pulls queued jobs, spins up submission containers, runs Ray rollout workers, and logs every episode.
+3. **Distribution** – Validators connect to the backend over WebSockets, receive jobs, and persist them to a durable queue.
+4. **Evaluation** – The evaluation orchestrator pulls queued jobs, spins up submission containers, runs Ray rollout workers, and logs every episode.
 5. **Results & Incentives** – Validators forward metrics back to the backend, which stores them, emits realtime updates, and computes miner scores for weight broadcasts.
 
 ## System Architecture
