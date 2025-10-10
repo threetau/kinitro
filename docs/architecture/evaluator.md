@@ -1,6 +1,6 @@
 # Evaluator
 
-The evaluator executes benchmark episodes for each miner submission. It is responsible for spawning rollout workers, connecting them to containers which run agents, and collecting metrics that flow back to the backend through the validator.
+The evaluator executes benchmarks for each miner submission. It is responsible for spawning rollout workers, connecting them to containers which run agents, and collecting metrics that flow back to the backend through the validator.
 
 ## Runtime Components
 - **Rollout cluster** – `RolloutCluster` manages Ray actors and creates workers that can process multiple benchmark specs.

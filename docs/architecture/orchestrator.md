@@ -1,6 +1,6 @@
 # Orchestrator
 
-The evaluator orchestrator is the control plane that turns queued evaluation jobs into running rollouts. It listens to pgqueuer events, provisions isolated submission containers, wires up Ray workers, and makes sure results flow back to the backend through the validator.
+The orchestrator is the control plane that turns queued evaluation jobs into running rollouts. It listens to pgqueuer events, provisions isolated containers which run agents, wires up Ray workers, and makes sure results flow back to the backend through the validator.
 
 ## Responsibilities
 - **Queue consumption** – `PgQueuer` watches the validator database and invokes the orchestrator whenever a new `add_job` event appears.

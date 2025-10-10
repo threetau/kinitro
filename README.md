@@ -1,4 +1,4 @@
-# Kinitro: Incentivized Emobodied Intelligence
+# Kinitro: Incentivized Embodied Intelligence
 
 Kinitro incentivizes the emergence of agents that can conquer various tasks across different environments. Miners publish agents to compete, validators peform rollouts and evaluate the agents, and reward miners based on the results. All this happens in real-time and can easily be viewed by anyone through our [dashboard](https://kinitro.ai/dashboard).
 

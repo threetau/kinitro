@@ -4,10 +4,10 @@ section: Core Concepts
 
 # Introduction
 
-Kinitro links miners, validators, evaluators, and external infrastructure to deliver verifiable scores for embodied AI submissions. Miners publish models and commit them on-chain, the backend turns those commitments into evaluation jobs, validators coordinate execution, and result streams feed back into the system in real time.
+Kinitro incentivizes the emergence of agents that can conquer various tasks across different environments. Miners publish agents to compete, validators peform rollouts and evaluate the agents, and reward miners based on the results. All this happens in real-time and can easily be viewed by anyone through our [dashboard](https://kinitro.ai/dashboard).
 
 ## Platform Flow
-1. **Submission** – A miner uploads an agent to Hugging Face and publishes the commitment on the Bittensor chain.
+1. **Submission** – A miner uploads an agent to Hugging Face and publishes a commitment on the Bittensor chain.
 2. **Ingestion** – The backend monitors the chain, records new submissions, and schedules evaluation jobs.
 3. **Distribution** – Validators connect to the backend over WebSockets, receive jobs, and persist them to a durable queue.
 4. **Evaluation** – The evaluation orchestrator pulls queued jobs, spins up submission containers, runs Ray rollout workers, and logs every episode.
