@@ -14,6 +14,10 @@ Copy the `.env.validator.example` file to `.env` and fill in the required enviro
 cp .env.validator.example .env
 ```
 
+You will need to create an R2 bucket and set the relevant environment variables. This is required for storing some evaluation data. For more information please refer to Cloudflare's [R2 documentation](https://developers.cloudflare.com/r2/buckets/). 
+
+You will need to set `KINITRO_API_KEY` to obtain access to the Kinitro backend. Please contact us on our [discord channel](https://discord.gg/96SdmpeMqG) for access.
+
 ### Configuration
 To configure the validator websocket app, you will need to create a configuration file. You can start by copying the example configuration file:
 

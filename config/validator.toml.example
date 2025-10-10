@@ -11,7 +11,7 @@ duckdb_path = "evaluation_data.duckdb"  # Path for DuckDB evaluation data storag
 
 # WebSocket Validator Configuration
 # Connection settings for centralized Kinitro Backend
-backend_url = "ws://localhost:8080/ws/validator"  # Backend WebSocket endpoint
+backend_url = "wss://api.kinitro.ai/ws/validator"  # Backend WebSocket endpoint
 reconnect_interval = 5     # Seconds to wait before reconnecting
 heartbeat_interval = 30    # Seconds between heartbeat messages
 

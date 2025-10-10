@@ -67,28 +67,28 @@ flowchart LR
 ## Component Responsibilities
 
 **Backend Service**
-- **FastAPI REST / Admin**: Hosts competition CRUD, submission views, stats, validator management, and WebSocket endpoints (`src/backend/endpoints.py`).
-- **Chain Monitor & Scheduler**: Tracks Bittensor commitments, turns them into `BackendEvaluationJob` records, and watches for stale jobs (`src/backend/service.py`).
-- **Realtime Broadcaster**: Manages client subscriptions and pushes structured events such as job updates, episode completions, and live stats (`src/backend/realtime.py`).
+- **FastAPI REST / Admin**: Hosts competition CRUD, submission views, stats, validator management, and WebSocket endpoints.
+- **Chain Monitor & Scheduler**: Tracks Bittensor commitments, turns them into `BackendEvaluationJob` records, and watches for stale jobs.
+- **Realtime Broadcaster**: Manages client subscriptions and pushes structured events such as job updates, episode completions, and live stats.
 - **Scoring & Weight Engine**: Periodically recalculates miner scores and pushes weight updates back to validators for on-chain emission.
-- **Backend PostgreSQL**: Source of truth for competitions, submissions, jobs, job status, results, stats, and validator connections (`src/backend/models.py`).
+- **Backend PostgreSQL**: Source of truth for competitions, submissions, jobs, job status, results, stats, and validator connections.
 
 **Validator Node**
-- **WebSocket Client**: Authenticates with the backend, receives `EvalJobMessage` payloads, and streams results back (`src/validator/websocket_validator.py`).
-- **pgqueuer Runner**: Persists jobs/results/episode logs in PostgreSQL so work survives restarts and can be retried (`src/validator/websocket_validator.py`).
-- **Validator PostgreSQL**: Stores pgq queues plus normalized tables for jobs, results, and metrics consumed by the evaluator (`src/validator/db`).
+- **WebSocket Client**: Authenticates with the backend, receives `EvalJobMessage` payloads, and streams results back.
+- **pgqueuer Runner**: Persists jobs/results/episode logs in PostgreSQL so work survives restarts and can be retried.
+- **Validator PostgreSQL**: Stores pgq queues plus normalized tables for jobs, results, and metrics consumed by the evaluator.
 
 **Evaluator Cluster**
-- **Evaluator Orchestrator**: Listens to the pgqueuer queue, enforces concurrency caps, and coordinates job lifecycles (`src/evaluator/orchestrator.py`).
-- **Submission Pods**: Kubernetes pods created per submission to run miner containers in isolation (`src/evaluator/containers`).
-- **Ray Rollout Workers**: Execute benchmark episodes, communicate with submission pods via RPC, and track success metrics (`src/evaluator/rollout`).
-- **Episode Logger**: Captures per-episode and per-step data, uploads media to R2, and enqueues telemetry for validator forwarding (`src/evaluator/rollout/episode_logger.py`).
+- **Evaluator Orchestrator**: Listens to the pgqueuer queue, enforces concurrency caps, and coordinates job lifecycles.
+- **Submission Pods**: Kubernetes pods created per submission to run miner containers in isolation.
+- **Ray Rollout Workers**: Execute benchmark episodes, communicate with submission pods via RPC, and track success metrics.
+- **Episode Logger**: Captures per-episode and per-step data, uploads media to R2, and enqueues telemetry for validator forwarding.
 
 **Miner Tooling**
-- **Miner CLI**: Packages models, uploads to Hugging Face, and notarizes commitments on-chain so the backend can discover them (`src/miner/__main__.py`).
+- **Miner CLI**: Packages models, uploads to Hugging Face, and notarizes commitments on-chain so the backend can discover them.
 
 **Real-time Clients**
-- Subscribe to the backend’s public WebSocket endpoint to monitor competitions, validator connectivity, and evaluation progress live (`src/core/messages.py`).
+- Subscribe to the backend’s public WebSocket endpoint to monitor competitions, validator connectivity, and evaluation progress live.
 
 ## Next Steps
 - Dive into the [Validator architecture notes](orchestrator.md) to see how the queue, database, and message formats interact.
