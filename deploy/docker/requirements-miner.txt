@@ -1,0 +1,8 @@
+# Baseline libraries pre-installed in the miner-agent runtime image.
+# Submissions can add extra dependencies using requirements.txt in their repo.
+numpy>=1.26.0
+torch>=2.2.0
+gymnasium==1.2.0
+metaworld==3.0.0
+cloudpickle>=3.0.0
+requests>=2.32.0

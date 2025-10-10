@@ -34,8 +34,7 @@ For a visual overview of how these pieces interact, see the [architecture introd
 - **Shared core** (`src/core/`): Message formats, chain helpers, database models, and logging utilities that keep every component speaking the same language.
 - **Docs** (`docs/`): User guides and deep dives (architecture, miner, validator, overview).
 - **Scripts** (`scripts/`): Database migration/reset helpers and operational scripts.
-
-
+- **Deploy artifacts** (`deploy/`): Dockerfiles, Docker Compose stack, and Kubernetes manifests for running validators/evaluators with CPU or GPU workloads.
 
 Questions or ideas? Open an issue or reach out to us on [our channel in the Bittensor Discord server](https://discord.gg/96SdmpeMqG). Contributions via pull requests are welcome.
 

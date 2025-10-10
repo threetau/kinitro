@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evaluator-gpu
+  namespace: kinitro-validator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: evaluator-gpu
+  template:
+    metadata:
+      labels:
+        app: evaluator-gpu
+    spec:
+      serviceAccountName: evaluator
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: evaluator
+          image: ghcr.io/threetau/kinitro-evaluator:latest-gpu
+          imagePullPolicy: Always
+          env:
+            - name: DB_HOST
+              value: validator-postgres.kinitro-validator.svc.cluster.local
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: validatordb
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: validator-db
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: validator-db
+                  key: password
+            - name: RUN_MIGRATIONS
+              value: "0"
+          volumeMounts:
+            - name: evaluator-config
+              mountPath: /etc/kinitro
+              readOnly: true
+          resources:
+            requests:
+              cpu: 4000m
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: 8000m
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+      volumes:
+        - name: evaluator-config
+          configMap:
+            name: evaluator-config

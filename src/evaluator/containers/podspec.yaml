@@ -7,8 +7,8 @@ spec:
   restartPolicy: Never
   containers:
   - name: runner
-    image: miner-agent
-    imagePullPolicy: Never
+    image: ghcr.io/threetau/kinitro-miner-agent:latest
+    imagePullPolicy: IfNotPresent
     env:
       - name: SUBMISSION_URL
         value: 
@@ -16,10 +16,18 @@ spec:
     volumeMounts:
       - name: workspace
         mountPath: /workspace/submission
+    # Set GPU limits (e.g. nvidia.com/gpu: 1) when the benchmark requires acceleration.
+    resources:
+      requests:
+        cpu: 2000m
+        memory: 4Gi
+      limits:
+        cpu: 4000m
+        memory: 8Gi
   initContainers:
   - name: fetch-submission
-    image: miner-agent
-    imagePullPolicy: Never
+    image: ghcr.io/threetau/kinitro-miner-agent:latest
+    imagePullPolicy: IfNotPresent
     env:
       - name: SUBMISSION_URL
         valueFrom:

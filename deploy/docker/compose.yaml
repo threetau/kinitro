@@ -1,0 +1,128 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: validatordb
+      POSTGRES_USER: validator
+      POSTGRES_PASSWORD: changeme
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "validator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - validator-db:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  migrator:
+    image: kinitro-migrator:latest
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.migrator
+    profiles: ["ops"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_NAME: validatordb
+      DB_USER: validator
+      DB_PASSWORD: changeme
+
+  validator:
+    image: ghcr.io/threetau/kinitro-validator:latest
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.validator
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: validatordb
+      DB_USER: validator
+      DB_PASSWORD: changeme
+      KINITRO_API_KEY: "${KINITRO_API_KEY}"
+    volumes:
+      - ./validator-config:/etc/kinitro:ro
+      - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
+    command: ["--"]
+
+  evaluator:
+    shm_size: "4gb"
+    image: ghcr.io/threetau/kinitro-evaluator:latest
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.evaluator
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      validator:
+        condition: service_started
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: validatordb
+      DB_USER: validator
+      DB_PASSWORD: changeme
+      RUN_MIGRATIONS: "0"
+    volumes:
+      - ./evaluator-config:/etc/kinitro:ro
+      - ${KUBECONFIG:-~/.kube/config}:/home/kinitro/.kube/config:ro
+      - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
+    command: ["--"]
+
+  evaluator-gpu:
+    image: ghcr.io/threetau/kinitro-evaluator:latest-gpu
+    profiles: ["gpu"]
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.evaluator-cuda
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      validator:
+        condition: service_started
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: validatordb
+      DB_USER: validator
+      DB_PASSWORD: changeme
+      RUN_MIGRATIONS: "0"
+    volumes:
+      - ./evaluator-config:/etc/kinitro:ro
+      - ${KUBECONFIG:-~/.kube/config}:/home/kinitro/.kube/config:ro
+      - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: ["--"]
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    depends_on:
+      validator:
+        condition: service_started
+      evaluator:
+        condition: service_started
+    command: ["validator", "evaluator"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_SCHEDULE: "0 0 4 * * *"
+
+volumes:
+  validator-db:

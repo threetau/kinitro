@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: validator-migrator
+  namespace: kinitro-validator
+spec:
+  template:
+    spec:
+      serviceAccountName: evaluator
+      restartPolicy: OnFailure
+      containers:
+        - name: migrator
+          image: ghcr.io/threetau/kinitro-migrator:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_HOST
+              value: validator-postgres.kinitro-validator.svc.cluster.local
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: validatordb
+            - name: DB_USER
+              value: validator
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: validator-db
+                  key: password
