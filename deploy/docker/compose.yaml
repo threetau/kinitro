@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: validator
       POSTGRES_PASSWORD: changeme
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "validator"]
+      test: ["CMD", "pg_isready", "-U", "validator", "-d", "validatordb"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -49,6 +49,7 @@ services:
       KINITRO_API_KEY: "${KINITRO_API_KEY}"
     volumes:
       - ./validator-config:/etc/kinitro:ro
+      - ${ENV_FILE:-deploy/docker/.env}:/app/.env:ro
       - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
     command: ["--"]
 
@@ -73,9 +74,14 @@ services:
       RUN_MIGRATIONS: "0"
     volumes:
       - ./evaluator-config:/etc/kinitro:ro
-      - ${KUBECONFIG:-~/.kube/config}:/home/kinitro/.kube/config:ro
+      - ${KUBECONFIG:-deploy/docker/evaluator-config/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
+      - ${ENV_FILE:-deploy/docker/.env}:/app/.env:ro
       - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
     command: ["--"]
+    # NOTE: join minikube bridge so evaluator can reach 192.168.49.2:8443
+    networks:
+      - default
+      - minikube
 
   evaluator-gpu:
     image: ghcr.io/threetau/kinitro-evaluator:latest-gpu
@@ -98,7 +104,8 @@ services:
       RUN_MIGRATIONS: "0"
     volumes:
       - ./evaluator-config:/etc/kinitro:ro
-      - ${KUBECONFIG:-~/.kube/config}:/home/kinitro/.kube/config:ro
+      - ${KUBECONFIG:-deploy/docker/evaluator-config/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
+      - ${ENV_FILE:-deploy/docker/.env}:/app/.env:ro
       - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
     deploy:
       resources:
@@ -108,6 +115,10 @@ services:
               count: 1
               capabilities: [gpu]
     command: ["--"]
+    # NOTE: GPU evaluator also attaches to minikube network for API access
+    networks:
+      - default
+      - minikube
 
   watchtower:
     image: containrrr/watchtower:latest
@@ -126,3 +137,9 @@ services:
 
 volumes:
   validator-db:
+
+# NOTE: external minikube network so containers can reach kube API
+networks:
+  minikube:
+    external: true
+    name: minikube

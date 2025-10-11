@@ -25,6 +25,8 @@ Build everything locally:
 docker compose -f deploy/docker/compose.yaml build
 ```
 
+> **Minikube networking:** The evaluator services join the external Docker network named `minikube` (created automatically when Minikube runs with the Docker driver). Make sure Minikube is running (`minikube start --driver=docker`) before launching the stack so this network exists.
+
 Bring the stack up after providing `validator-config/` and `evaluator-config/` directories:
 ```bash
 docker compose -f deploy/docker/compose.yaml up -d postgres validator evaluator watchtower
@@ -45,8 +47,16 @@ docker compose -f deploy/docker/compose.yaml up -d validator evaluator
 
 Enable the GPU evaluator:
 ```bash
-docker compose -f deploy/docker/compose.yaml --profile gpu up -d evaluator-gpu
+docker compose -f deploy/docker/compose.yaml --profile gpu --compatibility up -d evaluator-gpu
 ```
+
+> **GPU runtime prerequisites:** Install the NVIDIA Container Toolkit and restart Docker so the `nvidia` runtime is available:
+> ```bash
+> sudo apt install -y nvidia-container-toolkit
+> sudo nvidia-ctk runtime configure --runtime=docker
+> sudo systemctl restart docker
+> ```
+> Verify `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi` works before starting the GPU profile.
 
 ## Publishing
 

@@ -61,7 +61,7 @@ class EnvSpec:
 
     # Observation capture options
     camera_attribute: str | None = "camera_name"
-    camera_names: tuple[str, ...] = "corner"
+    camera_names: tuple[str, ...] = ("corner",)
 
     def __str__(self) -> str:
         return f"{self.provider}/{self.benchmark_name}/{self.env_name}"
@@ -130,7 +130,7 @@ class BenchmarkSpec:
 
     # Observation capture options
     # TODO: make these per-env-spec instead of per-benchmark-spec?
-    camera_names: tuple[str, ...] = "corner"
+    camera_names: tuple[str, ...] = ("corner",)
     camera_attribute: str | None = "camera_name"
 
     def __str__(self) -> str:
@@ -157,7 +157,7 @@ class MetaworldObsWrapper(ObservationWrapper):
         self,
         env: gym.Env,
         camera_attribute: str | None = "camera_name",
-        camera_names: tuple[str, ...] = ("corner"),
+        camera_names: tuple[str, ...] = ("corner",),
         save_images: bool = False,
         image_save_dir: str | None = None,
         submission_id: str | None = None,

@@ -78,7 +78,7 @@ Create configuration directories with your `validator.toml`, `evaluator.toml`, a
 mkdir -p deploy/docker/validator-config deploy/docker/evaluator-config
 cp validator.toml deploy/docker/validator-config/
 cp evaluator.toml deploy/docker/evaluator-config/
-cp .env deploy/docker/validator-config/
+cp .env deploy/docker/
 ```
 
 Bring up the stack (Postgres, migrations, validator, evaluator, and Watchtower auto-updater):
