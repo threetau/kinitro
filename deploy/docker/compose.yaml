@@ -75,8 +75,8 @@ services:
       RUN_MIGRATIONS: "0"
     volumes:
       - ./evaluator-config:/etc/kinitro:ro
-      - ${KUBECONFIG:-deploy/docker/evaluator-config/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
-      - ${ENV_FILE:-deploy/docker/.env}:/app/.env:ro
+      - ${KUBECONFIG:-./deploy/docker/evaluator-config/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
+      - ${ENV_FILE:-./deploy/docker/.env}:/app/.env:ro
       - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
     command: ["--"]
     # NOTE: join minikube bridge so evaluator can reach 192.168.49.2:8443
@@ -103,11 +103,19 @@ services:
       DB_USER: validator
       DB_PASSWORD: changeme
       RUN_MIGRATIONS: "0"
+      NVIDIA_VISIBLE_DEVICES: all
+      # NOTE: should we use 'all' or these specific capabilities?
+      # NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics
+      NVIDIA_DRIVER_CAPABILITIES: all
+      MUJOCO_GL: egl
+      PYOPENGL_PLATFORM: egl
     volumes:
       - ./evaluator-config:/etc/kinitro:ro
-      - ${KUBECONFIG:-deploy/docker/evaluator-config/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
-      - ${ENV_FILE:-deploy/docker/.env}:/app/.env:ro
+      - ${KUBECONFIG:-./deploy/docker/evaluator-config/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
+      - ${ENV_FILE:-./deploy/docker/.env}:/app/.env:ro
       - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
+      - /dev/dri:/dev/dri
+      - /usr/share/glvnd/egl_vendor.d/10_nvidia.json:/usr/share/glvnd/egl_vendor.d/10_nvidia.json:ro
     deploy:
       resources:
         reservations:
