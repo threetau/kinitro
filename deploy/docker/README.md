@@ -25,7 +25,7 @@ Build everything locally:
 docker compose -f deploy/docker/compose.yaml build
 ```
 
-> **Minikube networking:** The evaluator services join the external Docker network named `minikube` (created automatically when Minikube runs with the Docker driver). Make sure Minikube is running (`minikube start --driver=docker`) before launching the stack so this network exists.
+> **Minikube networking:** The evaluator services join the external Docker network named `minikube` (created automatically when Minikube runs with the Docker driver). Make sure Minikube is running (`minikube start --driver=docker`; see the [Minikube start guide](https://minikube.sigs.k8s.io/docs/start/?arch=%2Fmacos%2Farm64%2Fstable%2Fbinary+download)) before launching the stack so this network exists.
 
 Bring the stack up after providing `validator-config/` and `evaluator-config/` directories (the CPU evaluator lives in the `cpu` profile and won’t start unless you ask for that profile explicitly):
 ```bash
@@ -50,7 +50,7 @@ Enable the GPU evaluator (the CPU evaluator stays off because it sits in the `cp
 docker compose -f deploy/docker/compose.yaml --profile gpu --compatibility up -d evaluator-gpu
 ```
 
-> **GPU runtime prerequisites:** Install the NVIDIA Container Toolkit and restart Docker so the `nvidia` runtime is available:
+> **GPU runtime prerequisites:** Install the NVIDIA Container Toolkit (follow the [official install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)) and restart Docker so the `nvidia` runtime is available:
 > ```bash
 > sudo apt install -y nvidia-container-toolkit
 > sudo nvidia-ctk runtime configure --runtime=docker
@@ -71,4 +71,4 @@ Use the provided Dockerfiles with your CI pipeline to build and push versioned t
 docker build -f deploy/docker/Dockerfile.validator -t ghcr.io/<org>/kinitro-validator:<version> .
 ```
 
-Update `compose.yaml` and the Kubernetes manifests to reference the published tags or digests that align with the backend release cadence.
+Update `compose.yaml` to reference the published tags or digests that align with the backend release cadence.

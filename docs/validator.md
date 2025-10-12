@@ -101,25 +101,12 @@ The helper script `scripts/update_validator.sh` wraps `docker compose pull`, run
 
 ### GPU-enabled evaluators
 
-- GPU nodes must install the NVIDIA driver and NVIDIA Container Toolkit.
+- GPU hosts must install the NVIDIA driver and NVIDIA Container Toolkit (see the [official install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)).
 - Build the CUDA images (`Dockerfile.evaluator-cuda`, `Dockerfile.miner-agent-cuda`) and enable the `gpu` profile in Docker Compose:
   ```bash
   docker compose -f deploy/docker/compose.yaml --profile gpu up -d evaluator-gpu
   ```
-- Submission pods request GPUs via `src/evaluator/containers/podspec.yaml` (set `nvidia.com/gpu` limits when the competition requires it).
-
-### Kubernetes manifests
-
-Reference manifests live in `deploy/k8s/`:
-
-- `00-namespace.yaml` / `01-rbac.yaml` bootstrap namespace isolation and evaluator permissions to create submission pods.
-- `03-postgres.yaml` provisions a PostgreSQL `StatefulSet` in-cluster (swap for managed Postgres if available).
-- `10-migrator-job.yaml` applies Alembic migrations before each rollout.
-- `20-validator-deployment.yaml` and `30-evaluator-deployment.yaml` run the CPU stack.
-- `31-evaluator-gpu-deployment.yaml` targets GPU nodes with the CUDA evaluator image.
-- `40-rollout-cronjob.yaml` restarts deployments nightly so new images roll out automatically.
-
-Apply the manifests with `kubectl apply -f deploy/k8s/` after filling in backend URLs, database credentials, and R2 configuration. Ensure the NVIDIA device plugin is installed on GPU node pools before applying the GPU deployment manifest.
+- When running against Minikube, start it with GPU support (`minikube start --driver=docker --gpu`; refer to the [Minikube start documentation](https://minikube.sigs.k8s.io/docs/start/?arch=%2Fmacos%2Farm64%2Fstable%2Fbinary+download)) so the evaluator-created submission pods can request `nvidia.com/gpu` resources as defined in `src/evaluator/containers/podspec.yaml`.
 
 ### Image matrix
 
@@ -127,7 +114,7 @@ Apply the manifests with `kubectl apply -f deploy/k8s/` after filling in backend
 | --- | --- | --- |
 | `ghcr.io/threetau/kinitro-validator` | WebSocket validator service | CPU |
 | `ghcr.io/threetau/kinitro-evaluator` | Orchestrator & Ray rollout workers | CPU / `-gpu` |
-| `ghcr.io/threetau/kinitro-miner-agent` | Submission runtime for Kubernetes pods | CPU / `-gpu` |
+| `ghcr.io/threetau/kinitro-miner-agent` | Submission runtime for evaluator-launched pods (Minikube) | CPU / `-gpu` |
 | `kinitro-migrator` (local build) | Alembic + pgq migrations | CPU |
 
-For local development or private registries, use the Docker Compose `build` targets to push images to your infrastructure. Update `deploy/docker/compose.yaml` or the Kubernetes manifests to point at your registry/tag naming scheme.
+For local development or private registries, use the Docker Compose `build` targets to push images to your infrastructure. Update `deploy/docker/compose.yaml` to point at your registry/tag naming scheme.

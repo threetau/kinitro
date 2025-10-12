@@ -29,12 +29,12 @@ For a visual overview of how these pieces interact, see the [architecture introd
 ## Project Layout
 - **Backend service** (`src/backend/`): FastAPI backend with a realtime broadcaster, chain monitor, job scheduler, and scoring engine backed by PostgreSQL.
 - **Validator node** (`src/validator/`): WebSocket client that authenticates with the backend, relays evaluation jobs into a persistent `pgqueuer` queue, and streams results and episode logs back.
-- **Evaluator cluster** (`src/evaluator/`): Ray-powered orchestrator that spins Kubernetes submission pods, runs rollout workers, logs per-step data, and pushes metrics/results into the validator queue.
+- **Evaluator cluster** (`src/evaluator/`): Ray-powered orchestrator that spins submission pods in Minikube (Kubernetes), runs rollout workers, logs per-step data, and pushes metrics/results into the validator queue.
 - **Miner tooling** (`src/miner/`): CLI helpers that package models, upload artifacts to Hugging Face, and notarize submissions on the Bittensor chain.
 - **Shared core** (`src/core/`): Message formats, chain helpers, database models, and logging utilities that keep every component speaking the same language.
 - **Docs** (`docs/`): User guides and deep dives (architecture, miner, validator, overview).
 - **Scripts** (`scripts/`): Database migration/reset helpers and operational scripts.
-- **Deploy artifacts** (`deploy/`): Dockerfiles, Docker Compose stack, and Kubernetes manifests for running validators/evaluators with CPU or GPU workloads.
+- **Deploy artifacts** (`deploy/`): Dockerfiles and Docker Compose stack (with Minikube integration) for running validators/evaluators with CPU or GPU workloads.
 
 Questions or ideas? Open an issue or reach out to us on [our channel in the Bittensor Discord server](https://discord.gg/96SdmpeMqG). Contributions via pull requests are welcome.
 
