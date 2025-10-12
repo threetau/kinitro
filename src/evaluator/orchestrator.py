@@ -62,14 +62,16 @@ class Orchestrator:
         # Initialize Ray with explicit configuration
         if not ray.is_initialized():
             init_kwargs = {
-                "num_cpus": config.settings.get("ray_num_cpus", 4),
-                "num_gpus": config.settings.get("ray_num_gpus", 0),
-                "object_store_memory": config.settings.get(
-                    "ray_object_store_memory", None
-                ),
-                "_memory": config.settings.get("ray_memory", None),
+                "num_cpus": self.config.ray_num_cpus,
+                "num_gpus": self.config.ray_num_gpus,
                 "logging_level": "info",
             }
+
+            if self.config.ray_object_store_memory is not None:
+                init_kwargs["object_store_memory"] = self.config.ray_object_store_memory
+
+            if self.config.ray_memory is not None:
+                init_kwargs["_memory"] = self.config.ray_memory
 
             ray.init(**init_kwargs)
             logger.info("Ray initialized with explicit configuration")
@@ -187,7 +189,13 @@ class Orchestrator:
         worker_to_rpc_queue = Queue(maxsize=QUEUE_MAXSIZE)
         rpc_to_worker_queue = Queue(maxsize=QUEUE_MAXSIZE)
 
-        cluster = RolloutCluster("eval-cluster")
+        logger.info(
+            f"Creating rollout cluster with config: {self.config.worker_remote_options}"
+        )
+        cluster = RolloutCluster(
+            "eval-cluster",
+            worker_remote_options=self.config.worker_remote_options,
+        )
         worker = cluster.create_worker(
             eval_job_msg.job_id,
             [benchmark_spec],

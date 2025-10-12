@@ -54,6 +54,7 @@ services:
     command: ["--"]
 
   evaluator:
+    profiles: ["cpu"]
     shm_size: "4gb"
     image: ghcr.io/threetau/kinitro-evaluator:latest
     build:
@@ -126,14 +127,12 @@ services:
     depends_on:
       validator:
         condition: service_started
-      evaluator:
-        condition: service_started
     command: ["validator", "evaluator"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       WATCHTOWER_CLEANUP: "true"
-      WATCHTOWER_SCHEDULE: "0 0 4 * * *"
+      WATCHTOWER_SCHEDULE: "* * * * *"
 
 volumes:
   validator-db:

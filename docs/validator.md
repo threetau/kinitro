@@ -33,6 +33,10 @@ cp config/evaluator.toml.example evaluator.toml
 ```
 Edit `evaluator.toml` to set your desired parameters, such as the PostgreSQL database connection string, R2 credentials, and logging intervals.
 
+Key resource knobs in `evaluator.toml`:
+- `ray_num_cpus`, `ray_num_gpus`, `ray_memory_gb`, `ray_object_store_memory_gb` – tune the Ray head resources the orchestrator reserves when it boots.
+- `worker_num_cpus`, `worker_num_gpus`, `worker_memory_gb`, `worker_max_restarts`, `worker_max_task_retries` – control how much CPU/GPU/memory each rollout worker actor requests from Ray.
+
 ### Setting up database
 The validator requires a PostgreSQL database for queuing evaluation jobs and results.
 

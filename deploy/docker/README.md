@@ -27,7 +27,7 @@ docker compose -f deploy/docker/compose.yaml build
 
 > **Minikube networking:** The evaluator services join the external Docker network named `minikube` (created automatically when Minikube runs with the Docker driver). Make sure Minikube is running (`minikube start --driver=docker`) before launching the stack so this network exists.
 
-Bring the stack up after providing `validator-config/` and `evaluator-config/` directories:
+Bring the stack up after providing `validator-config/` and `evaluator-config/` directories (the CPU evaluator lives in the `cpu` profile and won’t start unless you ask for that profile explicitly):
 ```bash
 docker compose -f deploy/docker/compose.yaml up -d postgres validator evaluator watchtower
 ```
@@ -45,7 +45,7 @@ docker compose -f deploy/docker/compose.yaml --profile ops run --rm migrator
 docker compose -f deploy/docker/compose.yaml up -d validator evaluator
 ```
 
-Enable the GPU evaluator:
+Enable the GPU evaluator (the CPU evaluator stays off because it sits in the `cpu` profile):
 ```bash
 docker compose -f deploy/docker/compose.yaml --profile gpu --compatibility up -d evaluator-gpu
 ```
@@ -57,6 +57,12 @@ docker compose -f deploy/docker/compose.yaml --profile gpu --compatibility up -d
 > sudo systemctl restart docker
 > ```
 > Verify `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi` works before starting the GPU profile.
+
+Update `deploy/docker/evaluator-config/evaluator.toml` (or your custom config) so Ray knows to request a GPU:
+```toml
+ray_num_cpus = 4
+ray_num_gpus = 1  # set to 0 for CPU-only runs
+```
 
 ## Publishing
 

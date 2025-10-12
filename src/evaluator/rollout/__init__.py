@@ -23,9 +23,27 @@ LOGGING_INTERVAL = 10
 
 
 class RolloutCluster:
-    def __init__(self, cluster_name: str):
+    def __init__(
+        self,
+        cluster_name: str,
+        worker_remote_options: Optional[Dict[str, Any]] = None,
+    ):
         self.name = cluster_name  # Ray namespace
         self.workers: list[ray.actor.ActorHandle] = []
+        options: Dict[str, Any] = {
+            "max_restarts": 1,
+            "max_task_retries": 0,
+        }
+
+        if worker_remote_options:
+            options.update(
+                {k: v for k, v in worker_remote_options.items() if v is not None}
+            )
+
+        self._worker_remote_options = options
+        self._worker_actor_cls = ray.remote(**self._worker_remote_options)(
+            RolloutWorker
+        )
 
     def create_worker(
         self,
@@ -42,7 +60,7 @@ class RolloutCluster:
         logger.info(
             f"Creating worker: {rollout_worker_id}, {benchmark_specs}, {submission_container_host}, {submission_container_port}, {submission_id}"
         )
-        worker = RolloutWorker.remote(
+        worker = self._worker_actor_cls.remote(
             self.name,
             rollout_worker_id,
             benchmark_specs,
@@ -82,10 +100,6 @@ class RolloutCluster:
         logger.info(f"Completed cleanup of all workers in cluster {self.name}")
 
 
-# TODO: somehow tune resource limits as needed
-@ray.remote(
-    max_restarts=1, max_task_retries=0, memory=2 * 1024 * 1024 * 1024
-)  # 2GB memory limit per worker
 class RolloutWorker:
     def __init__(
         self,

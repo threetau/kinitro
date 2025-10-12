@@ -10,3 +10,16 @@ step_log_interval = 5
 
 # Maximum number of concurrent evaluation jobs
 max_concurrent_jobs = 4
+
+# Ray cluster resource hints
+ray_num_cpus = 4
+ray_num_gpus = 0
+ray_memory_gb = 0  # optional, set to >0 to limit Ray memory
+ray_object_store_memory_gb = 0  # optional, set to >0 to tune object store size
+
+# Rollout worker resources
+worker_num_cpus = 1
+worker_num_gpus = 0
+worker_memory_gb = 2
+worker_max_restarts = 1
+worker_max_task_retries = 0
