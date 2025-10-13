@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${1:-}" == "--" ]]; then
-  shift
-fi
-
 if [[ "${RUN_MIGRATIONS:-1}" == "1" ]]; then
   echo "[evaluator] running validator database migrations..."
   /app/scripts/migrate_validator_db.sh
