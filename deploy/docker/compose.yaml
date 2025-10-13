@@ -20,7 +20,7 @@ services:
     image: kinitro-migrator:latest
     build:
       context: ../..
-      dockerfile: deploy/docker/Dockerfile.migrator
+      dockerfile: deploy/docker/migrator.dockerfile
     profiles: ["ops"]
     depends_on:
       postgres:
@@ -35,7 +35,7 @@ services:
     image: ghcr.io/threetau/kinitro-validator:latest
     build:
       context: ../..
-      dockerfile: deploy/docker/Dockerfile.validator
+      dockerfile: deploy/docker/validator.dockerfile
     restart: unless-stopped
     depends_on:
       postgres:
@@ -59,7 +59,7 @@ services:
     image: ghcr.io/threetau/kinitro-evaluator:latest
     build:
       context: ../..
-      dockerfile: deploy/docker/Dockerfile.evaluator
+      dockerfile: deploy/docker/evaluator.dockerfile
     restart: unless-stopped
     depends_on:
       postgres:
@@ -89,7 +89,7 @@ services:
     profiles: ["gpu"]
     build:
       context: ../..
-      dockerfile: deploy/docker/Dockerfile.evaluator-cuda
+      dockerfile: deploy/docker/evaluator-cuda.dockerfile
     restart: unless-stopped
     depends_on:
       postgres:

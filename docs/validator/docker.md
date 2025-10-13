@@ -4,12 +4,12 @@ section: 'Start Validating'
 
 # Validator - More about Containerization
 ## Images
-- `Dockerfile.validator` – WebSocket validator service (`ghcr.io/threetau/kinitro-validator`).
-- `Dockerfile.evaluator` – CPU evaluator orchestrator (`ghcr.io/threetau/kinitro-evaluator`).
-- `Dockerfile.evaluator-cuda` – CUDA-enabled evaluator (`ghcr.io/threetau/kinitro-evaluator:*-gpu`).
-- `Dockerfile.miner-agent` – Submission runtime image used by evaluator-created pods.
-- `Dockerfile.miner-agent-cuda` – GPU variant of the submission runtime.
-- `Dockerfile.migrator` – Alembic/pgq migration job image (locally tagged as `kinitro-migrator`).
+- `validator.dockerfile` – WebSocket validator service (`ghcr.io/threetau/kinitro-validator`).
+- `evaluator.dockerfile` – CPU evaluator orchestrator (`ghcr.io/threetau/kinitro-evaluator`).
+- `evaluator-cuda.dockerfile` – CUDA-enabled evaluator (`ghcr.io/threetau/kinitro-evaluator:*-gpu`).
+- `miner-agent.dockerfile` – Submission runtime image used by evaluator-created pods.
+- `miner-agent-cuda.dockerfile` – GPU variant of the submission runtime.
+- `migrator.dockerfile` – Alembic/pgq migration job image (locally tagged as `kinitro-migrator`).
 
 Shared entrypoints live beside the Dockerfiles: `entrypoint-validator.sh`, `entrypoint-evaluator.sh`.
 
