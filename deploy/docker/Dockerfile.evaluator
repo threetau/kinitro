@@ -31,7 +31,7 @@ COPY pyproject.toml README.md uv.lock /app/
 RUN uv export --format requirements.txt --locked --no-dev --no-hashes \
         --no-emit-project --no-emit-workspace --no-emit-local \
         --output-file requirements.lock \
-    && pip install --no-cache-dir -r requirements.lock
+    && uv pip install --no-cache-dir -r requirements.lock
 
 COPY src /app/src
 COPY scripts /app/scripts

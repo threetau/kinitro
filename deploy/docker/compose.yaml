@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: validatordb
       POSTGRES_USER: validator
-      POSTGRES_PASSWORD: changeme
+      POSTGRES_PASSWORD: CHANGEME
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "validator", "-d", "validatordb"]
       interval: 10s
@@ -29,7 +29,7 @@ services:
       DB_HOST: postgres
       DB_NAME: validatordb
       DB_USER: validator
-      DB_PASSWORD: changeme
+      DB_PASSWORD: CHANGEME
 
   validator:
     image: ghcr.io/threetau/kinitro-validator:latest
@@ -45,7 +45,7 @@ services:
       DB_PORT: 5432
       DB_NAME: validatordb
       DB_USER: validator
-      DB_PASSWORD: changeme
+      DB_PASSWORD: CHANGEME
       KINITRO_API_KEY: "${KINITRO_API_KEY}"
     volumes:
       - ./validator-config:/etc/kinitro:ro
@@ -71,7 +71,7 @@ services:
       DB_PORT: 5432
       DB_NAME: validatordb
       DB_USER: validator
-      DB_PASSWORD: changeme
+      DB_PASSWORD: CHANGEME
       RUN_MIGRATIONS: "0"
     volumes:
       - ./evaluator-config:/etc/kinitro:ro
@@ -101,7 +101,7 @@ services:
       DB_PORT: 5432
       DB_NAME: validatordb
       DB_USER: validator
-      DB_PASSWORD: changeme
+      DB_PASSWORD: CHANGEME
       RUN_MIGRATIONS: "0"
       NVIDIA_VISIBLE_DEVICES: all
       # NOTE: should we use 'all' or these specific capabilities?

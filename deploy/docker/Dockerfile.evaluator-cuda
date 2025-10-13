@@ -45,7 +45,7 @@ RUN uv export --format requirements.txt --locked --no-dev --no-hashes \
         --no-emit-project --no-emit-workspace --no-emit-local \
         --extra-index-url https://download.pytorch.org/whl/cu124 \
         --output-file requirements.lock \
-    && pip install --no-cache-dir -r requirements.lock
+    && uv pip install --no-cache-dir -r requirements.lock
 
 COPY src /app/src
 COPY scripts /app/scripts

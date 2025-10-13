@@ -1,12 +1,15 @@
 ---
-section: 'Get Started'
+section: 'Start Validating'
 ---
 
 # Validator
 
 Validators are responsible for evaluating the performance of miner-submitted agents on a variety of tasks.
+There are two ways to run a validator:
+1. [Bare Metal](#setup---bare-metal)
+2. [Containerized deployment](#setup---containerized-deployment)
 
-## Setup
+## Setup - Bare Metal
 
 ### Setting up environment variables
 Copy the `.env.validator.example` file to `.env` and fill in the required environment variables:
@@ -70,43 +73,64 @@ To start the evaluator, use the following command:
 python -m evaluator.orchestrator --config evaluator.toml
 ```
 
-## Containerized deployment
+## Setup - Containerized deployment
 
-We publish Dockerfiles in `deploy/docker/` for the validator, evaluator, submission runtime, and migration job. Build the images locally:
-```bash
-docker compose -f deploy/docker/compose.yaml build
-```
+We ship Docker recipes for the validator stack in `deploy/docker/`. The workflow below covers both CPU-only and GPU-enabled setups.
 
-Create configuration directories with your `validator.toml`, `evaluator.toml`, and `.env` files:
+### 1. Prerequisites
+
+- **Docker Compose v2** (bundled with modern Docker releases).
+- **Environment variables** – export `KINITRO_API_KEY` in your shell or place it in `deploy/docker/validator-config/.env` before you launch the stack.
+- **Bittensor wallets** – point `BITTENSOR_HOME` at your wallet directory (defaults to `$HOME/.bittensor`). For example:
+  ```bash
+  export KINITRO_API_KEY=xxxxxxxx
+  export BITTENSOR_HOME="$HOME/.bittensor"
+  ```
+- **GPU hosts only** – install the NVIDIA Container Toolkit (see the [official guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)).
+- **Minikube (optional)** – required when you plan to run GPU evaluations; install it and start with GPU support as described in the [Minikube start documentation](https://minikube.sigs.k8s.io/docs/start/?arch=%2Fmacos%2Farm64%2Fstable%2Fbinary+download).
+
+### 2. Prepare configuration files
+
+Copy your bare-metal configs into the Compose folder so the containers mount them read-only:
+
 ```bash
 mkdir -p deploy/docker/validator-config deploy/docker/evaluator-config
 cp validator.toml deploy/docker/validator-config/
 cp evaluator.toml deploy/docker/evaluator-config/
-cp .env deploy/docker/
+cp .env deploy/docker/.env                      # optional, keeps secrets out of the compose file
 ```
 
-Bring up the stack (Postgres, migrations, validator, evaluator, and Watchtower auto-updater):
+Keep `evaluator.toml` in sync with the resource hints you need (CPU/GPU counts, worker memory, etc.). The container reads these files from `/etc/kinitro` at runtime.
+
+### 3. Run the CPU evaluator stack
+
+The CPU evaluator lives in the `cpu` profile, so it will only start if you ask for it. Bring up the base services (Postgres, validator, watchtower) and the CPU evaluator:
+
 ```bash
-docker compose -f deploy/docker/compose.yaml up -d postgres validator evaluator watchtower
+docker compose -f deploy/docker/compose.yaml up -d postgres validator watchtower
+docker compose -f deploy/docker/compose.yaml --profile cpu up -d evaluator
 ```
 
-> **Note:** The compose file references `KINITRO_API_KEY`. Export it in your shell (`export KINITRO_API_KEY=...`) or populate `deploy/docker/validator-config/.env` before starting the stack to avoid a blank default.
+Use `scripts/update_validator.sh` to pull new images, apply migrations with the `migrator` profile, and restart the services automatically. Set `USE_GPU_EVALUATOR=1` when you want the helper script to restart the GPU profile instead of the CPU evaluator:
 
-> **Bittensor state:** Validators need access to wallet keys and storage under `.bittensor`. Mount it via `BITTENSOR_HOME` before starting Docker Compose (defaults to `$HOME/.bittensor` if unset):
-> ```bash
-> export BITTENSOR_HOME="$HOME/.bittensor"
-> ```
+```bash
+./scripts/update_validator.sh              # CPU stack
+USE_GPU_EVALUATOR=1 ./scripts/update_validator.sh  # GPU stack
+```
 
-The helper script `scripts/update_validator.sh` wraps `docker compose pull`, runs migrations using the `migrator` profile, and restarts the services. Add a systemd timer or cron entry that runs this script nightly to keep validators current. Set `USE_GPU_EVALUATOR=1` to switch from the CPU evaluator to the GPU deployment defined in the compose file.
+### 4. Run the GPU evaluator (Minikube + CUDA)
 
-### GPU-enabled evaluators
+1. Start Minikube with GPU support so the evaluator can create submission pods that request GPUs:
+   ```bash
+   minikube start --driver=docker --gpu
+   ```
+   This also creates the external Docker network named `minikube`, which the evaluator containers join for API access.
+2. Launch the GPU evaluator profile (CPU evaluator stays off unless you start the `cpu` profile):
+   ```bash
+   docker compose -f deploy/docker/compose.yaml --profile gpu --compatibility up -d evaluator-gpu
+   ```
 
-- GPU hosts must install the NVIDIA driver and NVIDIA Container Toolkit (see the [official install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)).
-- Build the CUDA images (`Dockerfile.evaluator-cuda`, `Dockerfile.miner-agent-cuda`) and enable the `gpu` profile in Docker Compose:
-  ```bash
-  docker compose -f deploy/docker/compose.yaml --profile gpu up -d evaluator-gpu
-  ```
-- When running against Minikube, start it with GPU support (`minikube start --driver=docker --gpu`; refer to the [Minikube start documentation](https://minikube.sigs.k8s.io/docs/start/?arch=%2Fmacos%2Farm64%2Fstable%2Fbinary+download)) so the evaluator-created submission pods can request `nvidia.com/gpu` resources as defined in `src/evaluator/containers/podspec.yaml`.
+If you prefer to keep both profiles running, bring up each profile explicitly (`--profile cpu up -d evaluator` and `--profile gpu up -d evaluator-gpu`).
 
 ### Image matrix
 

@@ -2,7 +2,11 @@
   "sections": [
     {
       "label": "Get Started",
-      "items": ["overview", "miner", "validator"]
+      "items": ["overview", "miner"]
+    },
+    {
+      "label": "Run a Validator",
+      "items": ["validator/validator", "validator/docker"]
     },
     {
       "label": "Core Concepts",

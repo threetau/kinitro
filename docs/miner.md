@@ -1,5 +1,5 @@
 ---
-section: 'Get Started'
+section: 'Start Mining'
 ---
 
 # Miner

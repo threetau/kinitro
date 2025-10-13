@@ -1,11 +1,14 @@
 import os
 import time
 
+import dotenv
 import yaml
 from kubernetes import client, config
 from kubernetes.stream import stream
 
 from core.db.models import SnowflakeId
+
+dotenv.load_dotenv()
 
 
 class Containers:
@@ -38,21 +41,21 @@ class Containers:
             pod_template["metadata"]["annotations"] = {}
         pod_template["metadata"]["annotations"]["submission-url"] = submission_repo
 
-        # TODO: some of these are forced for dev env
-        # Update the image to use threetau/miner-agent
-        # print the pod template
-        print(f"Pod template:\n {pod_template}")
-        for container in pod_template["spec"]["containers"]:
-            if container["name"] == "runner":
-                container["image"] = "miner-agent"
-                # Only for dev
-                container["imagePullPolicy"] = "Never"
+        # Override to use local miner agent image if OVERRIDE_IMAGE env var is set
+        if os.getenv("OVERRIDE_IMAGE"):
+            print(f"Overriding image to {os.getenv('OVERRIDE_IMAGE')}")
+            print(f"Pod template:\n {pod_template}")
+            for container in pod_template["spec"]["containers"]:
+                if container["name"] == "runner":
+                    container["image"] = "miner-agent"
+                    # Only for dev
+                    container["imagePullPolicy"] = "Never"
 
-        for container in pod_template["spec"]["initContainers"]:
-            if container["name"] == "fetch-submission":
-                container["image"] = "miner-agent"
-                # Only for dev
-                container["imagePullPolicy"] = "Never"
+            for container in pod_template["spec"]["initContainers"]:
+                if container["name"] == "fetch-submission":
+                    container["image"] = "miner-agent"
+                    # Only for dev
+                    container["imagePullPolicy"] = "Never"
 
         # Create the pod from the template
         print(f"Creating pod from template for {container_name}")
