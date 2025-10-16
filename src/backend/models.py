@@ -3,6 +3,7 @@ SQLModel models for Kinitro Backend database.
 """
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Dict, List, Optional
 
 from pydantic import field_validator
@@ -19,15 +20,15 @@ from sqlalchemy import (
 from sqlalchemy import (
     String as SAString,
 )
-from sqlalchemy import (
-    Text as SAText,
-)
+from sqlalchemy import Text as SAText
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.sql import func
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
 from backend.constants import (
     DEFAULT_MIN_AVG_REWARD,
     DEFAULT_MIN_SUCCESS_RATE,
+    DEFAULT_SUBMISSION_HOLDOUT_SECONDS,
     DEFAULT_WIN_MARGIN_PCT,
 )
 from core.db.models import EvaluationStatus, TimestampMixin
@@ -38,6 +39,15 @@ Uuid = str  # UUID string
 
 
 # Models for API requests/responses
+class SubmissionUploadStatus(StrEnum):
+    """Lifecycle states for direct-upload submissions."""
+
+    PENDING = "pending"
+    READY = "ready"
+    PROCESSED = "processed"
+    EXPIRED = "expired"
+
+
 class CompetitionCreateRequest(SQLModel):
     """Request model for creating a competition."""
 
@@ -48,6 +58,9 @@ class CompetitionCreateRequest(SQLModel):
     min_avg_reward: float = Field(default=DEFAULT_MIN_AVG_REWARD)
     win_margin_pct: float = Field(default=DEFAULT_WIN_MARGIN_PCT)
     min_success_rate: float = Field(default=DEFAULT_MIN_SUCCESS_RATE)
+    submission_holdout_seconds: int = Field(
+        default=DEFAULT_SUBMISSION_HOLDOUT_SECONDS, ge=0
+    )
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
 
@@ -63,6 +76,7 @@ class CompetitionResponse(SQLModel):
     min_avg_reward: float
     win_margin_pct: float
     min_success_rate: float
+    submission_holdout_seconds: int
     current_leader_hotkey: Optional[SS58Address]
     current_leader_reward: Optional[float]
     leader_updated_at: Optional[datetime]
@@ -289,6 +303,11 @@ class Competition(TimestampMixin, SQLModel, table=True):
         nullable=False,
         sa_column_kwargs={"server_default": str(DEFAULT_MIN_SUCCESS_RATE)},
     )
+    submission_holdout_seconds: int = Field(
+        default=DEFAULT_SUBMISSION_HOLDOUT_SECONDS,
+        nullable=False,
+        sa_column_kwargs={"server_default": str(DEFAULT_SUBMISSION_HOLDOUT_SECONDS)},
+    )
 
     # Current leader tracking
     current_leader_hotkey: Optional[SS58Address] = Field(
@@ -334,6 +353,49 @@ class Competition(TimestampMixin, SQLModel, table=True):
     )
 
 
+class SubmissionUpload(TimestampMixin, SQLModel, table=True):
+    """Pending submission artifact stored in the vault before commitment."""
+
+    __tablename__ = "submission_uploads"
+
+    submission_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    miner_hotkey: str = Field(
+        sa_column=Column(SAString(48), nullable=False, index=True)
+    )
+    competition_id: str = Field(
+        sa_column=Column(
+            SAString(64), ForeignKey("competitions.id"), nullable=False, index=True
+        )
+    )
+    version: str = Field(sa_column=Column(SAString(32), nullable=False))
+    artifact_object_key: str = Field(sa_column=Column(SAString(512), nullable=False))
+    artifact_sha256: str = Field(sa_column=Column(SAString(64), nullable=False))
+    artifact_size_bytes: int = Field(sa_column=Column(BigInteger, nullable=False))
+    status: SubmissionUploadStatus = Field(
+        default=SubmissionUploadStatus.PENDING,
+        sa_column=Column(
+            SAEnum(SubmissionUploadStatus, name="submission_upload_status"),
+            nullable=False,
+            default=SubmissionUploadStatus.PENDING,
+        ),
+    )
+    upload_url_expires_at: datetime = Field(
+        sa_column=Column(SADateTime(timezone=True), nullable=False)
+    )
+    uploaded_at: Optional[datetime] = Field(
+        default=None, sa_column=Column(SADateTime(timezone=True), nullable=True)
+    )
+    holdout_seconds: int = Field(
+        default=DEFAULT_SUBMISSION_HOLDOUT_SECONDS, nullable=False
+    )
+    notes: Optional[str] = Field(default=None, sa_column=Column(SAText, nullable=True))
+
+    __table_args__ = (
+        Index("ix_submission_uploads_hotkey", "miner_hotkey"),
+        Index("ix_submission_uploads_status", "status"),
+    )
+
+
 class MinerSubmission(TimestampMixin, SQLModel, table=True):
     """Record of a miner's submission to a competition."""
 
@@ -364,6 +426,31 @@ class MinerSubmission(TimestampMixin, SQLModel, table=True):
         sa_column=Column(
             SADateTime(timezone=True), nullable=False, server_default=func.now()
         )
+    )
+
+    # Hold-out storage metadata
+    artifact_object_key: Optional[str] = Field(
+        default=None, sa_column=Column(SAString(512), nullable=True)
+    )
+    artifact_sha256: Optional[str] = Field(
+        default=None, sa_column=Column(SAString(64), nullable=True)
+    )
+    artifact_size_bytes: Optional[int] = Field(
+        default=None, sa_column=Column(BigInteger, nullable=True)
+    )
+    holdout_release_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(SADateTime(timezone=True), nullable=True, index=True),
+    )
+    released_at: Optional[datetime] = Field(
+        default=None, sa_column=Column(SADateTime(timezone=True), nullable=True)
+    )
+    public_artifact_url: Optional[str] = Field(
+        default=None, max_length=512, sa_column=Column(SAString(512), nullable=True)
+    )
+    public_artifact_url_expires_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(SADateTime(timezone=True), nullable=True),
     )
 
     # Relationships
@@ -410,6 +497,16 @@ class BackendEvaluationJob(TimestampMixin, SQLModel, table=True):
     env_provider: str = Field(max_length=64, nullable=False)
     benchmark_name: str = Field(max_length=128, nullable=False)
     config: dict = Field(sa_column=Column(JSON, nullable=False))
+
+    artifact_object_key: Optional[str] = Field(
+        default=None, sa_column=Column(SAString(512), nullable=True)
+    )
+    artifact_sha256: Optional[str] = Field(
+        default=None, sa_column=Column(SAString(64), nullable=True)
+    )
+    artifact_size_bytes: Optional[int] = Field(
+        default=None, sa_column=Column(BigInteger, nullable=True)
+    )
 
     # Relationships
     submission: Optional["MinerSubmission"] = Relationship(

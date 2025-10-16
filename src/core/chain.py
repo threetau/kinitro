@@ -23,7 +23,7 @@ from pydantic import ValidationError
 from .config import Config
 from .errors import CommitmentError
 from .log import get_logger
-from .schemas import ChainCommitment, ChainCommitmentResponse, ModelChainCommitment
+from .schemas import ChainCommitment, ChainCommitmentResponse
 
 logger = get_logger(__name__)
 
@@ -152,9 +152,7 @@ def query_commitments_from_substrate(
                 case CommitmentDataFieldType.RAW:
                     commitment = data.decode("utf-8")
                     try:
-                        commitment = ModelChainCommitment.model_validate_json(
-                            commitment
-                        )
+                        commitment = ChainCommitment.model_validate_json(commitment)
                         commitments.append(
                             ChainCommitmentResponse(
                                 hotkey=miner_hotkey, data=commitment

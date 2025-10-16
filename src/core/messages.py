@@ -87,6 +87,10 @@ class EvalJobMessage(SQLModel):
     env_provider: str
     benchmark_name: str
     config: dict
+    artifact_url: Optional[str] = None
+    artifact_expires_at: Optional[datetime] = None
+    artifact_sha256: Optional[str] = None
+    artifact_size_bytes: Optional[int] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     def to_bytes(self) -> bytes:

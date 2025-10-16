@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from sqlalchemy import BigInteger, ForeignKey
 from sqlalchemy import DateTime as SADateTime
+from sqlalchemy import String as SAString
 from sqlalchemy import Text as SAText
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
@@ -31,6 +32,16 @@ class EvaluationJob(TimestampMixin, SQLModel, table=True):
     env_provider: str = Field(max_length=128, nullable=False)
     benchmark_name: str = Field(max_length=128, nullable=False)
     config: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    artifact_url: Optional[str] = Field(
+        default=None, max_length=512, sa_column=Column(SAString(512), nullable=True)
+    )
+    artifact_expires_at: Optional[datetime] = Field(
+        default=None, sa_column=Column(SADateTime(timezone=True), nullable=True)
+    )
+    artifact_sha256: Optional[str] = Field(
+        default=None, max_length=64, sa_column=Column(SAString(64), nullable=True)
+    )
+    artifact_size_bytes: Optional[int] = Field(default=None, nullable=True)
 
     # Job execution
     status: EvaluationStatus = Field(

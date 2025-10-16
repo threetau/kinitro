@@ -1,90 +1,240 @@
+import hashlib
 import os
+import tarfile
+import tempfile
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
 
 import dotenv
+import requests
+from fiber.chain.chain_utils import load_hotkey_keypair
 
 from core.chain import commit_to_substrate
 from core.errors import CommitmentError, ConfigurationError, UploadError
 from core.log import get_logger
-from core.schemas import ModelChainCommitment, ModelProvider
-from core.submission import upload_submission_to_hf
+from core.schemas import ChainCommitment, ModelProvider
 
 from .config import MinerConfig
 
 logger = get_logger(__name__)
 dotenv.load_dotenv()
 
-DEFAULT_COMMITMENT_VERSION = "1.0"
+
+def _ensure_directory(path_str: str) -> Path:
+    path = Path(path_str).expanduser().resolve()
+    if not path.exists() or not path.is_dir():
+        raise ConfigurationError(f"Submission directory does not exist: {path}")
+    return path
+
+
+def _package_submission(submission_dir: Path) -> tuple[Path, int, str]:
+    with tempfile.TemporaryDirectory(prefix="kinitro-submission-") as tmp_dir:
+        tar_path = Path(tmp_dir) / "submission.tar.gz"
+        with tarfile.open(tar_path, "w:gz") as tar:
+            tar.add(str(submission_dir), arcname=".")
+
+        sha256 = hashlib.sha256()
+        size = 0
+        with tar_path.open("rb") as archive:
+            for chunk in iter(lambda: archive.read(1024 * 1024), b""):
+                size += len(chunk)
+                sha256.update(chunk)
+
+        final_path = submission_dir / "submission.tar.gz"
+        if final_path.exists():
+            final_path.unlink()
+        tar_path.replace(final_path)
+        return final_path, size, sha256.hexdigest()
+
+
+def _build_signature_message(
+    hotkey: str,
+    competition_id: str,
+    version: str,
+    artifact_sha256: str,
+    artifact_size_bytes: int,
+    timestamp: int,
+    holdout_seconds: Optional[int],
+) -> bytes:
+    parts = [
+        hotkey,
+        competition_id,
+        version,
+        artifact_sha256,
+        str(artifact_size_bytes),
+        str(timestamp),
+    ]
+    if holdout_seconds is not None:
+        parts.append(str(holdout_seconds))
+    return "|".join(parts).encode("utf-8")
+
+
+def _post_json(url: str, payload: dict) -> dict:
+    try:
+        response = requests.post(url, json=payload, timeout=30)
+    except requests.RequestException as exc:  # pragma: no cover - network interaction
+        raise UploadError(f"Failed to contact backend: {exc}") from exc
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:  # pragma: no cover - network interaction
+        raise UploadError(f"Upload request failed: {exc} - {response.text}") from exc
+    try:
+        return response.json()
+    except ValueError as exc:  # pragma: no cover - unexpected response
+        raise UploadError("Backend returned invalid JSON") from exc
+
+
+def _upload_artifact(upload_url: str, tar_path: Path, headers: Optional[dict]) -> None:
+    request_headers = headers or {}
+    with tar_path.open("rb") as archive:
+        try:
+            response = requests.put(
+                upload_url,
+                data=archive,
+                headers=request_headers,
+                timeout=300,
+            )
+        except (
+            requests.RequestException
+        ) as exc:  # pragma: no cover - network interaction
+            raise UploadError(f"Failed to upload artifact: {exc}") from exc
+    if response.status_code // 100 != 2:
+        raise UploadError(
+            f"Artifact upload failed with status {response.status_code}: {response.text}"
+        )
 
 
 def handle_upload_command(config: MinerConfig) -> None:
-    """
-    Handle the upload command: upload submission to Hugging Face.
-
-    Args:
-        config: Miner configuration
-
-    Raises:
-        ConfigurationError: If configuration is invalid
-        UploadError: If upload fails
-    """
-    # Validate required parameters
-    if not config.settings.hf_repo_id:
+    submission_dir = _ensure_directory(config.settings["submission_dir"])
+    backend_url = config.settings.get("backend_url") or os.getenv("BACKEND_URL")
+    if not backend_url:
         raise ConfigurationError(
-            "Hugging Face repository ID is required. Use --hf-repo-id or set hf_repo_id in config."
+            "Backend URL is required. Provide --backend-url or set backend_url in configuration."
         )
 
-    # Get HF token from environment variable
-    hf_token = os.getenv("HF_TOKEN")
-    if not hf_token:
-        raise ConfigurationError(
-            "Hugging Face token is required. Set the HF_TOKEN environment variable."
-        )
+    competition_id = config.settings.get("competition_id")
+    if not competition_id:
+        raise ConfigurationError("competition_id is required in configuration")
 
-    # Upload submission to Hugging Face
-    upload_submission_to_hf(
-        submission_dir=config.settings["submission_dir"],
-        repo_id=config.settings["hf_repo_id"],
-        token=hf_token,
+    version = config.settings.get("submission_version")
+    if not version:
+        version = f"v-{int(time.time())}"
+
+    holdout_seconds = config.settings.get("holdout_seconds")
+    holdout_seconds = int(holdout_seconds) if holdout_seconds is not None else None
+
+    logger.info("Packaging submission from %s", submission_dir)
+    artifact_path, artifact_size_bytes, artifact_sha256 = _package_submission(
+        submission_dir
     )
-
-    logger.info("Upload completed successfully!")
-    logger.info(f"Repository: {config.settings.hf_repo_id}")
-    logger.info("To commit this to substrate chain, run:")
     logger.info(
-        f"  uv run python -m miner commit --hf-repo-id {config.settings.hf_repo_id}"
+        "Created archive %s (size=%s bytes)", artifact_path, artifact_size_bytes
     )
+
+    keypair = load_hotkey_keypair(
+        wallet_name=config.settings["wallet_name"],
+        hotkey_name=config.settings["hotkey_name"],
+    )
+    miner_hotkey = keypair.ss58_address
+
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+    message = _build_signature_message(
+        miner_hotkey,
+        competition_id,
+        version,
+        artifact_sha256,
+        artifact_size_bytes,
+        timestamp,
+        holdout_seconds,
+    )
+    signature_hex = "0x" + keypair.sign(message).hex()
+
+    payload = {
+        "competition_id": competition_id,
+        "version": version,
+        "artifact_sha256": artifact_sha256,
+        "artifact_size_bytes": artifact_size_bytes,
+        "timestamp": timestamp,
+        "hotkey": miner_hotkey,
+        "signature": signature_hex,
+    }
+    if holdout_seconds is not None:
+        payload["holdout_seconds"] = holdout_seconds
+
+    try:
+        logger.info("Requesting presigned upload URL from backend...")
+        request_url = backend_url.rstrip("/") + "/submissions/request-upload"
+        response_data = _post_json(request_url, payload)
+
+        upload_url = response_data.get("upload_url")
+        if not upload_url:
+            raise UploadError("Backend response missing upload URL")
+
+        logger.info("Upload url: %s", upload_url)
+        logger.info("Uploading artifact to vault...")
+        _upload_artifact(upload_url, artifact_path, response_data.get("headers"))
+
+        commit_payload = response_data.get("commit_payload", {})
+        submission_id = commit_payload.get(
+            "submission_id", response_data.get("submission_id")
+        )
+        if submission_id is None:
+            logger.warning("Backend did not return submission ID in commit payload")
+
+        # TODO: do we want to keep this?
+        # commit_file = submission_dir / f"submission_{submission_id}_commit.json"
+        # try:
+        #     commit_file.write_text(
+        #         json.dumps(commit_payload, indent=2), encoding="utf-8"
+        #     )
+        #     logger.info("Saved commit payload to %s", commit_file)
+        # except Exception as exc:  # pragma: no cover - filesystem failure
+        #     logger.warning("Failed to write commit payload file: %s", exc)
+
+        logger.info("Upload completed successfully!")
+        logger.info("Submission ID: %s", submission_id)
+        logger.info("Artifact SHA256: %s", artifact_sha256)
+        logger.info("Artifact size bytes: %s", artifact_size_bytes)
+        logger.info("Hold-out seconds: %s", response_data.get("holdout_seconds"))
+        logger.info(
+            "To commit this submission, run:\n  uv run python -m miner commit --submission-id %s",
+            submission_id,
+        )
+    finally:
+        try:
+            artifact_path.unlink(missing_ok=True)
+        except Exception as exc:  # pragma: no cover - filesystem failure
+            logger.debug(
+                "Failed to remove temporary archive %s: %s", artifact_path, exc
+            )
 
 
 def handle_commit_command(config: MinerConfig) -> None:
-    """
-    Handle the commit command: commit information to substrate chain.
+    competition_id = config.settings.get("competition_id")
+    if not competition_id:
+        raise ConfigurationError("competition_id is required in configuration")
 
-    Args:
-        config: Miner configuration
-
-    Raises:
-        ConfigurationError: If configuration is invalid
-        CommitmentError: If substrate commitment fails
-    """
-    # Validate required parameters
-    if not config.settings.hf_repo_id:
+    submission_id = config.settings.get("submission_id")
+    if submission_id is None or str(submission_id).strip() == "":
         raise ConfigurationError(
-            "Hugging Face repository ID is required. Use --hf-repo-id or set hf_repo_id in config."
+            "Submission ID is required. Provide --submission-id with the value returned from the upload step."
         )
+    submission_id = str(submission_id).strip()
 
-    # Prepare commitment data
-    commit_data = ModelChainCommitment(
-        v=config.settings.get("chain_commitment_version", DEFAULT_COMMITMENT_VERSION),
-        provider=ModelProvider.HF,
-        repo_id=config.settings["hf_repo_id"],
-        comp_id=config.settings["competition_id"],
+    commit_data = ChainCommitment(
+        provider=ModelProvider.R2,
+        repo_id=str(submission_id),
+        comp_id=competition_id,
     )
 
-    # Commit to substrate chain
     commit_to_substrate(config, commit_data)
 
     logger.info("Substrate commitment completed successfully!")
-    logger.info(f"Committed data: {commit_data}")
+    logger.info(
+        "Committed submission ID %s for competition %s", submission_id, competition_id
+    )
 
 
 def main():

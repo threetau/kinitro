@@ -87,6 +87,17 @@ class Orchestrator:
             return None
 
         eval_job_msg = EvalJobMessage.from_bytes(job.payload)
+        if (
+            eval_job_msg.artifact_url
+            and eval_job_msg.artifact_expires_at
+            and eval_job_msg.artifact_expires_at <= datetime.now(timezone.utc)
+        ):
+            logger.warning(
+                "Received expired artifact URL for job %s (expires_at=%s)",
+                eval_job_msg.job_id,
+                eval_job_msg.artifact_expires_at,
+            )
+
         evaluation_job = EvaluationJob(
             id=eval_job_msg.job_id,
             competition_id=eval_job_msg.competition_id,
@@ -96,6 +107,10 @@ class Orchestrator:
             env_provider=eval_job_msg.env_provider,
             benchmark_name=eval_job_msg.benchmark_name,
             config=eval_job_msg.config,
+            artifact_url=eval_job_msg.artifact_url,
+            artifact_expires_at=eval_job_msg.artifact_expires_at,
+            artifact_sha256=eval_job_msg.artifact_sha256,
+            artifact_size_bytes=eval_job_msg.artifact_size_bytes,
             created_at=datetime.now(timezone.utc),
         )
 
@@ -133,14 +148,23 @@ class Orchestrator:
                     f"Failed to queue job status update for STARTING state: {e}"
                 )
 
-        # Start a container for this evaluation job
-        repo = "https://huggingface.co/" + eval_job_msg.hf_repo_id
+        if not eval_job_msg.artifact_url:
+            raise RuntimeError(
+                f"Job {eval_job_msg.job_id} missing artifact URL; cannot start container"
+            )
+
         logger.info(
-            f"Creating container for job {eval_job_msg.job_id} with repo {repo}"
+            "Creating container for job %s using artifact %s",
+            eval_job_msg.job_id,
+            eval_job_msg.artifact_url,
         )
 
         containers = Containers()
-        pod = containers.create_container(repo, eval_job_msg.submission_id)
+        pod = containers.create_container(
+            eval_job_msg.submission_id,
+            archive_url=eval_job_msg.artifact_url,
+            archive_sha256=eval_job_msg.artifact_sha256,
+        )
         logger.info(f"Created pod: {pod}")
 
         # Get NodePort and Node IP for direct TCP connection

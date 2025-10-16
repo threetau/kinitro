@@ -10,29 +10,39 @@ cp .env.miner.example .env
 ```
 
 ### Configuration
-Copy the example configuration file, and edit it to include parameters like your Hugging Face submission repo, Bittensor wallet location, etc.
+Copy the example configuration file, and edit it to include parameters like your backend URL, Bittensor wallet details, etc.
 ```bash
 cp config/miner.toml.example miner.toml
 ```
 Edit `miner.toml` to set your desired parameters.
 
 ### Uploading your agent
-To upload your agent to the Kinitro platform, use the following command:
+You can package your submission, submit an upload request, and upload the artifact directly to the validator-controlled vault.
+
+To upload your agent, run:
 ```bash
-python -m miner upload
+python -m miner upload --config miner.toml
 ```
-This command will package your agent, upload it to the specified Hugging Face repository.
+This command will:
+
+- bundle the directory defined in `submission_dir` into `submission.tar.gz`
+- calculate the SHA-256 hash and byte size of the archive
+- sign an upload request with your hotkey keypair
+- call the backend (`backend_url`) for a presigned upload URL
+- upload the artifact to the vault
+<!-- TODO: do we want to keep this> -->
+<!-- - write a `submission_<ID>_commit.json` file with the on-chain payload (submission id, hash, size) -->
+
+Ensure your `miner.toml` contains:
+
+- `backend_url`: e.g. `http://localhost:8080`
+- `submission_dir`: path to your agent package
+- wallet/hotkey configuration (used for signing)
+- optional `holdout_seconds` if you want to override the default private window
 
 ### Committing submission info to the blockchain
-After uploading your agent, you need to commit the submission information to the Bittensor blockchain. Use the following command:
+After a successful upload, commit the returned submission to the Bittensor blockchain:
 ```bash
-python -m miner commit --config miner.toml
+python -m miner commit --config miner.toml --submission-id <SUBMISSION_ID>
 ```
-This command will create a new submission on the blockchain, linking to the uploaded agent.
-
-#### Chain Commitment Version
-You can specify the chain commitment version in your configuration file or via command line:
-- In `miner.toml`: Set `chain_commitment_version = "1.0"`
-- Via CLI: Use `--chain-commitment-version "1.0"`
-
-The default version is "1.0" if not specified.
+Only the submission id is required on-chain; the validator uses its own stored metadata (hash and size) during evaluation.

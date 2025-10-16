@@ -9,10 +9,12 @@ This provides REST API endpoints and WebSocket connections for:
 """
 
 import asyncio
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+import dotenv
 from fastapi import (
     WebSocket,
 )
@@ -32,11 +34,16 @@ from backend.constants import (
     CHAIN_SCAN_YIELD_INTERVAL,
     DEFAULT_CHAIN_SYNC_INTERVAL,
     DEFAULT_MAX_COMMITMENT_LOOKBACK,
+    DEFAULT_SUBMISSION_HOLDOUT_SECONDS,
     EVAL_JOB_TIMEOUT,
     HEARTBEAT_INTERVAL,
+    HOLDOUT_RELEASE_SCAN_INTERVAL,
     MAX_WORKERS,
     SCORE_EVALUATION_INTERVAL,
     SCORE_EVALUATION_STARTUP_DELAY,
+    SUBMISSION_DOWNLOAD_URL_TTL_SECONDS,
+    SUBMISSION_RELEASE_URL_TTL_SECONDS,
+    SUBMISSION_UPLOAD_URL_TTL_SECONDS,
     WEIGHT_BROADCAST_INTERVAL,
     WEIGHT_BROADCAST_STARTUP_DELAY,
 )
@@ -49,6 +56,17 @@ from backend.events import (
     ValidatorDisconnectedEvent,
 )
 from backend.realtime import event_broadcaster
+from backend.submission_storage import PresignedUpload, SubmissionStorage
+
+try:  # pragma: no cover - optional dependency
+    from fiber import Keypair as FiberKeypair  # type: ignore
+except ImportError:  # pragma: no cover
+    FiberKeypair = None
+
+try:  # pragma: no cover - fallback dependency
+    from substrateinterface import Keypair as SubstrateKeypair  # type: ignore
+except ImportError:  # pragma: no cover
+    SubstrateKeypair = None
 from core.chain import query_commitments_from_substrate
 from core.db.models import EvaluationStatus
 from core.log import get_logger
@@ -57,7 +75,8 @@ from core.messages import (
     EventType,
     SetWeightsMessage,
 )
-from core.schemas import ChainCommitmentResponse
+from core.schemas import ChainCommitmentResponse, ModelProvider
+from core.storage import R2Config
 
 from .config import BackendConfig
 from .models import (
@@ -68,8 +87,12 @@ from .models import (
     Competition,
     MinerSubmission,
     SS58Address,
+    SubmissionUpload,
+    SubmissionUploadStatus,
     ValidatorConnection,
 )
+
+dotenv.load_dotenv()
 
 logger = get_logger(__name__)
 
@@ -99,6 +122,36 @@ class BackendService:
             "weight_broadcast_interval", WEIGHT_BROADCAST_INTERVAL
         )
 
+        # Submission hold-out configuration
+        self.submission_holdout_seconds = int(
+            config.settings.get(
+                "submission_holdout_seconds", DEFAULT_SUBMISSION_HOLDOUT_SECONDS
+            )
+        )
+        self.submission_upload_url_ttl = int(
+            config.settings.get(
+                "submission_upload_url_ttl_seconds",
+                SUBMISSION_UPLOAD_URL_TTL_SECONDS,
+            )
+        )
+        self.submission_download_url_ttl = int(
+            config.settings.get(
+                "submission_download_url_ttl_seconds",
+                SUBMISSION_DOWNLOAD_URL_TTL_SECONDS,
+            )
+        )
+        self.holdout_release_scan_interval = int(
+            config.settings.get(
+                "holdout_release_scan_interval", HOLDOUT_RELEASE_SCAN_INTERVAL
+            )
+        )
+
+        self.r2_config = self._load_r2_config()
+        logger.debug(f"R2 Config: {self.r2_config}")
+        self.submission_storage: Optional[SubmissionStorage] = (
+            SubmissionStorage(self.r2_config) if self.r2_config else None
+        )
+
         # Chain connection objects
         # Using Any since fiber's SubstrateInterface is from async_substrate_interface
         self.substrate: Optional[Any] = (
@@ -117,6 +170,7 @@ class BackendService:
         self._stale_job_monitor_task = None
         self._score_evaluation_task = None
         self._weight_broadcast_task = None
+        self._holdout_release_task = None
 
         # Store latest scores for weight broadcasting
         self._latest_miner_scores: Dict[SS58Address, float] = {}
@@ -130,6 +184,167 @@ class BackendService:
 
         # Thread pool for blocking operations
         self.thread_pool = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+
+    # TODO: rename this to _load_s3_config
+    def _load_r2_config(self) -> Optional[R2Config]:
+        """Load R2 configuration for submission vault from environment variables."""
+        endpoint_url = os.environ.get("S3_ENDPOINT_URL")
+        access_key_id = os.environ.get("S3_ACCESS_KEY_ID")
+        secret_access_key = os.environ.get("S3_SECRET_ACCESS_KEY")
+        bucket_name = os.environ.get("S3_BUCKET_NAME")
+        region = os.environ.get("S3_REGION", "auto")
+        public_url_base = os.environ.get("S3_PUBLIC_URL_BASE")
+
+        if not all([endpoint_url, access_key_id, secret_access_key, bucket_name]):
+            logger.warning(
+                "S3 credentials missing; direct submission uploads are disabled"
+            )
+            return None
+
+        return R2Config(
+            endpoint_url=endpoint_url,
+            access_key_id=access_key_id,
+            secret_access_key=secret_access_key,
+            bucket_name=bucket_name,
+            region=region,
+            public_url_base=public_url_base,
+        )
+
+    @staticmethod
+    def verify_hotkey_signature(
+        hotkey: str, message: bytes, signature_hex: str
+    ) -> bool:
+        """Verify a hotkey-signed payload using available sr25519 implementations."""
+
+        signature_body = (
+            signature_hex[2:] if signature_hex.startswith("0x") else signature_hex
+        )
+        try:
+            signature = bytes.fromhex(signature_body)
+        except ValueError:
+            return False
+
+        keypair_classes = [
+            cls for cls in (FiberKeypair, SubstrateKeypair) if cls is not None
+        ]
+        if not keypair_classes:
+            raise RuntimeError(
+                "No signature verification backend available (fiber/substrateinterface not installed)"
+            )
+
+        for keypair_cls in keypair_classes:
+            try:
+                if hasattr(keypair_cls, "create_from_ss58_address"):
+                    keypair = keypair_cls.create_from_ss58_address(hotkey)
+                else:
+                    keypair = keypair_cls(ss58_address=hotkey)
+                if keypair.verify(message, signature):
+                    return True
+            except Exception as exc:  # pragma: no cover - verification failure
+                logger.debug(
+                    "Signature verification attempt failed with %s: %s",
+                    getattr(keypair_cls, "__name__", str(keypair_cls)),
+                    exc,
+                )
+                continue
+
+        return False
+
+    async def create_submission_upload(
+        self,
+        *,
+        miner_hotkey: SS58Address,
+        competition_id: str,
+        version: str,
+        artifact_sha256: str,
+        artifact_size_bytes: int,
+        holdout_seconds: Optional[int] = None,
+    ) -> tuple[SubmissionUpload, PresignedUpload]:
+        """Create a submission upload record and mint an upload URL."""
+
+        if not self.submission_storage:
+            raise RuntimeError("Submission storage is not configured")
+        if not self.async_session:
+            raise RuntimeError("Database not initialized")
+
+        if artifact_size_bytes <= 0:
+            raise RuntimeError("artifact_size_bytes must be positive")
+
+        competition_id = competition_id.strip()
+        if not competition_id:
+            raise RuntimeError("competition_id cannot be empty")
+
+        version = version.strip()
+        if not version:
+            raise RuntimeError("version cannot be empty")
+
+        normalized_sha = artifact_sha256.lower()
+
+        submission_id = next(self.id_generator)
+        object_key = self.submission_storage.build_object_key(
+            submission_id, f"{version}.tar.gz"
+        )
+
+        presigned = self.submission_storage.create_presigned_upload(
+            object_key,
+            expires_in=self.submission_upload_url_ttl,
+        )
+
+        async with self.async_session() as session:
+            competition = await session.get(Competition, competition_id)
+            if not competition:
+                raise RuntimeError(f"Competition {competition_id} does not exist")
+
+            if not competition.active:
+                raise RuntimeError(f"Competition {competition_id} is not active")
+
+            if holdout_seconds is not None:
+                holdout = max(0, int(holdout_seconds))
+            else:
+                holdout = max(0, competition.submission_holdout_seconds)
+
+            existing_submission = await session.execute(
+                select(MinerSubmission).where(
+                    MinerSubmission.miner_hotkey == miner_hotkey,
+                    MinerSubmission.competition_id == competition_id,
+                    MinerSubmission.version == version,
+                )
+            )
+            if existing_submission.scalar_one_or_none():
+                raise RuntimeError(
+                    "Submission with this version already exists for this competition"
+                )
+
+            existing_upload = await session.execute(
+                select(SubmissionUpload).where(
+                    SubmissionUpload.miner_hotkey == miner_hotkey,
+                    SubmissionUpload.competition_id == competition_id,
+                    SubmissionUpload.version == version,
+                    SubmissionUpload.status != SubmissionUploadStatus.PROCESSED,
+                )
+            )
+            if existing_upload.scalar_one_or_none():
+                raise RuntimeError(
+                    "A pending upload already exists for this version and competition"
+                )
+
+            upload_record = SubmissionUpload(
+                submission_id=submission_id,
+                miner_hotkey=miner_hotkey,
+                competition_id=competition_id,
+                version=version,
+                artifact_object_key=object_key,
+                artifact_sha256=normalized_sha,
+                artifact_size_bytes=artifact_size_bytes,
+                upload_url_expires_at=presigned.expires_at,
+                holdout_seconds=holdout,
+            )
+
+            session.add(upload_record)
+            await session.commit()
+            await session.refresh(upload_record)
+
+        return upload_record, presigned
 
     async def startup(self) -> None:
         """Initialize the backend service without starting background tasks."""
@@ -176,6 +391,19 @@ class BackendService:
             self._periodic_weight_broadcast()
         )
 
+        if self.submission_storage:
+            self._holdout_release_task = asyncio.create_task(
+                self._holdout_release_loop()
+            )
+            logger.info(
+                "Hold-out release task started (interval=%ss)",
+                self.holdout_release_scan_interval,
+            )
+        else:
+            logger.info(
+                "Hold-out release task not started (submission storage unavailable)"
+            )
+
         logger.info(
             f"All background tasks started. "
             f"Score evaluation interval: {self.score_evaluation_interval}s, "
@@ -195,6 +423,7 @@ class BackendService:
             (self._stale_job_monitor_task, "stale_job_monitor"),
             (self._score_evaluation_task, "score_evaluation"),
             (self._weight_broadcast_task, "weight_broadcast"),
+            (self._holdout_release_task, "holdout_release"),
         ]
 
         for task, name in tasks_to_cancel:
@@ -700,6 +929,69 @@ class BackendService:
             # Wait for next broadcast cycle
             await asyncio.sleep(self.weight_broadcast_interval)
 
+    async def _holdout_release_loop(self) -> None:
+        """Periodically release submission artifacts after the hold-out window."""
+        if not self.submission_storage:
+            return
+
+        logger.info("Starting hold-out release task")
+        while self._running:
+            try:
+                await self._release_due_submissions()
+            except Exception as e:
+                logger.error(f"Hold-out release task error: {e}")
+            await asyncio.sleep(self.holdout_release_scan_interval)
+
+    async def _release_due_submissions(self) -> None:
+        """Mark submissions as released when their hold-out period expires."""
+        if not self.submission_storage or not self.async_session:
+            logger.warning("Submission storage or async session not available")
+            return
+
+        now = datetime.now(timezone.utc)
+        async with self.async_session() as session:
+            stmt = select(MinerSubmission).where(
+                and_(
+                    MinerSubmission.holdout_release_at.is_not(None),
+                    MinerSubmission.holdout_release_at <= now,
+                    MinerSubmission.released_at.is_(None),
+                    MinerSubmission.artifact_object_key.is_not(None),
+                )
+            )
+            result = await session.execute(stmt)
+            submissions = result.scalars().all()
+
+            if not submissions:
+                logger.info("No submissions due for hold-out release")
+                return
+
+            for submission in submissions:
+                try:
+                    release_url, expires_at = (
+                        self.submission_storage.generate_download_url(
+                            submission.artifact_object_key,
+                            SUBMISSION_RELEASE_URL_TTL_SECONDS,
+                        )
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "Failed to generate release URL for submission %s: %s",
+                        submission.id,
+                        exc,
+                    )
+                    continue
+
+                submission.released_at = now
+                submission.public_artifact_url = release_url
+                submission.public_artifact_url_expires_at = expires_at
+                logger.info(
+                    "Hold-out released submission %s (artifact=%s)",
+                    submission.id,
+                    submission.artifact_object_key,
+                )
+
+            await session.commit()
+
     async def _broadcast_and_set_weights(self) -> None:
         """Broadcast weights to connected validators and set on chain using latest scores."""
         try:
@@ -839,118 +1131,223 @@ class BackendService:
         block_num: int,
         active_competitions: dict[str, Competition],
     ):
-        """Process a commitment from the chain.
+        """Process a commitment from the chain."""
 
-        This function:
-        1. Validates the commitment belongs to an active competition
-        2. Checks for duplicate submissions from the same miner/competition/version
-        3. Creates a new MinerSubmission record in the database
-        4. Creates BackendEvaluationJob(s) for each benchmark in the competition
-        5. Broadcasts the job(s) to connected validators for evaluation
-        """
         try:
-            logger.debug(f"Processing commitment for block {block_num}: {commitment}")
+            logger.debug(
+                "Processing commitment for block %s: %s", block_num, commitment
+            )
             competition_id = getattr(commitment.data, "comp_id", None)
 
             if not competition_id or competition_id not in active_competitions:
                 logger.warning(
-                    f"Miner {commitment.hotkey}'s commitment at block {block_num} provided unknown competition {competition_id}"
+                    "Miner %s submitted commitment for unknown competition %s",
+                    commitment.hotkey,
+                    competition_id,
                 )
                 return
 
-            # log the submission info for miner
-            logger.debug(
-                f"Miner {commitment.hotkey} submitted version {commitment.data.v} "
-                f"for competition {competition_id} at block {block_num}"
+            provider = getattr(commitment.data, "provider", None)
+
+            if provider == ModelProvider.R2:
+                await self._process_r2_commitment(
+                    commitment,
+                    block_num,
+                    active_competitions[competition_id],
+                )
+                return
+
+            logger.warning(
+                "Unsupported commitment provider %s from miner %s",
+                provider,
+                commitment.hotkey,
+            )
+        except Exception as exc:
+            logger.error("Failed to process commitment: %s", exc)
+
+    async def _process_r2_commitment(
+        self,
+        commitment: ChainCommitmentResponse,
+        block_num: int,
+        competition: Competition,
+    ) -> None:
+        """Handle commitments referencing direct-vault submissions."""
+
+        if not self.submission_storage:
+            logger.error(
+                "Submission storage not configured; cannot process R2 commitment"
+            )
+            return
+
+        if not self.async_session:
+            logger.error("Database not initialized; cannot process commitment")
+            return
+
+        try:
+            submission_id = int(commitment.data.repo_id)
+        except (TypeError, ValueError):
+            logger.error(
+                "Invalid submission identifier '%s' provided by miner %s",
+                commitment.data.repo_id,
+                commitment.hotkey,
+            )
+            return
+
+        async with self.async_session() as session:
+            upload_result = await session.execute(
+                select(SubmissionUpload).where(
+                    SubmissionUpload.submission_id == submission_id
+                )
+            )
+            upload: Optional[SubmissionUpload] = upload_result.scalar_one_or_none()
+
+            if not upload:
+                logger.error(
+                    "No pending upload found for submission %s (miner %s)",
+                    submission_id,
+                    commitment.hotkey,
+                )
+                return
+
+            if upload.status == SubmissionUploadStatus.PROCESSED:
+                logger.info(
+                    "Submission %s already processed; ignoring duplicate commitment",
+                    submission_id,
+                )
+                return
+
+            if upload.miner_hotkey != commitment.hotkey:
+                logger.error(
+                    "Miner %s attempted to commit submission %s owned by %s",
+                    commitment.hotkey,
+                    submission_id,
+                    upload.miner_hotkey,
+                )
+                return
+
+            if upload.competition_id != competition.id:
+                logger.error(
+                    "Submission %s was prepared for competition %s but miner committed to %s",
+                    submission_id,
+                    upload.competition_id,
+                    competition.id,
+                )
+                return
+
+            existing_submission = await session.execute(
+                select(MinerSubmission).where(MinerSubmission.id == submission_id)
+            )
+            if existing_submission.scalar_one_or_none():
+                logger.info("Submission %s already registered; skipping", submission_id)
+                upload.status = SubmissionUploadStatus.PROCESSED
+                await session.commit()
+                return
+
+            metadata = self.submission_storage.head_object(upload.artifact_object_key)
+            if not metadata:
+                logger.error(
+                    "Artifact %s not found for submission %s",
+                    upload.artifact_object_key,
+                    submission_id,
+                )
+                return
+
+            if metadata.sha256 and metadata.sha256 != upload.artifact_sha256:
+                logger.error(
+                    "Artifact checksum mismatch for submission %s", submission_id
+                )
+                return
+
+            actual_size = metadata.size_bytes or upload.artifact_size_bytes
+
+            if actual_size != upload.artifact_size_bytes:
+                logger.error(
+                    "Artifact size mismatch for submission %s (expected %s, got %s)",
+                    submission_id,
+                    upload.artifact_size_bytes,
+                    actual_size,
+                )
+                return
+
+            upload.uploaded_at = metadata.last_modified
+            upload.status = SubmissionUploadStatus.PROCESSED
+
+            submission = MinerSubmission(
+                id=submission_id,
+                miner_hotkey=commitment.hotkey,
+                competition_id=competition.id,
+                hf_repo_id=f"r2:{submission_id}",
+                version=upload.version,
+                commitment_block=block_num,
+                artifact_object_key=upload.artifact_object_key,
+                artifact_sha256=upload.artifact_sha256,
+                artifact_size_bytes=actual_size,
+                holdout_release_at=datetime.now(timezone.utc)
+                + timedelta(seconds=upload.holdout_seconds),
             )
 
-            competition = active_competitions[competition_id]
+            session.add(submission)
+            await session.flush()
 
-            if not self.async_session:
-                logger.error("Database not initialized")
-                return
-            async with self.async_session() as session:
-                # Check if submission exists
-                existing = await session.execute(
-                    select(MinerSubmission).where(
-                        and_(
-                            MinerSubmission.miner_hotkey == commitment.hotkey,
-                            MinerSubmission.competition_id == competition_id,
-                            MinerSubmission.version == commitment.data.v,
-                        )
+            submission_event = SubmissionReceivedEvent(
+                submission_id=submission.id,
+                competition_id=submission.competition_id,
+                miner_hotkey=submission.miner_hotkey,
+                hf_repo_id=submission.hf_repo_id,
+                block_number=block_num,
+                created_at=submission.created_at or datetime.now(timezone.utc),
+            )
+            await event_broadcaster.broadcast_event(
+                EventType.SUBMISSION_RECEIVED, submission_event
+            )
+
+            jobs: List[BackendEvaluationJob] = []
+            for benchmark in competition.benchmarks:
+                if "provider" not in benchmark or "benchmark_name" not in benchmark:
+                    logger.error(
+                        "Benchmark missing provider or benchmark_name: %s", benchmark
                     )
-                )
+                    continue
 
-                if existing.scalar_one_or_none():
-                    logger.debug(f"Submission already exists for {commitment.hotkey}")
-                    return
-
-                # Create submission
-                submission = MinerSubmission(
+                job = BackendEvaluationJob(
                     id=next(self.id_generator),
-                    miner_hotkey=commitment.hotkey,
-                    competition_id=competition_id,
-                    hf_repo_id=commitment.data.repo_id,
-                    version=commitment.data.v,
-                    commitment_block=block_num,
-                )
-
-                session.add(submission)
-                await session.flush()
-
-                # Broadcast submission received event
-                submission_event = SubmissionReceivedEvent(
                     submission_id=submission.id,
-                    competition_id=submission.competition_id,
+                    competition_id=competition.id,
                     miner_hotkey=submission.miner_hotkey,
                     hf_repo_id=submission.hf_repo_id,
-                    block_number=block_num,
-                    created_at=submission.created_at or datetime.now(timezone.utc),
+                    env_provider=benchmark["provider"],
+                    benchmark_name=benchmark["benchmark_name"],
+                    config=benchmark.get("config", {}),
+                    artifact_object_key=submission.artifact_object_key,
+                    artifact_sha256=submission.artifact_sha256,
+                    artifact_size_bytes=submission.artifact_size_bytes,
                 )
-                await event_broadcaster.broadcast_event(
-                    EventType.SUBMISSION_RECEIVED, submission_event
+                jobs.append(job)
+
+            if not jobs:
+                logger.error(
+                    "No evaluation jobs generated for submission %s", submission_id
                 )
-
-                # Create job
-                job_id = next(self.id_generator)
-                for benchmark in competition.benchmarks:
-                    # check if the benchmark has a provider or a benchmark name
-                    if "provider" not in benchmark or "benchmark_name" not in benchmark:
-                        logger.error(
-                            f"Benchmark missing provider or benchmark_name: {benchmark}"
-                        )
-                        continue
-
-                    eval_job = BackendEvaluationJob(
-                        id=job_id,
-                        submission_id=submission.id,
-                        competition_id=competition_id,
-                        miner_hotkey=submission.miner_hotkey,
-                        hf_repo_id=submission.hf_repo_id,
-                        env_provider=benchmark["provider"],
-                        benchmark_name=benchmark["benchmark_name"],
-                        config=benchmark.get("config", {}),  # Optional config
-                    )
-
-                session.add(eval_job)
                 await session.commit()
+                return
 
-                logger.debug(f"Created evaluation job: {eval_job}")
+            session.add_all(jobs)
+            await session.commit()
 
-                # Broadcast job created event to clients
-                connected_validator_hotkeys = tuple(
-                    dict.fromkeys(self.validator_connections.values())
-                )
+            connected_validator_hotkeys = tuple(
+                dict.fromkeys(self.validator_connections.values())
+            )
 
+            for job in jobs:
                 job_event = JobCreatedEvent(
-                    job_id=str(eval_job.id),
-                    competition_id=eval_job.competition_id,
-                    submission_id=eval_job.submission_id,
-                    miner_hotkey=eval_job.miner_hotkey,
-                    hf_repo_id=eval_job.hf_repo_id,
-                    env_provider=eval_job.env_provider,
-                    benchmark_name=eval_job.benchmark_name,
-                    config=eval_job.config if eval_job.config else {},
+                    job_id=str(job.id),
+                    competition_id=job.competition_id,
+                    submission_id=job.submission_id,
+                    miner_hotkey=job.miner_hotkey,
+                    hf_repo_id=job.hf_repo_id,
+                    env_provider=job.env_provider,
+                    benchmark_name=job.benchmark_name,
+                    config=job.config if job.config else {},
                     status=EvaluationStatus.QUEUED,
                     validator_statuses={
                         hotkey: EvaluationStatus.QUEUED
@@ -960,18 +1357,15 @@ class BackendService:
                 await event_broadcaster.broadcast_event(
                     EventType.JOB_CREATED, job_event
                 )
+                await self._broadcast_job(job)
 
-                # Broadcast to validators
-                await self._broadcast_job(eval_job)
-                logger.debug(f"Broadcasted job {job_id} to validators")
+            await self._broadcast_stats_update()
 
-                # Broadcast updated stats
-                await self._broadcast_stats_update()
-
-                logger.info(f"Processed commitment from {commitment.hotkey}")
-
-        except Exception as e:
-            logger.error(f"Failed to process commitment: {e}")
+            logger.info(
+                "Processed R2 submission %s from miner %s",
+                submission_id,
+                commitment.hotkey,
+            )
 
     async def _broadcast_stats_update(self):
         """Broadcast updated statistics to all clients."""
@@ -1189,6 +1583,26 @@ class BackendService:
 
         env_config = job.config if job.config else {}
 
+        artifact_url = None
+        artifact_expires_at: Optional[datetime] = None
+        if self.submission_storage and job.artifact_object_key:
+            try:
+                artifact_url, artifact_expires_at = (
+                    self.submission_storage.generate_download_url(
+                        job.artifact_object_key, self.submission_download_url_ttl
+                    )
+                )
+            except Exception as exc:
+                logger.error(
+                    "Failed to generate artifact URL for job %s: %s", job.id, exc
+                )
+        else:
+            logger.error(
+                "Cannot broadcast submission %s: storage unavailable or artifact missing",
+                job.submission_id,
+            )
+            return
+
         job_msg = EvalJobMessage(
             job_id=job.id,
             competition_id=job.competition_id,
@@ -1198,6 +1612,10 @@ class BackendService:
             env_provider=job.env_provider,
             benchmark_name=job.benchmark_name,
             config=env_config,
+            artifact_url=artifact_url,
+            artifact_expires_at=artifact_expires_at,
+            artifact_sha256=job.artifact_sha256,
+            artifact_size_bytes=job.artifact_size_bytes,
         )
 
         message = job_msg.model_dump_json()

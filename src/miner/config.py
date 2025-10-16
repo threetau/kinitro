@@ -15,12 +15,45 @@ class MinerConfig(Config):
         """Add miner-specific CLI arguments"""
         super().add_args()
 
-        # Hugging Face configuration
+        # Backend configuration
         self._parser.add_argument(
-            "--hf-repo-id",
+            "--backend-url",
             type=str,
-            help="Hugging Face repository ID (e.g., username/repo-name)",
-            default=self.settings["hf_repo_id"],
+            help="Base URL for the Kinitro backend (e.g., http://localhost:8080)",
+            default=self.settings.get("backend_url", "http://localhost:8080"),
+        )
+
+        # Submission metadata
+        self._parser.add_argument(
+            "--submission-version",
+            type=str,
+            help="Version identifier for this submission (defaults to timestamp)",
+            default=self.settings.get("submission_version"),
+        )
+        self._parser.add_argument(
+            "--holdout-seconds",
+            type=int,
+            help="Optional hold-out duration in seconds for this submission",
+            default=self.settings.get("holdout_seconds"),
+        )
+
+        self._parser.add_argument(
+            "--submission-id",
+            type=str,
+            help="Submission ID returned by the backend upload endpoint",
+            default=self.settings.get("submission_id"),
+        )
+        self._parser.add_argument(
+            "--artifact-sha256",
+            type=str,
+            help="SHA-256 digest of the submission artifact",
+            default=self.settings.get("artifact_sha256"),
+        )
+        self._parser.add_argument(
+            "--artifact-size-bytes",
+            type=int,
+            help="Size of the submission artifact in bytes",
+            default=self.settings.get("artifact_size_bytes"),
         )
 
         # Substrate/Subtensor configuration
@@ -47,17 +80,9 @@ class MinerConfig(Config):
             ),
         )
 
-        # Chain commitment configuration
-        self._parser.add_argument(
-            "--chain-commitment-version",
-            type=str,
-            help="Version of the chain commitment schema",
-            default=self.settings.get("chain_commitment_version", "1.0"),
-        )
-
         # CLI commands
         self._parser.add_argument(
             "command",
             choices=["upload", "commit"],
-            help="Command to execute: 'upload' to upload submission to HF, 'commit' to commit to substrate chain",
+            help="Command to execute: 'upload' to send submission artifact, 'commit' to commit to the substrate chain",
         )

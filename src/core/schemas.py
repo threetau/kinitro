@@ -3,26 +3,13 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-CHAIN_COMMITMENT_VERSION = "1.0"
-
 
 class ModelProvider(StrEnum):
     HF = "HF"  # Hugging Face
-    R2 = "R2"  # Cloudflare R2 - NOTE: currently NOT supported
+    R2 = "R2"  # Direct vault (Cloudflare R2 or S3-compatible)
 
 
 class ChainCommitment(BaseModel):
-    """
-    Represents a chain commitment with a unique identifier and the commitment data.
-    """
-
-    v: str = Field(
-        default=CHAIN_COMMITMENT_VERSION,
-        description="Version of the chain commitment schema",
-    )
-
-
-class ModelChainCommitment(ChainCommitment):
     """
     Represents a model chain commitment with a unique identifier and the commitment data.
     """
@@ -37,4 +24,4 @@ class ModelChainCommitment(ChainCommitment):
 @dataclass
 class ChainCommitmentResponse:
     hotkey: str
-    data: ModelChainCommitment
+    data: ChainCommitment

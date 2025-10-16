@@ -1,9 +1,10 @@
 import asyncio
 import json
+import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import (
     Depends,
@@ -15,7 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 
 from backend.auth import (
@@ -30,6 +31,7 @@ from backend.constants import (
     DEFAULT_PAGE_LIMIT,
     MAX_PAGE_LIMIT,
     MIN_PAGE_LIMIT,
+    SUBMISSION_SIGNATURE_MAX_AGE_SECONDS,
 )
 from backend.events import (
     EpisodeCompletedEvent,
@@ -51,6 +53,7 @@ from core.messages import (
     JobStatusUpdateMessage,
     MessageType,
 )
+from core.schemas import ModelProvider
 
 from .config import BackendConfig
 from .models import (
@@ -78,6 +81,86 @@ from .models import (
 )
 
 logger = get_logger(__name__)
+
+
+class SubmissionUploadRequest(BaseModel):
+    competition_id: str
+    version: str
+    artifact_sha256: str
+    artifact_size_bytes: int = Field(gt=0)
+    timestamp: int = Field(ge=0)
+    hotkey: str
+    signature: str
+    holdout_seconds: Optional[int] = None
+
+    @field_validator("competition_id")
+    @classmethod
+    def _validate_competition_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("competition_id cannot be empty")
+        return value
+
+    @field_validator("version")
+    @classmethod
+    def _validate_version(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("version cannot be empty")
+        return value
+
+    @field_validator("artifact_sha256")
+    @classmethod
+    def _validate_sha256(cls, value: str) -> str:
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", value):
+            raise ValueError(
+                "artifact_sha256 must be a 64 character hexadecimal string"
+            )
+        return value.lower()
+
+    @field_validator("signature")
+    @classmethod
+    def _validate_signature(cls, value: str) -> str:
+        signature_body = value[2:] if value.startswith("0x") else value
+        if not re.fullmatch(r"[0-9a-fA-F]{128}", signature_body):
+            raise ValueError("signature must be a 64-byte hexadecimal string")
+        return value.lower()
+
+    @field_validator("hotkey")
+    @classmethod
+    def _validate_hotkey(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("hotkey cannot be empty")
+        return value
+
+
+class SubmissionUploadResponse(BaseModel):
+    submission_id: int
+    upload_url: str
+    method: str
+    expires_at: datetime
+    headers: Dict[str, str]
+    object_key: str
+    holdout_seconds: int
+    artifact_sha256: str
+    artifact_size_bytes: int
+    commit_payload: Dict[str, Any]
+
+
+def _build_submission_upload_message(payload: SubmissionUploadRequest) -> bytes:
+    parts = [
+        payload.hotkey,
+        payload.competition_id,
+        payload.version,
+        payload.artifact_sha256,
+        str(payload.artifact_size_bytes),
+        str(payload.timestamp),
+    ]
+    if payload.holdout_seconds is not None:
+        parts.append(str(payload.holdout_seconds))
+    return "|".join(parts).encode("utf-8")
+
 
 # Create backend service instance
 config = BackendConfig()
@@ -156,6 +239,85 @@ async def health_check() -> dict:
         "chain_connected": backend_service.substrate is not None,
         "database_connected": backend_service.engine is not None,
     }
+
+
+@app.post(
+    "/submissions/request-upload",
+    response_model=SubmissionUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def request_submission_upload(
+    payload: SubmissionUploadRequest,
+) -> SubmissionUploadResponse:
+    """Create a presigned upload slot for a miner submission."""
+
+    if payload.holdout_seconds is not None and payload.holdout_seconds < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="holdout_seconds must be non-negative",
+        )
+
+    now = datetime.now(timezone.utc)
+    timestamp_dt = datetime.fromtimestamp(payload.timestamp, tz=timezone.utc)
+    if abs((now - timestamp_dt).total_seconds()) > SUBMISSION_SIGNATURE_MAX_AGE_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Signature timestamp is outside the allowed window",
+        )
+
+    signature_message = _build_submission_upload_message(payload)
+
+    try:
+        signature_valid = backend_service.verify_hotkey_signature(
+            payload.hotkey, signature_message, payload.signature
+        )
+    except RuntimeError as exc:
+        logger.error("Signature verification backend unavailable: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Signature verification backend unavailable",
+        ) from exc
+
+    if not signature_valid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid signature",
+        )
+
+    try:
+        upload_record, presigned = await backend_service.create_submission_upload(
+            miner_hotkey=payload.hotkey,
+            competition_id=payload.competition_id,
+            version=payload.version,
+            artifact_sha256=payload.artifact_sha256,
+            artifact_size_bytes=payload.artifact_size_bytes,
+            holdout_seconds=payload.holdout_seconds,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
+    commit_payload = {
+        "provider": ModelProvider.R2.value,
+        "submission_id": str(upload_record.submission_id),
+        "artifact_sha256": upload_record.artifact_sha256,
+        "artifact_size_bytes": upload_record.artifact_size_bytes,
+        "competition_id": upload_record.competition_id,
+    }
+
+    return SubmissionUploadResponse(
+        submission_id=upload_record.submission_id,
+        upload_url=presigned.url,
+        method=presigned.method,
+        expires_at=presigned.expires_at,
+        headers=presigned.headers,
+        object_key=upload_record.artifact_object_key,
+        holdout_seconds=upload_record.holdout_seconds,
+        artifact_sha256=upload_record.artifact_sha256,
+        artifact_size_bytes=upload_record.artifact_size_bytes,
+        commit_payload=commit_payload,
+    )
 
 
 @app.get("/stats", response_model=BackendStatsResponse)
@@ -239,6 +401,7 @@ async def create_competition(
             active=True,
             start_time=competition.start_time,
             end_time=competition.end_time,
+            submission_holdout_seconds=competition.submission_holdout_seconds,
         )
 
         session.add(db_competition)

@@ -12,12 +12,30 @@ dotenv.load_dotenv()
 
 
 class Containers:
+    @staticmethod
+    def _set_env(container_spec: dict, name: str, value: str | None) -> None:
+        """Ensure an environment variable is set on a container spec."""
+        if value is None:
+            return
+
+        env_list = container_spec.setdefault("env", [])
+        for env in env_list:
+            if env.get("name") == name:
+                env["value"] = value
+                return
+
+        env_list.append({"name": name, "value": value})
+
     def create_container(
-        self, submission_repo: str, submission_id: SnowflakeId, port: int = 8000
+        self,
+        submission_id: SnowflakeId,
+        *,
+        archive_url: str,
+        archive_sha256: str | None = None,
+        port: int = 8000,
     ) -> str:
-        print(
-            f"Creating container for submission {submission_id} from repo {submission_repo}"
-        )
+        print(f"Creating container for submission {submission_id}")
+        print(f"Fetching artifact from {archive_url}")
         config.load_kube_config()
         k8v1api = client.CoreV1Api()
 
@@ -36,10 +54,10 @@ class Containers:
         # Set the runtime to kata containers
         # pod_template["spec"]["runtimeClassName"] = "kata"
 
-        # Set the submission repo URL as an annotation
+        # Set the submission archive URL as an annotation
         if not pod_template["metadata"].get("annotations"):
             pod_template["metadata"]["annotations"] = {}
-        pod_template["metadata"]["annotations"]["submission-url"] = submission_repo
+        pod_template["metadata"]["annotations"]["submission-archive-url"] = archive_url
 
         # Override to use local miner agent image if OVERRIDE_IMAGE env var is set
         if os.getenv("OVERRIDE_IMAGE"):
@@ -56,6 +74,15 @@ class Containers:
                     container["image"] = "miner-agent"
                     # Only for dev
                     container["imagePullPolicy"] = "Never"
+
+        for container in pod_template["spec"]["initContainers"]:
+            if container["name"] == "fetch-submission":
+                self._set_env(container, "SUBMISSION_ARCHIVE_URL", archive_url)
+                self._set_env(container, "SUBMISSION_ARCHIVE_SHA256", archive_sha256)
+        for container in pod_template["spec"]["containers"]:
+            if container["name"] == "runner":
+                self._set_env(container, "SUBMISSION_ARCHIVE_URL", archive_url)
+                self._set_env(container, "SUBMISSION_ARCHIVE_SHA256", archive_sha256)
 
         # Create the pod from the template
         print(f"Creating pod from template for {container_name}")
