@@ -30,8 +30,6 @@ This command will:
 - sign an upload request with your hotkey keypair
 - call the backend (`backend_url`) for a presigned upload URL
 - upload the artifact to the vault
-<!-- TODO: do we want to keep this> -->
-<!-- - write a `submission_<ID>_commit.json` file with the on-chain payload (submission id, hash, size) -->
 
 Ensure your `miner.toml` contains:
 

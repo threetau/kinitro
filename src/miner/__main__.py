@@ -183,16 +183,6 @@ def handle_upload_command(config: MinerConfig) -> None:
         if submission_id is None:
             logger.warning("Backend did not return submission ID in commit payload")
 
-        # TODO: do we want to keep this?
-        # commit_file = submission_dir / f"submission_{submission_id}_commit.json"
-        # try:
-        #     commit_file.write_text(
-        #         json.dumps(commit_payload, indent=2), encoding="utf-8"
-        #     )
-        #     logger.info("Saved commit payload to %s", commit_file)
-        # except Exception as exc:  # pragma: no cover - filesystem failure
-        #     logger.warning("Failed to write commit payload file: %s", exc)
-
         logger.info("Upload completed successfully!")
         logger.info("Submission ID: %s", submission_id)
         logger.info("Artifact SHA256: %s", artifact_sha256)
