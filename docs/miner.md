@@ -33,7 +33,7 @@ This command will:
 
 Ensure your `miner.toml` contains:
 
-- `backend_url`: e.g. `http://localhost:8080`
+- `backend_url`: e.g. `https://api.kinitro.ai`
 - `submission_dir`: path to your agent package
 - wallet/hotkey configuration (used for signing)
 - optional `holdout_seconds` if you want to override the default private window

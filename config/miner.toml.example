@@ -6,7 +6,7 @@ wallet_name = "default"
 hotkey_name = "default"
 
 # Backend API used for requesting upload slots and reporting results
-backend_url = "http://localhost:8080"
+backend_url = "https://api.kinitro.ai"
 
 # Submission configuration
 submission_dir = "./evaluator/submissions/default_submission"
