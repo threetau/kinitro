@@ -7,33 +7,32 @@ section: Core Concepts
 Kinitro incentivizes the emergence of agents that can conquer various tasks across different environments. Miners publish agents to compete, validators peform rollouts and evaluate the agents, and reward miners based on the results. All this happens in real-time and can easily be viewed by anyone through our [dashboard](https://kinitro.ai/dashboard).
 
 ## Platform Flow
-1. **Submission** – A miner uploads an agent to Hugging Face and publishes a commitment on the Bittensor chain.
-2. **Ingestion** – The backend monitors the chain, records new submissions, and schedules evaluation jobs.
-3. **Distribution** – Validators connect to the backend over WebSockets, receive jobs, and persist them to a durable queue.
-4. **Evaluation** – The evaluation orchestrator pulls queued jobs, spins up submission containers, runs Ray rollout workers, and logs every episode.
-5. **Results & Incentives** – Validators forward metrics back to the backend, which stores them, emits realtime updates, and computes miner scores for weight broadcasts.
+1. **Submission** – The miner CLI packages the agent, requests a presigned upload slot from the backend, pushes the archive directly to the private vault, and commits the submission ID on Bittensor.
+2. **Ingestion** – The backend ties the chain commitment to the uploaded artifact, records the submission with its hold-out window, and schedules evaluation jobs.
+3. **Distribution** – Validators connect via WebSocket, receive jobs (including signed artifact URLs) and queue them for execution.
+4. **Evaluation** – The orchestrator launches a Kubernetes pod per submission, Ray rollout workers evaluate the agent via RPC, and telemetry is logged.
+5. **Results & Incentives** – Validators stream results back to the backend, which stores metrics, emits realtime updates, and periodically computes scores/weights. Once the hold-out expires, the backend issues time-limited release URLs for public access.
 
 ## System Architecture
 
 ```mermaid
-flowchart LR
+flowchart TD
 
   %% External systems
   subgraph EXT[External]
     BT([Bittensor]):::external
-    HF([Hugging Face]):::external
-    R2([R2 Storage]):::external
+    R2([Private Vault - S3-Compatible]):::external
   end
 
   %% Core systems
   subgraph MNR[Miner]
-    MIN["Miner"]:::miner
+    MIN["Miner CLI"]:::miner
   end
   subgraph BE[Backend]
     BEC["Backend Service"]:::backend
   end
   subgraph VAL[Validator]
-    VALN["Validator"]:::validator
+    VALN["Validator Node"]:::validator
   end
   subgraph EVAL[Evaluator]
     EVN["Evaluator Cluster"]:::evaluator
@@ -42,18 +41,24 @@ flowchart LR
     CLN["Dashboards / Tools"]:::clients
   end
 
-  %% Simplified flows
-  MIN -- "Commit metadata" --> BT
-  MIN -- "Upload model" --> HF
-  MIN -- "Store logs" --> R2
+  %% Submission + hold-out
+  MIN -- "request upload + presign" --> BEC
+  BEC -- "presigned PUT" --> MIN
+  MIN -- "upload artifact" --> R2
+  MIN -- "commit submission id" --> BT
+  BEC -- "monitor commitments" --> BT
+  BEC -- "link upload & create jobs" --> VALN
 
-  BEC -- "Create jobs" --> VALN
-  VALN -- "Dispatch eval" --> EVN
-  EVN -- "Results" --> VALN
-  VALN -- "Report results" --> BEC
+  %% Evaluation loop
+  VALN -- "dispatch eval" --> EVN
+  EVN -- "download via presigned GET" --> R2
+  EVN -- "results" --> VALN
+  VALN -- "report results" --> BEC
 
-  BEC -- "Broadcast updates" --> CLN
-  BEC -- "Set weights" --> BT
+  %% Outputs
+  BEC -- "broadcast updates" --> CLN
+  BEC -- "weight updates" --> BT
+  BEC -- "release presigned URL on hold-out expiry" --> CLN
 
   %% Styles
   classDef external fill:#0288d1,stroke:#01579b,color:#fff
@@ -64,11 +69,46 @@ flowchart LR
   classDef clients fill:#64748b,stroke:#334155,color:#fff
 ```
 
+## Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant MinerCLI
+    participant BackendAPI
+    participant SubmissionStorage as S3 Vault
+    participant Chain
+    participant ValidatorOrchestrator as Validator Orchestrator
+    participant K8sPod as Evaluation Pod
+    participant ReleaseTask as Hold-out Release Task
+
+    MinerCLI->>BackendAPI: POST /submissions/request-upload<br/>(signed payload)
+    BackendAPI-->>MinerCLI: Presigned PUT URL + submission_id
+    MinerCLI->>SubmissionStorage: PUT submission.tar.gz (presigned)
+    MinerCLI->>Chain: Commit (provider=R2, submission_id, comp_id)
+
+    BackendAPI->>BackendAPI: Match commitment with upload<br/>create MinerSubmission + jobs
+    BackendAPI->>ValidatorOrchestrator: Broadcast EvalJobMessage (artifact URL, hash, holdout info)
+
+    ValidatorOrchestrator->>K8sPod: Launch pod (init + runner)
+    K8sPod->>SubmissionStorage: GET submission.tar.gz (presigned)
+    K8sPod->>ValidatorOrchestrator: RPC evaluation results
+    ValidatorOrchestrator->>BackendAPI: EvalResultMessage & status updates
+    BackendAPI->>BackendAPI: Store metrics, update job status
+
+    loop periodic
+        ReleaseTask->>BackendAPI: Scan for expired hold-outs
+        BackendAPI->>SubmissionStorage: Presign release GET URL
+        BackendAPI->>ReleaseTask: Save release URL + expiry
+    end
+
+```
+
 ## Component Responsibilities
 
 **Backend Service**
-- **FastAPI REST / Admin**: Hosts competition CRUD, submission views, stats, validator management, and WebSocket endpoints.
-- **Chain Monitor & Scheduler**: Tracks Bittensor commitments, turns them into `BackendEvaluationJob` records, and watches for stale jobs.
+- **FastAPI REST / Admin**: Hosts competition CRUD, submission uploads, stats, validator management, and WebSocket endpoints.
+- **Chain Monitor & Scheduler**: Tracks Bittensor commitments, ties them to uploaded artifacts, creates `BackendEvaluationJob` records, and watches for stale work.
+- **Hold-out & Vault Manager**: Issues presigned URLs for uploads and releases, enforces per-competition hold-out windows, and keeps artifacts private until expiry.
 - **Realtime Broadcaster**: Manages client subscriptions and pushes structured events such as job updates, episode completions, and live stats.
 - **Scoring & Weight Engine**: Periodically recalculates miner scores and pushes weight updates back to validators for on-chain emission.
 - **Backend PostgreSQL**: Source of truth for competitions, submissions, jobs, job status, results, stats, and validator connections.
@@ -85,7 +125,7 @@ flowchart LR
 - **Episode Logger**: Captures per-episode and per-step data, uploads media to R2, and enqueues telemetry for validator forwarding.
 
 **Miner Tooling**
-- **Miner CLI**: Packages models, uploads to Hugging Face, and notarizes commitments on-chain so the backend can discover them.
+- **Miner CLI**: Packages submissions, requests vault upload slots, pushes artifacts directly to the backend-controlled storage, and notarizes submissions on-chain.
 
 **Real-time Clients**
 - Subscribe to the backend’s public WebSocket endpoint to monitor competitions, validator connectivity, and evaluation progress live.
