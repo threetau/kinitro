@@ -1,16 +1,18 @@
 """
-R2 storage client for managing observation data uploads.
+S3 storage client for managing observation data uploads.
 
 This module provides utilities for uploading episode observations
-(images, etc.) to Cloudflare R2 or S3-compatible storage.
+(images, etc.) to S3-compatible storage.
 """
 
 import io
 import logging
+import os
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import boto3
+import dotenv
 import numpy as np
 from botocore.exceptions import ClientError
 from PIL import Image
@@ -18,11 +20,12 @@ from PIL import Image
 from core.constants import PRESIGN_EXPIRY, ImageFormat
 
 logger = logging.getLogger(__name__)
+dotenv.load_dotenv()
 
 
 @dataclass
-class R2Config:
-    """Configuration for R2/S3-compatible storage client."""
+class S3Config:
+    """Configuration for S3-compatible storage client."""
 
     endpoint_url: str
     access_key_id: str
@@ -32,19 +35,42 @@ class R2Config:
     public_url_base: Optional[str] = None  # Base URL for public access if configured
 
 
-class R2StorageClient:
-    """Client for uploading observations to R2/S3-compatible storage."""
+def load_s3_config(self) -> Optional[S3Config]:
+    """Load S3 configuration for submission vault from environment variables."""
+    endpoint_url = os.environ.get("S3_ENDPOINT_URL")
+    access_key_id = os.environ.get("S3_ACCESS_KEY_ID")
+    secret_access_key = os.environ.get("S3_SECRET_ACCESS_KEY")
+    bucket_name = os.environ.get("S3_BUCKET_NAME")
+    region = os.environ.get("S3_REGION", "auto")
+    public_url_base = os.environ.get("S3_PUBLIC_URL_BASE")
 
-    def __init__(self, config: R2Config):
-        """Initialize R2 storage client.
+    if not all([endpoint_url, access_key_id, secret_access_key, bucket_name]):
+        logger.warning("S3 credentials missing; direct submission uploads are disabled")
+        return None
+
+    return S3Config(
+        endpoint_url=endpoint_url,
+        access_key_id=access_key_id,
+        secret_access_key=secret_access_key,
+        bucket_name=bucket_name,
+        region=region,
+        public_url_base=public_url_base,
+    )
+
+
+class S3StorageClient:
+    """Client for uploading observations to S3-compatible storage."""
+
+    def __init__(self, config: S3Config):
+        """Initialize S3 storage client.
 
         Args:
-            config: R2 configuration with credentials and bucket info
+            config: S3 configuration with credentials and bucket info
         """
         self.config = config
         self.bucket_name = config.bucket_name
 
-        # Initialize S3 client with R2 endpoint
+        # Initialize S3 client with endpoint
         self.s3_client = boto3.client(
             "s3",
             endpoint_url=config.endpoint_url,
@@ -60,7 +86,9 @@ class R2StorageClient:
         """Verify that the configured bucket exists."""
         try:
             self.s3_client.head_bucket(Bucket=self.bucket_name)
-            logger.info(f"Successfully connected to R2 bucket: {self.bucket_name}")
+            logger.info(
+                f"Successfully connected to S3-compatible bucket: {self.bucket_name}"
+            )
         except ClientError as e:
             error_code = e.response["Error"]["Code"]
             if error_code == "404":
@@ -80,7 +108,7 @@ class R2StorageClient:
         camera_name: str = "default",
         fmt: ImageFormat = ImageFormat.PNG,
     ) -> Dict[str, str]:
-        """Upload a single observation image to R2.
+        """Upload a single observation image to S3-compatible storage.
 
         Args:
             image: Image array in HWC format (Height, Width, Channels)
@@ -108,7 +136,7 @@ class R2StorageClient:
             pil_image.save(buffer, format=fmt.upper())
             buffer.seek(0)
 
-            # Upload to R2
+            # Upload to S3-compatible storage
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=key,

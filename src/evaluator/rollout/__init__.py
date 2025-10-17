@@ -11,7 +11,7 @@ from ray.util.queue import Queue
 
 from core.db.models import SnowflakeId
 from core.log import get_logger
-from core.storage import R2Config
+from core.storage import S3Config
 
 from ..rpc.rpc_process import PGQ_TIMEOUT, RPCRequest
 from .envs import BenchmarkSpec, EnvManager, EnvResult, EnvSpec, EpisodeResult
@@ -52,7 +52,7 @@ class RolloutCluster:
         submission_container_host: str,
         submission_container_port: int,
         submission_id: SnowflakeId | None = None,
-        r2_config: Optional[R2Config] = None,
+        s3_config: Optional[S3Config] = None,
         episode_log_interval: int = 1,
         step_log_interval: int = 1,
         database_url: Optional[str] = None,
@@ -67,7 +67,7 @@ class RolloutCluster:
             submission_container_host,
             submission_container_port,
             submission_id,
-            r2_config,
+            s3_config,
             episode_log_interval,
             step_log_interval,
             database_url,
@@ -109,7 +109,7 @@ class RolloutWorker:
         submission_container_host: str,
         submission_container_port: int,
         submission_id: SnowflakeId | None = None,
-        r2_config: Optional[R2Config] = None,
+        s3_config: Optional[S3Config] = None,
         episode_log_interval: int = 1,
         step_log_interval: int = 1,
         database_url: Optional[str] = None,
@@ -134,7 +134,7 @@ class RolloutWorker:
         # Episode logging configuration
         self.episode_log_interval = episode_log_interval
         self.step_log_interval = step_log_interval
-        self.r2_config = r2_config
+        self.s3_config = s3_config
         self.database_url = database_url
         self.episode_loggers: Dict[str, EpisodeLogger] = {}
         self._global_episode_counter = 1
@@ -292,8 +292,8 @@ class RolloutWorker:
         logging_config = LoggingConfig(
             episode_log_interval=self.episode_log_interval,
             step_log_interval=self.step_log_interval,
-            enable_r2_upload=self.r2_config is not None,
-            r2_config=self.r2_config,
+            enable_s3_upload=self.s3_config is not None,
+            s3_config=self.s3_config,
             database_url=self.database_url,
         )
 

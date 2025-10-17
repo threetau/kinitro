@@ -18,12 +18,12 @@ The evaluator executes benchmarks for each miner submission. It is responsible f
 6. Once all benchmarks finish, the worker assembles aggregate metrics (success rate, average reward, total episodes) that feed into the orchestrator’s result payload.
 
 ## Storage and Artifacts
-- **Cloudflare R2 / S3** – Image observations and other heavy artifacts upload through the logger’s executor so the backend can serve signed URLs later.
+- **S3 Storage** – Image observations and other heavy artifacts upload through the logger’s executor so the backend can serve signed URLs later.
 - **Validator database** – Results and telemetry are queued to the validator Postgres instance so that validator and backend connectivity issues do not drop data.
 
 ## Configuration Highlights
 - `episode_log_interval` and `step_log_interval` control how frequently detailed telemetry is enqueued (`config/evaluator.toml.example`).
 - `max_concurrent_jobs` guards resource usage when multiple evaluations are queued concurrently.
-- `r2_config` includes bucket credentials used for artifact uploads.
+- `s3_config` includes bucket credentials used for artifact uploads.
 
 See the [orchestrator guide](orchestrator.md) for how jobs arrive and are scheduled.

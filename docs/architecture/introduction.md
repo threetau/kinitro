@@ -21,7 +21,7 @@ flowchart TD
   %% External systems
   subgraph EXT[External]
     BT([Bittensor]):::external
-    R2([Private Vault - S3-Compatible]):::external
+    S3([Private Vault - S3-Compatible]):::external
   end
 
   %% Core systems
@@ -44,14 +44,14 @@ flowchart TD
   %% Submission + hold-out
   MIN -- "request upload + presign" --> BEC
   BEC -- "presigned PUT" --> MIN
-  MIN -- "upload artifact" --> R2
+  MIN -- "upload artifact" --> S3
   MIN -- "commit submission id" --> BT
   BEC -- "monitor commitments" --> BT
   BEC -- "link upload & create jobs" --> VALN
 
   %% Evaluation loop
   VALN -- "dispatch eval" --> EVN
-  EVN -- "download via presigned GET" --> R2
+  EVN -- "download via presigned GET" --> S3
   EVN -- "results" --> VALN
   VALN -- "report results" --> BEC
 
@@ -84,7 +84,7 @@ sequenceDiagram
     MinerCLI->>BackendAPI: POST /submissions/request-upload<br/>(signed payload)
     BackendAPI-->>MinerCLI: Presigned PUT URL + submission_id
     MinerCLI->>SubmissionStorage: PUT submission.tar.gz (presigned)
-    MinerCLI->>Chain: Commit (provider=R2, submission_id, comp_id)
+    MinerCLI->>Chain: Commit (provider=S3, submission_id, comp_id)
 
     BackendAPI->>BackendAPI: Match commitment with upload<br/>create MinerSubmission + jobs
     BackendAPI->>ValidatorOrchestrator: Broadcast EvalJobMessage (artifact URL, hash, holdout info)
@@ -122,7 +122,7 @@ sequenceDiagram
 - **Evaluator Orchestrator**: Listens to the pgqueuer queue, enforces concurrency caps, and coordinates job lifecycles.
 - **Submission Pods**: Kubernetes pods created per submission to run miner containers in isolation.
 - **Ray Rollout Workers**: Execute benchmark episodes, communicate with submission pods via RPC, and track success metrics.
-- **Episode Logger**: Captures per-episode and per-step data, uploads media to R2, and enqueues telemetry for validator forwarding.
+- **Episode Logger**: Captures per-episode and per-step data, uploads media to S3-compatible storage, and enqueues telemetry for validator forwarding.
 
 **Miner Tooling**
 - **Miner CLI**: Packages submissions, requests vault upload slots, pushes artifacts directly to the backend-controlled storage, and notarizes submissions on-chain.

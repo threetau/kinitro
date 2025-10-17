@@ -76,7 +76,7 @@ from core.messages import (
     SetWeightsMessage,
 )
 from core.schemas import ChainCommitmentResponse, ModelProvider
-from core.storage import R2Config
+from core.storage import load_s3_config
 
 from .config import BackendConfig
 from .models import (
@@ -146,10 +146,10 @@ class BackendService:
             )
         )
 
-        self.r2_config = self._load_r2_config()
-        logger.debug(f"R2 Config: {self.r2_config}")
+        self.s3_config = load_s3_config()
+        logger.debug(f"S3 Config: {self.s3_config}")
         self.submission_storage: Optional[SubmissionStorage] = (
-            SubmissionStorage(self.r2_config) if self.r2_config else None
+            SubmissionStorage(self.s3_config) if self.s3_config else None
         )
 
         # Chain connection objects
@@ -184,31 +184,6 @@ class BackendService:
 
         # Thread pool for blocking operations
         self.thread_pool = ThreadPoolExecutor(max_workers=MAX_WORKERS)
-
-    # TODO: rename this to _load_s3_config
-    def _load_r2_config(self) -> Optional[R2Config]:
-        """Load R2 configuration for submission vault from environment variables."""
-        endpoint_url = os.environ.get("S3_ENDPOINT_URL")
-        access_key_id = os.environ.get("S3_ACCESS_KEY_ID")
-        secret_access_key = os.environ.get("S3_SECRET_ACCESS_KEY")
-        bucket_name = os.environ.get("S3_BUCKET_NAME")
-        region = os.environ.get("S3_REGION", "auto")
-        public_url_base = os.environ.get("S3_PUBLIC_URL_BASE")
-
-        if not all([endpoint_url, access_key_id, secret_access_key, bucket_name]):
-            logger.warning(
-                "S3 credentials missing; direct submission uploads are disabled"
-            )
-            return None
-
-        return R2Config(
-            endpoint_url=endpoint_url,
-            access_key_id=access_key_id,
-            secret_access_key=secret_access_key,
-            bucket_name=bucket_name,
-            region=region,
-            public_url_base=public_url_base,
-        )
 
     @staticmethod
     def verify_hotkey_signature(
@@ -1149,8 +1124,8 @@ class BackendService:
 
             provider = getattr(commitment.data, "provider", None)
 
-            if provider == ModelProvider.R2:
-                await self._process_r2_commitment(
+            if provider == ModelProvider.S3:
+                await self._process_s3_commitment(
                     commitment,
                     block_num,
                     active_competitions[competition_id],
@@ -1165,7 +1140,7 @@ class BackendService:
         except Exception as exc:
             logger.error("Failed to process commitment: %s", exc)
 
-    async def _process_r2_commitment(
+    async def _process_s3_commitment(
         self,
         commitment: ChainCommitmentResponse,
         block_num: int,
@@ -1175,7 +1150,7 @@ class BackendService:
 
         if not self.submission_storage:
             logger.error(
-                "Submission storage not configured; cannot process R2 commitment"
+                "Submission storage not configured; cannot process S3 commitment"
             )
             return
 
@@ -1276,7 +1251,7 @@ class BackendService:
                 id=submission_id,
                 miner_hotkey=commitment.hotkey,
                 competition_id=competition.id,
-                hf_repo_id=f"r2:{submission_id}",
+                hf_repo_id=f"s3:{submission_id}",
                 version=upload.version,
                 commitment_block=block_num,
                 artifact_object_key=upload.artifact_object_key,
@@ -1362,7 +1337,7 @@ class BackendService:
             await self._broadcast_stats_update()
 
             logger.info(
-                "Processed R2 submission %s from miner %s",
+                "Processed S3 submission %s from miner %s",
                 submission_id,
                 commitment.hotkey,
             )

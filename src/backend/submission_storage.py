@@ -1,7 +1,7 @@
 """
 Submission storage helpers for the direct vault upload workflow.
 
-This module provides thin wrappers around an S3-compatible (Cloudflare R2)
+This module provides thin wrappers around an S3-compatible (e.g. Cloudflare R2)
 bucket so the backend can mint presigned upload/download URLs, check artifact
 metadata, and manage lifecycle events for miner submissions.
 """
@@ -16,7 +16,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from core.log import get_logger
-from core.storage import R2Config
+from core.storage import S3Config
 
 logger = get_logger(__name__)
 
@@ -45,9 +45,9 @@ class ArtifactMetadata:
 
 
 class SubmissionStorage:
-    """Manage submission artifacts stored in R2."""
+    """Manage submission artifacts stored in S3-compatible storage."""
 
-    def __init__(self, config: R2Config, prefix: str = "submissions") -> None:
+    def __init__(self, config: S3Config, prefix: str = "submissions") -> None:
         self.config = config
         self.bucket_name = config.bucket_name
         self.prefix = prefix.rstrip("/")

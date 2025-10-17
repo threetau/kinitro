@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 class ModelProvider(StrEnum):
     HF = "HF"  # Hugging Face
-    R2 = "R2"  # Direct vault (Cloudflare R2 or S3-compatible)
+    S3 = "S3"  # Direct vault (S3-compatible)
 
 
 class ChainCommitment(BaseModel):

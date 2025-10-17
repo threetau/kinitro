@@ -1,8 +1,8 @@
 """
-Episode and step logging system with R2 storage integration.
+Episode and step logging system with S3 storage integration.
 
 This module provides utilities for logging episode data and step-level
-observations to both database and R2 storage with configurable intervals.
+observations to both database and S3 storage with configurable intervals.
 """
 
 import asyncio
@@ -26,7 +26,7 @@ from pgqueuer.db import AsyncpgDriver
 
 from core.constants import ImageFormat
 from core.messages import EpisodeDataMessage, EpisodeStepDataMessage
-from core.storage import R2Config, R2StorageClient
+from core.storage import S3Config, S3StorageClient
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +58,8 @@ class LoggingConfig:
     step_log_interval: int = 10  # Log every N steps within an episode
 
     # Storage configuration
-    enable_r2_upload: bool = True
-    r2_config: Optional[R2Config] = None
+    enable_s3_upload: bool = True
+    s3_config: Optional[S3Config] = None
 
     # Local storage fallback
     local_save_dir: Optional[Path] = None
@@ -74,7 +74,7 @@ class LoggingConfig:
 
 @dataclass
 class EpisodeLogger:
-    """Logger for episode and step data with R2 integration."""
+    """Logger for episode and step data with S3 integration."""
 
     config: LoggingConfig
     submission_id: str
@@ -90,7 +90,7 @@ class EpisodeLogger:
         default_factory=list, init=False
     )
     _current_episode_start: Optional[datetime] = field(default=None, init=False)
-    _storage_client: Optional[R2StorageClient] = field(default=None, init=False)
+    _storage_client: Optional[S3StorageClient] = field(default=None, init=False)
 
     # Background upload system
     _upload_executor: Optional[ThreadPoolExecutor] = field(default=None, init=False)
@@ -101,17 +101,17 @@ class EpisodeLogger:
     _db_pool: Optional[asyncpg.Pool] = field(default=None, init=False)
 
     def __post_init__(self):
-        """Initialize storage client and upload executor if R2 is enabled."""
-        if self.config.enable_r2_upload and self.config.r2_config:
+        """Initialize storage client and upload executor if S3 is enabled."""
+        if self.config.enable_s3_upload and self.config.s3_config:
             try:
-                self._storage_client = R2StorageClient(self.config.r2_config)
+                self._storage_client = S3StorageClient(self.config.s3_config)
                 # Create thread pool for background uploads
                 self._upload_executor = ThreadPoolExecutor(
-                    max_workers=MAX_UPLOAD_WORKERS, thread_name_prefix="r2_upload"
+                    max_workers=MAX_UPLOAD_WORKERS, thread_name_prefix="s3_upload"
                 )
-                logger.info("R2 storage client initialized with background upload pool")
+                logger.info("S3 storage client initialized with background upload pool")
             except Exception as e:
-                logger.error(f"Failed to initialize R2 storage: {e}")
+                logger.error(f"Failed to initialize S3 storage: {e}")
                 logger.warning("Falling back to local storage only")
                 self._storage_client = None
                 self._upload_executor = None
@@ -304,7 +304,7 @@ class EpisodeLogger:
         episode_id: int,
         step: int,
     ) -> Dict[str, Dict[str, str]]:
-        """Synchronously upload observations to R2.
+        """Synchronously upload observations to S3.
 
         This is called in a background thread by _upload_observations_async.
 

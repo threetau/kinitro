@@ -299,7 +299,7 @@ async def request_submission_upload(
         ) from exc
 
     commit_payload = {
-        "provider": ModelProvider.R2.value,
+        "provider": ModelProvider.S3.value,
         "submission_id": str(upload_record.submission_id),
         "artifact_sha256": upload_record.artifact_sha256,
         "artifact_size_bytes": upload_record.artifact_size_bytes,

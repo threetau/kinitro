@@ -214,7 +214,7 @@ def handle_commit_command(config: MinerConfig) -> None:
     submission_id = str(submission_id).strip()
 
     commit_data = ChainCommitment(
-        provider=ModelProvider.R2,
+        provider=ModelProvider.S3,
         repo_id=str(submission_id),
         comp_id=competition_id,
     )
