@@ -35,7 +35,7 @@ class S3Config:
     public_url_base: Optional[str] = None  # Base URL for public access if configured
 
 
-def load_s3_config(self) -> Optional[S3Config]:
+def load_s3_config() -> Optional[S3Config]:
     """Load S3 configuration for submission vault from environment variables."""
     endpoint_url = os.environ.get("S3_ENDPOINT_URL")
     access_key_id = os.environ.get("S3_ACCESS_KEY_ID")
