@@ -56,7 +56,6 @@ def _build_signature_message(
     artifact_sha256: str,
     artifact_size_bytes: int,
     timestamp: int,
-    holdout_seconds: Optional[int],
 ) -> bytes:
     parts = [
         hotkey,
@@ -66,8 +65,6 @@ def _build_signature_message(
         str(artifact_size_bytes),
         str(timestamp),
     ]
-    if holdout_seconds is not None:
-        parts.append(str(holdout_seconds))
     return "|".join(parts).encode("utf-8")
 
 
@@ -122,9 +119,6 @@ def handle_upload_command(config: MinerConfig) -> None:
     if not version:
         version = f"v-{int(time.time())}"
 
-    holdout_seconds = config.settings.get("holdout_seconds")
-    holdout_seconds = int(holdout_seconds) if holdout_seconds is not None else None
-
     logger.info("Packaging submission from %s", submission_dir)
     artifact_path, artifact_size_bytes, artifact_sha256 = _package_submission(
         submission_dir
@@ -147,7 +141,6 @@ def handle_upload_command(config: MinerConfig) -> None:
         artifact_sha256,
         artifact_size_bytes,
         timestamp,
-        holdout_seconds,
     )
     signature_hex = "0x" + keypair.sign(message).hex()
 
@@ -160,8 +153,6 @@ def handle_upload_command(config: MinerConfig) -> None:
         "hotkey": miner_hotkey,
         "signature": signature_hex,
     }
-    if holdout_seconds is not None:
-        payload["holdout_seconds"] = holdout_seconds
 
     try:
         logger.info("Requesting presigned upload URL from backend...")
@@ -187,7 +178,6 @@ def handle_upload_command(config: MinerConfig) -> None:
         logger.info("Submission ID: %s", submission_id)
         logger.info("Artifact SHA256: %s", artifact_sha256)
         logger.info("Artifact size bytes: %s", artifact_size_bytes)
-        logger.info("Hold-out seconds: %s", response_data.get("holdout_seconds"))
         logger.info(
             "To commit this submission, run:\n  uv run python -m miner commit --submission-id %s",
             submission_id,

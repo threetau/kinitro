@@ -12,7 +12,6 @@ backend_url = "https://api.kinitro.ai"
 submission_dir = "./evaluator/submissions/default_submission"
 # Optional: uncomment to override auto-generated version or hold-out window
 # submission_version = "v1"
-# holdout_seconds = 3600
 
 # Chosen competition ID
 competition_id = "your-chosen-competition-id"

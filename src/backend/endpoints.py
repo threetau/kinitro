@@ -4,13 +4,14 @@ import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from fastapi import (
-    Depends,
+    Body,
     FastAPI,
     HTTPException,
     Query,
+    Request,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -21,12 +22,11 @@ from sqlalchemy import func, select
 
 from backend.auth import (
     UserRole,
-    create_auth_dependency,
-    create_role_dependencies,
     generate_api_key,
     get_api_key_from_db,
     hash_api_key,
 )
+from backend.auth_middleware import AdminAuthMiddleware, ApiAuthMiddleware, admin_route
 from backend.constants import (
     DEFAULT_PAGE_LIMIT,
     MAX_PAGE_LIMIT,
@@ -41,8 +41,12 @@ from backend.events import (
     ValidatorDisconnectedEvent,
 )
 from backend.realtime import event_broadcaster
-from backend.service import BackendService
-from core import __version__ as VERSION
+from backend.service import (
+    BackendService,
+    LeaderCandidateAlreadyReviewedError,
+    LeaderCandidateNotFoundError,
+)
+from core import __version__ as VERSION  # noqa: N812
 from core.db.models import EvaluationStatus, SnowflakeId
 from core.log import get_logger
 from core.messages import (
@@ -68,12 +72,16 @@ from .models import (
     BackendStatsResponse,
     Competition,
     CompetitionCreateRequest,
+    CompetitionLeaderCandidate,
+    CompetitionLeaderCandidateResponse,
     CompetitionResponse,
     EpisodeData,
     EpisodeStepData,
     EvaluationResultResponse,
     JobResponse,
     JobStatusResponse,
+    LeaderCandidateReviewRequest,
+    LeaderCandidateStatus,
     MinerSubmission,
     MinerSubmissionResponse,
     ValidatorConnection,
@@ -91,7 +99,6 @@ class SubmissionUploadRequest(BaseModel):
     timestamp: int = Field(ge=0)
     hotkey: str
     signature: str
-    holdout_seconds: Optional[int] = None
 
     @field_validator("competition_id")
     @classmethod
@@ -142,7 +149,6 @@ class SubmissionUploadResponse(BaseModel):
     expires_at: datetime
     headers: Dict[str, str]
     object_key: str
-    holdout_seconds: int
     artifact_sha256: str
     artifact_size_bytes: int
     commit_payload: Dict[str, Any]
@@ -157,20 +163,12 @@ def _build_submission_upload_message(payload: SubmissionUploadRequest) -> bytes:
         str(payload.artifact_size_bytes),
         str(payload.timestamp),
     ]
-    if payload.holdout_seconds is not None:
-        parts.append(str(payload.holdout_seconds))
     return "|".join(parts).encode("utf-8")
 
 
 # Create backend service instance
 config = BackendConfig()
 backend_service = BackendService(config)
-
-# Set up authentication dependencies
-get_current_user = create_auth_dependency(backend_service)
-require_admin, require_validator, require_auth = create_role_dependencies(
-    get_current_user
-)
 
 
 @asynccontextmanager
@@ -212,6 +210,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(ApiAuthMiddleware, backend_service=backend_service)
+app.add_middleware(AdminAuthMiddleware)
+
+
+def get_admin_user(request: Request) -> ApiKey:
+    """Return the authenticated admin user set by the middleware."""
+    return cast(ApiKey, request.state.api_user)
 
 
 # ============================================================================
@@ -251,12 +256,6 @@ async def request_submission_upload(
 ) -> SubmissionUploadResponse:
     """Create a presigned upload slot for a miner submission."""
 
-    if payload.holdout_seconds is not None and payload.holdout_seconds < 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="holdout_seconds must be non-negative",
-        )
-
     now = datetime.now(timezone.utc)
     timestamp_dt = datetime.fromtimestamp(payload.timestamp, tz=timezone.utc)
     if abs((now - timestamp_dt).total_seconds()) > SUBMISSION_SIGNATURE_MAX_AGE_SECONDS:
@@ -291,7 +290,6 @@ async def request_submission_upload(
             version=payload.version,
             artifact_sha256=payload.artifact_sha256,
             artifact_size_bytes=payload.artifact_size_bytes,
-            holdout_seconds=payload.holdout_seconds,
         )
     except RuntimeError as exc:
         raise HTTPException(
@@ -313,7 +311,6 @@ async def request_submission_upload(
         expires_at=presigned.expires_at,
         headers=presigned.headers,
         object_key=upload_record.artifact_object_key,
-        holdout_seconds=upload_record.holdout_seconds,
         artifact_sha256=upload_record.artifact_sha256,
         artifact_size_bytes=upload_record.artifact_size_bytes,
         commit_payload=commit_payload,
@@ -382,9 +379,8 @@ async def get_stats() -> BackendStatsResponse:
 
 # Competition endpoints
 @app.post("/competitions", response_model=CompetitionResponse)
-async def create_competition(
-    competition: CompetitionCreateRequest, admin_user: "ApiKey" = Depends(require_admin)
-):
+@admin_route
+async def create_competition(competition: CompetitionCreateRequest):
     """Create a new competition."""
     if not backend_service.async_session:
         raise HTTPException(
@@ -401,7 +397,6 @@ async def create_competition(
             active=True,
             start_time=competition.start_time,
             end_time=competition.end_time,
-            submission_holdout_seconds=competition.submission_holdout_seconds,
         )
 
         session.add(db_competition)
@@ -458,9 +453,8 @@ async def get_competition(competition_id: str):
 
 
 @app.patch("/competitions/{competition_id}/activate")
-async def activate_competition(
-    competition_id: str, admin_user: "ApiKey" = Depends(require_admin)
-):
+@admin_route
+async def activate_competition(competition_id: str):
     """Activate a competition."""
     if not backend_service.async_session:
         raise HTTPException(
@@ -485,9 +479,8 @@ async def activate_competition(
 
 
 @app.patch("/competitions/{competition_id}/deactivate")
-async def deactivate_competition(
-    competition_id: str, admin_user: "ApiKey" = Depends(require_admin)
-):
+@admin_route
+async def deactivate_competition(competition_id: str):
     """Deactivate a competition."""
     if not backend_service.async_session:
         raise HTTPException(
@@ -512,9 +505,8 @@ async def deactivate_competition(
 
 
 @app.delete("/competitions/{competition_id}")
-async def delete_competition(
-    competition_id: str, admin_user: "ApiKey" = Depends(require_admin)
-):
+@admin_route
+async def delete_competition(competition_id: str):
     """Delete a competition (soft delete by deactivating)."""
     if not backend_service.async_session:
         raise HTTPException(
@@ -1050,9 +1042,8 @@ async def get_steps(
 
 
 @app.post("/admin/api-keys", response_model=ApiKeyCreateResponse)
-async def create_api_key(
-    key_request: ApiKeyCreateRequest, admin_user: ApiKey = Depends(require_admin)
-):
+@admin_route
+async def create_api_key(key_request: ApiKeyCreateRequest):
     """Create a new API key (admin only)."""
     # Validate role
     try:
@@ -1103,9 +1094,136 @@ async def create_api_key(
         )
 
 
+@app.get(
+    "/admin/leader-candidates",
+    response_model=List[CompetitionLeaderCandidateResponse],
+)
+@admin_route
+async def list_leader_candidates(
+    competition_id: Optional[str] = Query(None, description="Filter by competition"),
+    status: Optional[LeaderCandidateStatus] = Query(
+        None, description="Filter by review status"
+    ),
+    miner_hotkey: Optional[str] = Query(None, description="Filter by miner hotkey"),
+    limit: int = Query(DEFAULT_PAGE_LIMIT, ge=MIN_PAGE_LIMIT, le=MAX_PAGE_LIMIT),
+    offset: int = Query(0, ge=0),
+):
+    """List leader candidates for review (admin only)."""
+
+    if not backend_service.async_session:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not initialized",
+        )
+
+    async with backend_service.async_session() as session:
+        stmt = select(CompetitionLeaderCandidate).order_by(
+            CompetitionLeaderCandidate.created_at.desc()
+        )
+
+        if competition_id:
+            stmt = stmt.where(
+                CompetitionLeaderCandidate.competition_id == competition_id
+            )
+        if status:
+            stmt = stmt.where(CompetitionLeaderCandidate.status == status)
+        if miner_hotkey:
+            stmt = stmt.where(CompetitionLeaderCandidate.miner_hotkey == miner_hotkey)
+
+        stmt = stmt.offset(offset).limit(limit)
+
+        result = await session.execute(stmt)
+        candidates = result.scalars().all()
+
+        return [
+            CompetitionLeaderCandidateResponse.model_validate(candidate)
+            for candidate in candidates
+        ]
+
+
+@app.post(
+    "/admin/leader-candidates/{candidate_id}/approve",
+    response_model=CompetitionLeaderCandidateResponse,
+)
+@admin_route
+async def approve_leader_candidate(
+    candidate_id: int,
+    request: Request,
+    decision: Optional[LeaderCandidateReviewRequest] = Body(
+        default=None, description="Optional approval notes"
+    ),
+):
+    """Approve a pending leader candidate (admin only)."""
+
+    decision = decision or LeaderCandidateReviewRequest()
+
+    admin_user = get_admin_user(request)
+
+    try:
+        candidate = await backend_service.approve_leader_candidate(
+            candidate_id,
+            admin_user.id,
+            decision.reason,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except LeaderCandidateNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except LeaderCandidateAlreadyReviewedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+
+    return CompetitionLeaderCandidateResponse.model_validate(candidate)
+
+
+@app.post(
+    "/admin/leader-candidates/{candidate_id}/reject",
+    response_model=CompetitionLeaderCandidateResponse,
+)
+@admin_route
+async def reject_leader_candidate(
+    candidate_id: int,
+    request: Request,
+    decision: Optional[LeaderCandidateReviewRequest] = Body(
+        default=None, description="Optional rejection notes"
+    ),
+):
+    """Reject a pending leader candidate (admin only)."""
+
+    decision = decision or LeaderCandidateReviewRequest()
+
+    admin_user = get_admin_user(request)
+
+    try:
+        candidate = await backend_service.reject_leader_candidate(
+            candidate_id,
+            admin_user.id,
+            decision.reason,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except LeaderCandidateNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except LeaderCandidateAlreadyReviewedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+
+    return CompetitionLeaderCandidateResponse.model_validate(candidate)
+
+
 @app.get("/admin/api-keys", response_model=List[ApiKeyResponse])
+@admin_route
 async def list_api_keys(
-    admin_user: ApiKey = Depends(require_admin),
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_LIMIT, ge=MIN_PAGE_LIMIT, le=MAX_PAGE_LIMIT),
 ):
@@ -1127,10 +1245,8 @@ async def list_api_keys(
 
 
 @app.get("/admin/api-keys/{key_id}", response_model=ApiKeyResponse)
-async def get_api_key(
-    key_id: int,
-    admin_user: ApiKey = Depends(require_admin),
-):
+@admin_route
+async def get_api_key(key_id: int):
     """Get a specific API key by ID (admin only)."""
     if not backend_service.async_session:
         raise HTTPException(
@@ -1151,10 +1267,8 @@ async def get_api_key(
 
 
 @app.patch("/admin/api-keys/{key_id}/activate")
-async def activate_api_key(
-    key_id: int,
-    admin_user: ApiKey = Depends(require_admin),
-):
+@admin_route
+async def activate_api_key(key_id: int):
     """Activate an API key (admin only)."""
     if not backend_service.async_session:
         raise HTTPException(
@@ -1178,10 +1292,8 @@ async def activate_api_key(
 
 
 @app.patch("/admin/api-keys/{key_id}/deactivate")
-async def deactivate_api_key(
-    key_id: int,
-    admin_user: ApiKey = Depends(require_admin),
-):
+@admin_route
+async def deactivate_api_key(key_id: int):
     """Deactivate an API key (admin only)."""
     if not backend_service.async_session:
         raise HTTPException(
@@ -1205,10 +1317,8 @@ async def deactivate_api_key(
 
 
 @app.delete("/admin/api-keys/{key_id}")
-async def delete_api_key(
-    key_id: int,
-    admin_user: ApiKey = Depends(require_admin),
-):
+@admin_route
+async def delete_api_key(key_id: int):
     """Delete an API key (admin only)."""
     if not backend_service.async_session:
         raise HTTPException(

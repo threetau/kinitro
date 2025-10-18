@@ -11,7 +11,7 @@ Kinitro incentivizes the emergence of agents that can conquer various tasks acro
 2. **Ingestion** – The backend ties the chain commitment to the uploaded artifact, records the submission with its hold-out window, and schedules evaluation jobs.
 3. **Distribution** – Validators connect via WebSocket, receive jobs (including signed artifact URLs) and queue them for execution.
 4. **Evaluation** – The orchestrator launches a Kubernetes pod per submission, Ray rollout workers evaluate the agent via RPC, and telemetry is logged.
-5. **Results & Incentives** – Validators stream results back to the backend, which stores metrics, emits realtime updates, and periodically computes scores/weights. Once the hold-out expires, the backend issues time-limited release URLs for public access.
+5. **Results & Incentives** – Validators stream results back to the backend, which stores metrics, queues leader candidates for admin approval, emits realtime updates, and recalculates scores/weights once an approved leader exists. After hold-out expiry, the backend issues time-limited release URLs for public access.
 
 ## System Architecture
 
@@ -79,6 +79,7 @@ sequenceDiagram
     participant Chain
     participant ValidatorOrchestrator as Validator Orchestrator
     participant K8sPod as Evaluation Pod
+    participant AdminConsole as Admin Console
     participant ReleaseTask as Hold-out Release Task
 
     MinerCLI->>BackendAPI: POST /submissions/request-upload<br/>(signed payload)
@@ -94,6 +95,9 @@ sequenceDiagram
     K8sPod->>ValidatorOrchestrator: RPC evaluation results
     ValidatorOrchestrator->>BackendAPI: EvalResultMessage & status updates
     BackendAPI->>BackendAPI: Store metrics, update job status
+    BackendAPI->>AdminConsole: Surface pending leader candidates
+    AdminConsole->>BackendAPI: Approve / reject candidate (optional note)
+    BackendAPI->>BackendAPI: Apply approved leader + cache scores
 
     loop periodic
         ReleaseTask->>BackendAPI: Scan for expired hold-outs

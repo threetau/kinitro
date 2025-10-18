@@ -12,7 +12,7 @@ based on the results. All this happens in real-time and can easily be viewed by 
 - **Miners** upload agent artifacts to Hugging Face and notarize them via the Bittensor chain. Use the [miner guide](./miner.md) to configure packaging, uploading, and on-chain commits.
 - **Validators** maintain a websocket connection to the backend, persist jobs in pgqueuer, and relay results and episode logs. Follow the [validator guide](./validator/validator.md) for environment setup and operations.
 - **Evaluator operators** run the Ray orchestrator that spins up submission containers, executes benchmarks, and logs telemetry. See the [evaluator architecture notes](./architecture/evaluator.md) for details.
-- **Backend operators** deploy the FastAPI service that monitors the chain, schedules jobs, and emits realtime updates. The [project README](../README.md) covers setup and runtime commands.
+- **Backend operators** deploy the FastAPI service that monitors the chain, schedules jobs, emits realtime updates, and approve pending leader candidates before new rewards go live. The [project README](../README.md) covers setup and runtime commands.
 
 ## Learn the Architecture
 Start with the [architecture introduction](./architecture/introduction.md) for a system-level diagram and data flow. Then dive into specific components:

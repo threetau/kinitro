@@ -9,7 +9,6 @@ This provides REST API endpoints and WebSocket connections for:
 """
 
 import asyncio
-import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -34,7 +33,6 @@ from backend.constants import (
     CHAIN_SCAN_YIELD_INTERVAL,
     DEFAULT_CHAIN_SYNC_INTERVAL,
     DEFAULT_MAX_COMMITMENT_LOOKBACK,
-    DEFAULT_SUBMISSION_HOLDOUT_SECONDS,
     EVAL_JOB_TIMEOUT,
     HEARTBEAT_INTERVAL,
     HOLDOUT_RELEASE_SCAN_INTERVAL,
@@ -85,6 +83,8 @@ from .models import (
     BackendEvaluationResult,
     BackendState,
     Competition,
+    CompetitionLeaderCandidate,
+    LeaderCandidateStatus,
     MinerSubmission,
     SS58Address,
     SubmissionUpload,
@@ -97,6 +97,18 @@ dotenv.load_dotenv()
 logger = get_logger(__name__)
 
 ConnectionId = str  # Unique ID for each WebSocket connection
+
+
+class LeaderCandidateError(Exception):
+    """Base exception for leader candidate operations."""
+
+
+class LeaderCandidateNotFoundError(LeaderCandidateError):
+    """Raised when a leader candidate cannot be located."""
+
+
+class LeaderCandidateAlreadyReviewedError(LeaderCandidateError):
+    """Raised when attempting to re-review a processed leader candidate."""
 
 
 class BackendService:
@@ -122,12 +134,6 @@ class BackendService:
             "weight_broadcast_interval", WEIGHT_BROADCAST_INTERVAL
         )
 
-        # Submission hold-out configuration
-        self.submission_holdout_seconds = int(
-            config.settings.get(
-                "submission_holdout_seconds", DEFAULT_SUBMISSION_HOLDOUT_SECONDS
-            )
-        )
         self.submission_upload_url_ttl = int(
             config.settings.get(
                 "submission_upload_url_ttl_seconds",
@@ -233,7 +239,6 @@ class BackendService:
         version: str,
         artifact_sha256: str,
         artifact_size_bytes: int,
-        holdout_seconds: Optional[int] = None,
     ) -> tuple[SubmissionUpload, PresignedUpload]:
         """Create a submission upload record and mint an upload URL."""
 
@@ -273,10 +278,7 @@ class BackendService:
             if not competition.active:
                 raise RuntimeError(f"Competition {competition_id} is not active")
 
-            if holdout_seconds is not None:
-                holdout = max(0, int(holdout_seconds))
-            else:
-                holdout = max(0, competition.submission_holdout_seconds)
+            holdout = max(0, competition.submission_holdout_seconds)
 
             existing_submission = await session.execute(
                 select(MinerSubmission).where(
@@ -707,65 +709,144 @@ class BackendService:
 
         return True
 
-    def _determine_competition_winner(
+    async def _queue_leader_candidate(
         self,
+        session: AsyncSession,
         competition: Competition,
-        eligible_miners: List[tuple[str, float]],
-    ) -> tuple[Optional[str], Optional[float]]:
-        """Determine the winner of a competition based on eligible miners."""
-        if not eligible_miners:
-            if competition.current_leader_hotkey:
-                logger.info(
-                    f"Competition {competition.id}: Current leader {competition.current_leader_hotkey} "
-                    f"retains position (no eligible challengers)"
-                )
-                return (
-                    competition.current_leader_hotkey,
-                    competition.current_leader_reward,
-                )
-            logger.info(f"Competition {competition.id}: No eligible miners found")
-            return None, None
+        result: BackendEvaluationResult,
+    ) -> bool:
+        """Persist a leader candidate if not already recorded for this result."""
 
-        # Sort by reward to find best performer
-        eligible_miners.sort(key=lambda x: x[1], reverse=True)
-        best_miner, best_reward = eligible_miners[0]
-
-        # No current leader - best miner becomes first leader
-        if not competition.current_leader_hotkey:
-            logger.info(
-                f"Competition {competition.id}: First leader {best_miner} "
-                f"established with avg_reward={best_reward:.3f}"
+        if result.avg_reward is None:
+            logger.debug(
+                "Skipping leader candidate creation without avg_reward: competition=%s result_id=%s",
+                competition.id,
+                result.id,
             )
-            return best_miner, best_reward
+            return False
 
-        # Check if best miner is already the leader
-        if best_miner == competition.current_leader_hotkey:
-            logger.info(
-                f"Competition {competition.id}: Current leader {best_miner} "
-                f"retains position with avg_reward={best_reward:.3f}"
+        existing_candidate_result = await session.execute(
+            select(CompetitionLeaderCandidate).where(
+                CompetitionLeaderCandidate.evaluation_result_id == result.id
             )
-            return competition.current_leader_hotkey, competition.current_leader_reward
-
-        # Challenger must exceed current leader by win margin
-        required_reward = (competition.current_leader_reward or 0) * (
-            1 + competition.win_margin_pct
         )
-
-        if best_reward > required_reward:
-            logger.info(
-                f"Competition {competition.id}: New leader {best_miner} "
-                f"(avg_reward={best_reward:.3f}) defeats previous leader "
-                f"{competition.current_leader_hotkey} (required={required_reward:.3f})"
+        existing_candidate = existing_candidate_result.scalar_one_or_none()
+        if existing_candidate:
+            logger.debug(
+                "Leader candidate already exists for evaluation result %s (competition=%s)",
+                result.id,
+                competition.id,
             )
-            return best_miner, best_reward
+            return False
 
-        # Current leader retains position
-        logger.info(
-            f"Competition {competition.id}: Current leader {competition.current_leader_hotkey} "
-            f"retains position. Challenger {best_miner} (avg_reward={best_reward:.3f}) "
-            f"didn't exceed required margin {required_reward:.3f}"
+        candidate = CompetitionLeaderCandidate(
+            id=next(self.id_generator),
+            competition_id=competition.id,
+            miner_hotkey=result.miner_hotkey,
+            evaluation_result_id=result.id,
+            avg_reward=result.avg_reward,
+            success_rate=result.success_rate,
+            score=result.score,
+            total_episodes=result.total_episodes,
         )
-        return competition.current_leader_hotkey, competition.current_leader_reward
+        session.add(candidate)
+        return True
+
+    async def approve_leader_candidate(
+        self,
+        candidate_id: int,
+        admin_api_key_id: int,
+        reason: Optional[str] = None,
+    ) -> CompetitionLeaderCandidate:
+        """Approve a pending leader candidate and promote them to current leader."""
+
+        if not self.async_session:
+            raise RuntimeError("Database not initialized")
+
+        async with self.async_session() as session:
+            candidate = await session.get(CompetitionLeaderCandidate, candidate_id)
+            if not candidate:
+                raise LeaderCandidateNotFoundError(
+                    f"Leader candidate {candidate_id} not found"
+                )
+
+            if candidate.status != LeaderCandidateStatus.PENDING:
+                raise LeaderCandidateAlreadyReviewedError(
+                    f"Leader candidate {candidate_id} has already been reviewed"
+                )
+
+            competition = await session.get(Competition, candidate.competition_id)
+            if not competition:
+                raise LeaderCandidateNotFoundError(
+                    f"Competition {candidate.competition_id} not found for candidate"
+                )
+
+            now = datetime.now(timezone.utc)
+
+            candidate.status = LeaderCandidateStatus.APPROVED
+            candidate.status_reason = reason
+            candidate.reviewed_by_api_key_id = admin_api_key_id
+            candidate.reviewed_at = now
+
+            competition.current_leader_hotkey = candidate.miner_hotkey
+            competition.current_leader_reward = candidate.avg_reward
+            competition.leader_updated_at = now
+
+            await session.commit()
+            await session.refresh(candidate)
+
+        try:
+            await self._broadcast_stats_update()
+        except Exception as exc:
+            logger.error(
+                "Failed to broadcast stats after leader candidate approval: %s",
+                exc,
+            )
+
+        return candidate
+
+    async def reject_leader_candidate(
+        self,
+        candidate_id: int,
+        admin_api_key_id: int,
+        reason: Optional[str] = None,
+    ) -> CompetitionLeaderCandidate:
+        """Reject a pending leader candidate."""
+
+        if not self.async_session:
+            raise RuntimeError("Database not initialized")
+
+        async with self.async_session() as session:
+            candidate = await session.get(CompetitionLeaderCandidate, candidate_id)
+            if not candidate:
+                raise LeaderCandidateNotFoundError(
+                    f"Leader candidate {candidate_id} not found"
+                )
+
+            if candidate.status != LeaderCandidateStatus.PENDING:
+                raise LeaderCandidateAlreadyReviewedError(
+                    f"Leader candidate {candidate_id} has already been reviewed"
+                )
+
+            now = datetime.now(timezone.utc)
+
+            candidate.status = LeaderCandidateStatus.REJECTED
+            candidate.status_reason = reason
+            candidate.reviewed_by_api_key_id = admin_api_key_id
+            candidate.reviewed_at = now
+
+            await session.commit()
+            await session.refresh(candidate)
+
+        try:
+            await self._broadcast_stats_update()
+        except Exception as exc:
+            logger.error(
+                "Failed to broadcast stats after leader candidate rejection: %s",
+                exc,
+            )
+
+        return candidate
 
     async def _score_evaluations(self) -> dict[SS58Address, float]:
         """
@@ -814,42 +895,137 @@ class BackendService:
                     )
                     continue
 
-                # Find eligible challengers
-                eligible_miners: List[tuple[str, float]] = []
-                for result in eval_results:
-                    if self._is_miner_eligible(result, competition):
-                        eligible_miners.append((result.miner_hotkey, result.avg_reward))
+                # Find eligible challengers and identify the strongest contender
+                eligible_results: List[BackendEvaluationResult] = [
+                    result
+                    for result in eval_results
+                    if self._is_miner_eligible(result, competition)
+                ]
 
-                # Determine competition winner
-                winner_hotkey, winner_reward = self._determine_competition_winner(
-                    competition, eligible_miners
+                eligible_results.sort(
+                    key=lambda res: res.avg_reward
+                    if res.avg_reward is not None
+                    else float("-inf"),
+                    reverse=True,
                 )
 
-                if not winner_hotkey:
-                    continue
+                top_result: Optional[BackendEvaluationResult] = (
+                    eligible_results[0] if eligible_results else None
+                )
 
-                # Update competition leader if changed
-                if (
-                    winner_hotkey != competition.current_leader_hotkey
-                    or winner_reward != competition.current_leader_reward
-                ):
-                    competition.current_leader_hotkey = winner_hotkey
-                    competition.current_leader_reward = winner_reward
-                    competition.leader_updated_at = datetime.now(timezone.utc)
+                if not top_result:
+                    if competition.current_leader_hotkey:
+                        logger.info(
+                            "Competition %s: Current leader %s retains position (no eligible challengers)",
+                            competition.id,
+                            competition.current_leader_hotkey,
+                        )
+                    else:
+                        logger.info(
+                            "Competition %s: No eligible miners found", competition.id
+                        )
+                else:
+                    current_leader = competition.current_leader_hotkey
+                    candidate_reward = top_result.avg_reward or 0.0
 
-                # Award points to winner (check for duplicate wins first)
-                normalized_score = competition.points / total_points
+                    if current_leader is None:
+                        created_candidate = await self._queue_leader_candidate(
+                            session, competition, top_result
+                        )
+                        if created_candidate:
+                            logger.info(
+                                "Competition %s: Added first leader candidate %s (avg_reward=%.3f)",
+                                competition.id,
+                                top_result.miner_hotkey,
+                                candidate_reward,
+                            )
+                        else:
+                            logger.debug(
+                                "Competition %s: Leader candidate %s already pending",
+                                competition.id,
+                                top_result.miner_hotkey,
+                            )
+                    elif top_result.miner_hotkey == current_leader:
+                        if (
+                            top_result.avg_reward is not None
+                            and top_result.avg_reward
+                            != competition.current_leader_reward
+                        ):
+                            competition.current_leader_reward = top_result.avg_reward
+                            competition.leader_updated_at = datetime.now(timezone.utc)
+                            logger.info(
+                                "Competition %s: Updated leader %s reward to %.3f",
+                                competition.id,
+                                current_leader,
+                                top_result.avg_reward,
+                            )
+                    else:
+                        required_reward = (competition.current_leader_reward or 0) * (
+                            1 + competition.win_margin_pct
+                        )
+                        if candidate_reward > required_reward:
+                            created_candidate = await self._queue_leader_candidate(
+                                session, competition, top_result
+                            )
+                            if created_candidate:
+                                logger.info(
+                                    "Competition %s: Challenger %s (avg_reward=%.3f) exceeds required %.3f; pending admin approval",
+                                    competition.id,
+                                    top_result.miner_hotkey,
+                                    candidate_reward,
+                                    required_reward,
+                                )
+                            else:
+                                logger.debug(
+                                    "Competition %s: Challenger %s already recorded as candidate",
+                                    competition.id,
+                                    top_result.miner_hotkey,
+                                )
+                        else:
+                            logger.info(
+                                "Competition %s: Current leader %s retains position. Challenger %s avg_reward=%.3f, required=%.3f",
+                                competition.id,
+                                current_leader,
+                                top_result.miner_hotkey,
+                                candidate_reward,
+                                required_reward,
+                            )
 
-                if winner_hotkey in miner_scores:
-                    logger.warning(
-                        f"Miner {winner_hotkey} already won competition - skipping score from {competition.id}. "
-                        f"Previous score: {miner_scores[winner_hotkey]:.4f}, would have added: {normalized_score:.4f}"
+                # Award points only to the currently approved leader
+                award_hotkey = competition.current_leader_hotkey
+                if not award_hotkey:
+                    logger.debug(
+                        "Competition %s: Skipping score award (no approved leader)",
+                        competition.id,
                     )
                     continue
 
-                miner_scores[winner_hotkey] = normalized_score
+                normalized_score = (
+                    competition.points / total_points if total_points else 0
+                )
+                if normalized_score == 0:
+                    logger.debug(
+                        "Competition %s: Skipping zero-point competition in scoring",
+                        competition.id,
+                    )
+                    continue
+
+                if award_hotkey in miner_scores:
+                    logger.warning(
+                        "Miner %s already won competition - skipping score from %s. Previous score: %.4f, would have added: %.4f",
+                        award_hotkey,
+                        competition.id,
+                        miner_scores[award_hotkey],
+                        normalized_score,
+                    )
+                    continue
+
+                miner_scores[award_hotkey] = normalized_score
                 logger.info(
-                    f"Competition {competition.id}: Awarded {normalized_score:.4f} normalized score to {winner_hotkey}"
+                    "Competition %s: Awarded %.4f normalized score to %s",
+                    competition.id,
+                    normalized_score,
+                    award_hotkey,
                 )
 
             # Commit any leader updates to database

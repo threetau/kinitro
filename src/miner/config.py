@@ -31,13 +31,6 @@ class MinerConfig(Config):
             default=self.settings.get("submission_version"),
         )
         self._parser.add_argument(
-            "--holdout-seconds",
-            type=int,
-            help="Optional hold-out duration in seconds for this submission",
-            default=self.settings.get("holdout_seconds"),
-        )
-
-        self._parser.add_argument(
             "--submission-id",
             type=str,
             help="Submission ID returned by the backend upload endpoint",

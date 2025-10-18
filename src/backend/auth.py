@@ -8,16 +8,9 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from fastapi import Depends, HTTPException, Security, status
-from fastapi.security import APIKeyHeader
 from sqlalchemy import select
 
 from backend.models import ApiKey
-from core.log import get_logger
-
-logger = get_logger(__name__)
-
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 class UserRole(str, Enum):
@@ -70,86 +63,3 @@ async def get_api_key_from_db(
             await session.refresh(api_key_obj)
 
         return api_key_obj
-
-
-def create_auth_dependency(backend_service):
-    """
-    Create an authentication dependency with access to the backend service.
-    """
-
-    async def get_current_user(
-        api_key: Optional[str] = Security(api_key_header),
-    ) -> Optional["ApiKey"]:
-        """
-        Validate API key and return the associated user.
-        Returns None if no API key is provided (for public endpoints).
-        """
-        if not api_key:
-            return None
-
-        api_key_obj = await get_api_key_from_db(api_key, backend_service)
-
-        if not api_key_obj:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid, expired, or inactive API key",
-            )
-
-        return api_key_obj
-
-    return get_current_user
-
-
-def create_role_dependencies(get_current_user):
-    """
-    Create role-based authentication dependencies.
-    """
-
-    async def require_admin(
-        current_user: Optional["ApiKey"] = Depends(get_current_user),
-    ) -> "ApiKey":
-        """Require an authenticated admin user."""
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required",
-            )
-
-        if current_user.role != UserRole.ADMIN:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required"
-            )
-
-        return current_user
-
-    async def require_validator(
-        current_user: Optional["ApiKey"] = Depends(get_current_user),
-    ) -> "ApiKey":
-        """Require an authenticated validator or admin user."""
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required",
-            )
-
-        if current_user.role not in [UserRole.ADMIN, UserRole.VALIDATOR]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Validator or admin access required",
-            )
-
-        return current_user
-
-    async def require_auth(
-        current_user: Optional["ApiKey"] = Depends(get_current_user),
-    ) -> "ApiKey":
-        """Require any authenticated user."""
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required",
-            )
-
-        return current_user
-
-    return require_admin, require_validator, require_auth

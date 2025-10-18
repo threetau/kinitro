@@ -36,7 +36,6 @@ Ensure your `miner.toml` contains:
 - `backend_url`: e.g. `https://api.kinitro.ai`
 - `submission_dir`: path to your agent package
 - wallet/hotkey configuration (used for signing)
-- optional `holdout_seconds` if you want to override the default private window
 
 ### Committing submission info to the blockchain
 After a successful upload, commit the returned submission to the Bittensor blockchain:

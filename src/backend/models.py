@@ -17,11 +17,12 @@ from sqlalchemy import (
 from sqlalchemy import (
     DateTime as SADateTime,
 )
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy import (
     String as SAString,
 )
 from sqlalchemy import Text as SAText
-from sqlalchemy import Enum as SAEnum
+from sqlalchemy.dialects.postgresql import ENUM as PGEnum  # noqa: N811
 from sqlalchemy.sql import func
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
@@ -46,6 +47,14 @@ class SubmissionUploadStatus(StrEnum):
     READY = "ready"
     PROCESSED = "processed"
     EXPIRED = "expired"
+
+
+class LeaderCandidateStatus(StrEnum):
+    """Review lifecycle for prospective competition leaders."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class CompetitionCreateRequest(SQLModel):
@@ -88,6 +97,44 @@ class CompetitionResponse(SQLModel):
 
     class Config:
         from_attributes = True
+
+
+class LeaderCandidateReviewRequest(SQLModel):
+    """Request payload for approving or rejecting a leader candidate."""
+
+    reason: Optional[str] = None
+
+
+class CompetitionLeaderCandidateResponse(SQLModel):
+    """Response model representing a leader candidate entry."""
+
+    id: str
+    competition_id: str
+    miner_hotkey: str
+    evaluation_result_id: str
+    avg_reward: float
+    success_rate: Optional[float]
+    score: Optional[float]
+    total_episodes: Optional[int]
+    status: LeaderCandidateStatus
+    status_reason: Optional[str]
+    reviewed_by_api_key_id: Optional[str]
+    reviewed_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _convert_id(cls, value):
+        return str(value)
+
+    @field_validator("evaluation_result_id", "reviewed_by_api_key_id", mode="before")
+    @classmethod
+    def _convert_optional_ids(cls, value):
+        return None if value is None else str(value)
 
 
 class ValidatorInfoResponse(SQLModel):
@@ -339,6 +386,9 @@ class Competition(TimestampMixin, SQLModel, table=True):
         back_populates="competition", cascade_delete=True
     )
     evaluation_jobs: List["BackendEvaluationJob"] = Relationship(
+        back_populates="competition", cascade_delete=True
+    )
+    leader_candidates: List["CompetitionLeaderCandidate"] = Relationship(
         back_populates="competition", cascade_delete=True
     )
 
@@ -603,6 +653,9 @@ class BackendEvaluationResult(TimestampMixin, SQLModel, table=True):
 
     # Relationships
     job: Optional["BackendEvaluationJob"] = Relationship(back_populates="results")
+    leader_candidates: List["CompetitionLeaderCandidate"] = Relationship(
+        back_populates="evaluation_result"
+    )
 
     __table_args__ = (
         # Prevent duplicate results from same validator for same job/benchmark
@@ -899,6 +952,9 @@ class ApiKey(TimestampMixin, SQLModel, table=True):
     validator_connections: List["ValidatorConnection"] = Relationship(
         back_populates="api_key", cascade_delete=True
     )
+    reviewed_leader_candidates: List["CompetitionLeaderCandidate"] = Relationship(
+        back_populates="reviewed_by"
+    )
 
     __table_args__ = (
         Index("ix_api_keys_active", "is_active"),
@@ -906,4 +962,73 @@ class ApiKey(TimestampMixin, SQLModel, table=True):
         CheckConstraint(
             "role IN ('admin', 'validator', 'viewer')", name="ck_api_keys_valid_role"
         ),
+    )
+
+
+class CompetitionLeaderCandidate(TimestampMixin, SQLModel, table=True):
+    """Pending or reviewed contenders for competition leadership."""
+
+    __tablename__ = "competition_leader_candidates"
+
+    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    competition_id: str = Field(
+        sa_column=Column(
+            SAString(64), ForeignKey("competitions.id"), nullable=False, index=True
+        )
+    )
+    miner_hotkey: str = Field(max_length=48, nullable=False, index=True)
+    evaluation_result_id: int = Field(
+        sa_column=Column(
+            BigInteger,
+            ForeignKey("backend_evaluation_results.id"),
+            nullable=False,
+            index=True,
+        )
+    )
+    avg_reward: float = Field(nullable=False)
+    success_rate: Optional[float] = Field(default=None)
+    score: Optional[float] = Field(default=None)
+    total_episodes: Optional[int] = Field(default=None)
+    status: LeaderCandidateStatus = Field(
+        default=LeaderCandidateStatus.PENDING,
+        sa_column=Column(
+            PGEnum(
+                LeaderCandidateStatus,
+                values_callable=lambda enum_cls: [member.value for member in enum_cls],
+                name="leader_candidate_status",
+                create_type=False,
+            ),
+            nullable=False,
+            server_default="pending",
+        ),
+    )
+    status_reason: Optional[str] = Field(
+        default=None, sa_column=Column(SAText, nullable=True)
+    )
+    reviewed_by_api_key_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            BigInteger, ForeignKey("api_keys.id"), nullable=True, index=True
+        ),
+    )
+    reviewed_at: Optional[datetime] = Field(
+        default=None, sa_column=Column(SADateTime(timezone=True), nullable=True)
+    )
+
+    competition: Optional["Competition"] = Relationship(
+        back_populates="leader_candidates"
+    )
+    evaluation_result: Optional["BackendEvaluationResult"] = Relationship(
+        back_populates="leader_candidates"
+    )
+    reviewed_by: Optional["ApiKey"] = Relationship(
+        back_populates="reviewed_leader_candidates"
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "evaluation_result_id", name="uq_leader_candidates_eval_result"
+        ),
+        Index("ix_leader_candidates_status", "status"),
+        Index("ix_leader_candidates_created_at", "created_at"),
     )
