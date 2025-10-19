@@ -13,7 +13,9 @@ from backend.auth import UserRole, get_api_key_from_db
 ADMIN_FLAG_ATTR = "__requires_admin__"
 
 
-def admin_route(endpoint: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+def admin_route(
+    endpoint: Callable[..., Awaitable[Any]],
+) -> Callable[..., Awaitable[Any]]:
     """Mark an endpoint as requiring an authenticated admin."""
     setattr(endpoint, ADMIN_FLAG_ATTR, True)
     return endpoint
@@ -26,7 +28,9 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.backend_service = backend_service
 
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Any]]):
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Any]]
+    ):
         request.state.api_user = None
         api_key = request.headers.get("X-API-Key")
 
@@ -45,11 +49,33 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
 class AdminAuthMiddleware(BaseHTTPMiddleware):
     """Enforce admin-only access for endpoints marked with admin_route."""
 
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Any]]):
+    def __init__(self, app, backend_service):
+        super().__init__(app)
+        self.backend_service = backend_service
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Any]]
+    ):
         route = self._get_matching_route(request)
 
         if route and getattr(route.endpoint, ADMIN_FLAG_ATTR, False):
             api_user = getattr(request.state, "api_user", None)
+
+            if api_user is None:
+                api_key = request.headers.get("X-API-Key")
+                if not api_key:
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Authentication required"},
+                    )
+
+                api_user = await get_api_key_from_db(api_key, self.backend_service)
+                if not api_user:
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Invalid, expired, or inactive API key"},
+                    )
+                request.state.api_user = api_user
 
             if api_user is None:
                 return JSONResponse(

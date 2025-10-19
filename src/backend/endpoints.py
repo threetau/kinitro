@@ -210,8 +210,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(AdminAuthMiddleware, backend_service=backend_service)
 app.add_middleware(ApiAuthMiddleware, backend_service=backend_service)
-app.add_middleware(AdminAuthMiddleware)
 
 
 def get_admin_user(request: Request) -> ApiKey:
