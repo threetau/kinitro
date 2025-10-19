@@ -1220,7 +1220,7 @@ class BackendService:
                     weights_dict[node.node_id] = weight
 
             total_weight = sum(weights_dict.values())
-            if total_weight > 1.0 + 1e-6:
+            if total_weight > 1.0:
                 logger.warning(
                     "Total miner weight %.6f exceeds 1.0 before owner allocation",
                     total_weight,
