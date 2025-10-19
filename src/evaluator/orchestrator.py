@@ -8,7 +8,7 @@ import asyncpg
 import ray
 from fiber.chain.chain_utils import load_hotkey_keypair
 from kubernetes import client, config
-from pgqueuer import PgQueuer
+from pgqueuer import PgQueuer, Queries
 from pgqueuer.db import AsyncpgDriver
 from pgqueuer.models import Job
 from ray.util.queue import Queue
@@ -114,14 +114,22 @@ class Orchestrator:
             created_at=datetime.now(timezone.utc),
         )
 
+        existing_job = self.db.get_evaluation_job(eval_job_msg.job_id)
+
         # Create job entry in the database with QUEUED status
-        try:
-            self.db.create_evaluation_job(evaluation_job)
-        except Exception as e:
-            logger.error(
-                f"Failed to create evaluation job {eval_job_msg.job_id} in DB: {e}"
+        if existing_job:
+            logger.info(
+                "Existing evaluation job record found for %s; skipping creation",
+                eval_job_msg.job_id,
             )
-            return None
+        else:
+            try:
+                self.db.create_evaluation_job(evaluation_job)
+            except Exception as e:
+                logger.error(
+                    f"Failed to create evaluation job {eval_job_msg.job_id} in DB: {e}"
+                )
+                return None
 
         # Update status to STARTING
         try:
@@ -130,6 +138,8 @@ class Orchestrator:
                 {
                     "status": EvaluationStatus.STARTING,
                     "started_at": datetime.now(timezone.utc),
+                    "error_message": None,
+                    "completed_at": None,
                 },
             )
         except Exception as e:
@@ -289,6 +299,22 @@ class Orchestrator:
         )
 
         return job_context
+
+    async def _enqueue_job_for_processing(self, eval_job_msg: EvalJobMessage) -> None:
+        """Requeue an evaluation job onto PgQueuer for processing."""
+        conn = await asyncpg.connect(dsn=self.config.pg_database)
+        try:
+            driver = AsyncpgDriver(conn)
+            q = Queries(driver)
+            await q.enqueue(["add_job"], [eval_job_msg.to_bytes()], [0])
+            logger.info("Requeued job %s onto add_job queue", eval_job_msg.job_id)
+        except Exception as exc:
+            logger.exception(
+                "Failed to enqueue job %s for restart", eval_job_msg.job_id
+            )
+            raise
+        finally:
+            await conn.close()
 
     def _cleanup_queues(self, job_context: Dict):
         """Clean up Ray Queue actors for a job."""
@@ -624,50 +650,80 @@ class Orchestrator:
         for status in stale_statuses:
             stale_jobs = self.db.get_evaluation_jobs_by_status(status)
             logger.info(f"Found {len(stale_jobs)} jobs in {status.value} state")
-            if stale_jobs:
-                for job in stale_jobs:
-                    logger.info(f"Marking stale job {job.id} as FAILED")
-                    # Update job status to FAILED with error message
+            for job in stale_jobs:
+                logger.info(
+                    "Resetting stale job %s (previous status %s) for restart",
+                    job.id,
+                    status.value,
+                )
+                try:
+                    if job.submission_id:
+                        try:
+                            containers = Containers()
+                            containers.cleanup_container(job.submission_id, wait=True)
+                            logger.info(
+                                "Cleaned up orphaned container for submission %s",
+                                job.submission_id,
+                            )
+                        except Exception as cleanup_err:
+                            logger.warning(
+                                "Failed to cleanup container for submission %s: %s",
+                                job.submission_id,
+                                cleanup_err,
+                            )
+
+                    self.db.update_evaluation_job(
+                        job.id,
+                        {
+                            "status": EvaluationStatus.QUEUED,
+                            "error_message": None,
+                            "started_at": None,
+                            "completed_at": None,
+                        },
+                    )
+
+                    status_msg = JobStatusUpdateMessage(
+                        job_id=job.id,
+                        validator_hotkey=self.keypair.ss58_address,
+                        status=EvaluationStatus.QUEUED,
+                        detail="Evaluator reset job after orchestrator restart",
+                    )
+                    try:
+                        await self.db.queue_job_status_update_msg(status_msg)
+                    except Exception as status_err:
+                        logger.warning(
+                            "Failed to queue status update for job %s: %s",
+                            job.id,
+                            status_err,
+                        )
+
+                    eval_job_msg = EvalJobMessage(
+                        job_id=job.id,
+                        competition_id=job.competition_id,
+                        submission_id=job.submission_id,
+                        miner_hotkey=job.miner_hotkey,
+                        hf_repo_id=job.hf_repo_id,
+                        env_provider=job.env_provider,
+                        benchmark_name=job.benchmark_name,
+                        config=job.config or {},
+                        artifact_url=job.artifact_url,
+                        artifact_expires_at=job.artifact_expires_at,
+                        artifact_sha256=job.artifact_sha256,
+                        artifact_size_bytes=job.artifact_size_bytes,
+                    )
+
+                    await self._enqueue_job_for_processing(eval_job_msg)
+                    logger.info("Stale job %s successfully reset and requeued", job.id)
+                except Exception as exc:
+                    logger.error("Failed to reset stale job %s: %s", job.id, exc)
                     self.db.update_evaluation_job(
                         job.id,
                         {
                             "status": EvaluationStatus.FAILED,
-                            "error_message": "Job was interrupted due to orchestrator restart",
+                            "error_message": f"Failed to restart after orchestrator crash: {exc}",
                             "completed_at": datetime.now(timezone.utc),
                         },
                     )
-
-                    # Queue failure result message to backend
-                    eval_result_msg = EvalResultMessage(
-                        job_id=job.id,
-                        validator_hotkey=self.keypair.ss58_address,
-                        miner_hotkey=job.miner_hotkey,
-                        competition_id=job.competition_id,
-                        env_provider=job.env_provider,
-                        benchmark_name=job.benchmark_name,
-                        config=job.config,
-                        score=0.0,
-                        success_rate=0.0,
-                        avg_reward=0.0,
-                        total_episodes=None,
-                        logs="Job failed due to orchestrator restart",
-                        error="Orchestrator restart - job was not completed",
-                        extra_data=None,
-                    )
-                    await self.db.queue_evaluation_result_msg(eval_result_msg)
-
-                    # Clean up any orphaned containers for this job
-                    if job.submission_id:
-                        try:
-                            containers = Containers()
-                            containers.cleanup_container(job.submission_id)
-                            logger.info(
-                                f"Cleaned up orphaned container for submission {job.submission_id}"
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to cleanup container for submission {job.submission_id}: {e}"
-                            )
 
         logger.info("Stale job recovery completed")
 

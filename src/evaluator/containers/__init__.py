@@ -4,6 +4,7 @@ import time
 import dotenv
 import yaml
 from kubernetes import client, config
+from kubernetes.client.exceptions import ApiException
 from kubernetes.stream import stream
 
 from core.db.models import SnowflakeId
@@ -12,6 +13,10 @@ dotenv.load_dotenv()
 
 
 class Containers:
+    DELETE_TIMEOUT_SECONDS = 60
+    DELETE_RETRY_INTERVAL = 5
+    CONTAINER_RETRY_COUNT = 2
+
     @staticmethod
     def _set_env(container_spec: dict, name: str, value: str | None) -> None:
         """Ensure an environment variable is set on a container spec."""
@@ -95,7 +100,22 @@ class Containers:
 
         # Create the pod in the default namespace
         print("Submitting pod to Kubernetes...")
-        k8v1api.create_namespaced_pod(namespace="default", body=pod)
+        for attempt in range(self.CONTAINER_RETRY_COUNT):
+            try:
+                k8v1api.create_namespaced_pod(namespace="default", body=pod)
+                break
+            except ApiException as api_exc:
+                if (
+                    api_exc.status == 409
+                    and "AlreadyExists" in api_exc.reason
+                    and attempt == 0
+                ):
+                    print(
+                        f"Pod {container_name} already exists; waiting for prior instance to terminate"
+                    )
+                    self._wait_for_pod_absence(k8v1api, container_name)
+                    continue
+                raise
         print(f"Pod {container_name} created, waiting for it to start...")
 
         # Wait for the pod to be running before attempting to connect
@@ -217,6 +237,18 @@ class Containers:
                 namespace="default", body=service_manifest
             )
             print(f"Service {service_name} created to expose pod on port {port}")
+        except ApiException as api_exc:
+            if api_exc.status == 409 and "AlreadyExists" in api_exc.reason:
+                print(
+                    f"Service {service_name} already exists; waiting for prior service to be removed"
+                )
+                self._wait_for_service_absence(k8v1api, service_name)
+                k8v1api.create_namespaced_service(
+                    namespace="default", body=service_manifest
+                )
+                print(f"Service {service_name} recreated after cleanup")
+            else:
+                print(f"Error creating service: {api_exc}")
         except Exception as e:
             print(f"Error creating service: {e}")
 
@@ -238,11 +270,14 @@ class Containers:
         except Exception as e:
             print(f"Error deleting pod {container_name}: {e}")
 
-    def cleanup_container(self, submission_id: SnowflakeId) -> None:
+    def cleanup_container(
+        self, submission_id: SnowflakeId, *, wait: bool = False
+    ) -> None:
         """Clean up both the pod and service for a submission.
 
         Args:
             submission_id: The ID of the submission whose resources to clean up
+            wait: Block until resources are fully removed
         """
         config.load_kube_config()
         v1 = client.CoreV1Api()
@@ -265,3 +300,64 @@ class Containers:
         except client.exceptions.ApiException as e:
             if e.status != 404:  # Ignore if pod doesn't exist
                 print(f"Error deleting pod {container_name}: {e}")
+
+        if wait:
+            self._wait_for_service_absence(v1, service_name)
+            self._wait_for_pod_absence(v1, container_name)
+
+    def _wait_for_pod_absence(
+        self, core_api: client.CoreV1Api, pod_name: str, namespace: str = "default"
+    ) -> None:
+        deadline = time.time() + self.DELETE_TIMEOUT_SECONDS
+        while True:
+            try:
+                pod = core_api.read_namespaced_pod(name=pod_name, namespace=namespace)
+                if pod.metadata and pod.metadata.deletion_timestamp:
+                    print(
+                        f"Pod {pod_name} still terminating; waiting for cleanup to finish"
+                    )
+                else:
+                    print(f"Pod {pod_name} still present; deleting existing instance")
+                    try:
+                        core_api.delete_namespaced_pod(
+                            name=pod_name, namespace=namespace
+                        )
+                    except ApiException as delete_exc:
+                        if delete_exc.status != 404:
+                            raise
+                if time.time() > deadline:
+                    raise TimeoutError(
+                        f"Timed out waiting for pod {pod_name} to be deleted"
+                    )
+                time.sleep(self.DELETE_RETRY_INTERVAL)
+            except ApiException as api_exc:
+                if api_exc.status == 404:
+                    return
+                raise
+
+    def _wait_for_service_absence(
+        self, core_api: client.CoreV1Api, service_name: str, namespace: str = "default"
+    ) -> None:
+        deadline = time.time() + self.DELETE_TIMEOUT_SECONDS
+        while True:
+            try:
+                core_api.read_namespaced_service(name=service_name, namespace=namespace)
+                if time.time() > deadline:
+                    raise TimeoutError(
+                        f"Timed out waiting for service {service_name} to be deleted"
+                    )
+                try:
+                    core_api.delete_namespaced_service(
+                        name=service_name, namespace=namespace
+                    )
+                except ApiException as delete_exc:
+                    if delete_exc.status != 404:
+                        raise
+                print(
+                    f"Service {service_name} still present; waiting for deletion to complete"
+                )
+                time.sleep(self.DELETE_RETRY_INTERVAL)
+            except ApiException as api_exc:
+                if api_exc.status == 404:
+                    return
+                raise
