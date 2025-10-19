@@ -33,6 +33,7 @@ from backend.constants import (
     CHAIN_SCAN_YIELD_INTERVAL,
     DEFAULT_CHAIN_SYNC_INTERVAL,
     DEFAULT_MAX_COMMITMENT_LOOKBACK,
+    DEFAULT_OWNER_UID,
     EVAL_JOB_TIMEOUT,
     HEARTBEAT_INTERVAL,
     HOLDOUT_RELEASE_SCAN_INTERVAL,
@@ -125,6 +126,17 @@ class BackendService:
         self.chain_sync_interval = config.settings.get(
             "chain_sync_interval", DEFAULT_CHAIN_SYNC_INTERVAL
         )
+
+        owner_uid_setting = config.settings.get("owner_uid", DEFAULT_OWNER_UID)
+        try:
+            self.owner_uid = int(owner_uid_setting)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid owner_uid setting %r; falling back to default %s",
+                owner_uid_setting,
+                DEFAULT_OWNER_UID,
+            )
+            self.owner_uid = DEFAULT_OWNER_UID
 
         # Scoring and weight broadcast intervals
         self.score_evaluation_interval = config.settings.get(
@@ -1056,7 +1068,8 @@ class BackendService:
                 self._latest_miner_scores = miner_scores
 
                 logger.info(
-                    f"Score evaluation complete. {len(miner_scores)} miners scored."
+                    "Score evaluation complete. %s miners scored.",
+                    len(miner_scores),
                 )
 
             except Exception as e:
@@ -1162,6 +1175,31 @@ class BackendService:
                 node = self.nodes.get(hotkey)
                 if node:
                     weights_dict[node.node_id] = weight
+
+            total_weight = sum(weights_dict.values())
+            if total_weight > 1.0 + 1e-6:
+                logger.warning(
+                    "Total miner weight %.6f exceeds 1.0 before owner allocation",
+                    total_weight,
+                )
+
+            owner_weight = max(0.0, 1.0 - total_weight)
+            if owner_weight > 0:
+                weights_dict[self.owner_uid] = (
+                    weights_dict.get(self.owner_uid, 0.0) + owner_weight
+                )
+                if all(node.node_id != self.owner_uid for node in self.nodes.values()):
+                    logger.warning(
+                        "Owner UID %s not found in node list; assigning %.4f weight without hotkey mapping",
+                        self.owner_uid,
+                        owner_weight,
+                    )
+                else:
+                    logger.info(
+                        "Owner UID %s assigned remaining normalized score %.4f",
+                        self.owner_uid,
+                        owner_weight,
+                    )
 
             if not weights_dict:
                 logger.info("No miner scores to broadcast")
