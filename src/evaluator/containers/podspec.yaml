@@ -5,27 +5,6 @@ metadata:
 spec:
   # runtimeClassName: runc
   restartPolicy: Never
-  containers:
-  - name: runner
-    image: ghcr.io/threetau/kinitro-miner-agent:latest
-    imagePullPolicy: IfNotPresent
-    env:
-      - name: SUBMISSION_ARCHIVE_URL
-        value: ""
-      - name: SUBMISSION_ARCHIVE_SHA256
-        value: ""
-    command: ["python", "/workspace/submission/main.py", "--host", "0.0.0.0", "--port", "8000"]
-    volumeMounts:
-      - name: workspace
-        mountPath: /workspace/submission
-    # Set GPU limits (e.g. nvidia.com/gpu: 1) when the benchmark requires acceleration.
-    resources:
-      requests:
-        cpu: 2000m
-        memory: 4Gi
-      limits:
-        cpu: 4000m
-        memory: 8Gi
   initContainers:
   - name: fetch-submission
     image: ghcr.io/threetau/kinitro-miner-agent:latest
@@ -58,6 +37,65 @@ spec:
     volumeMounts:
       - name: workspace
         mountPath: /workspace/submission
+  - name: restrict-egress
+    image: ghcr.io/threetau/kinitro-miner-agent:latest
+    imagePullPolicy: IfNotPresent
+    securityContext:
+      runAsUser: 0
+      allowPrivilegeEscalation: false
+      capabilities:
+        add:
+          - NET_ADMIN
+        drop:
+          - NET_RAW
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        echo "Configuring firewall to block outbound internet access"
+        iptables -F OUTPUT
+        iptables -P OUTPUT DROP
+        iptables -A OUTPUT -o lo -j ACCEPT
+        iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+        iptables -A OUTPUT -m conntrack --ctstate NEW -d 10.0.0.0/8 -j ACCEPT
+        iptables -A OUTPUT -m conntrack --ctstate NEW -d 172.16.0.0/12 -j ACCEPT
+        iptables -A OUTPUT -m conntrack --ctstate NEW -d 192.168.0.0/16 -j ACCEPT
+        if command -v ip6tables >/dev/null 2>&1; then
+          ip6tables -F OUTPUT || true
+          ip6tables -P OUTPUT DROP || true
+          ip6tables -A OUTPUT -o lo -j ACCEPT || true
+          ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT || true
+        fi
+        echo "Final IPv4 OUTPUT rules:"
+        iptables -S OUTPUT || true
+  containers:
+  - name: runner
+    image: ghcr.io/threetau/kinitro-miner-agent:latest
+    imagePullPolicy: IfNotPresent
+    env:
+      - name: SUBMISSION_ARCHIVE_URL
+        value: ""
+      - name: SUBMISSION_ARCHIVE_SHA256
+        value: ""
+    command: ["python", "/workspace/submission/main.py", "--host", "0.0.0.0", "--port", "8000"]
+    volumeMounts:
+      - name: workspace
+        mountPath: /workspace/submission
+    # Set GPU limits (e.g. nvidia.com/gpu: 1) when the benchmark requires acceleration.
+    resources:
+      requests:
+        cpu: 2000m
+        memory: 4Gi
+      limits:
+        cpu: 4000m
+        memory: 8Gi
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - NET_ADMIN
+          - NET_RAW
   volumes:
   - name: workspace
     emptyDir: {}

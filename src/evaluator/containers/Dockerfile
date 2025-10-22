@@ -3,7 +3,7 @@ FROM python:3.12-slim
 
 # Install system dependencies (if torch etc. need BLAS, gcc, etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git build-essential curl \
+    git build-essential curl iptables \
     libegl1 libgles2 \
     && rm -rf /var/lib/apt/lists/*
 

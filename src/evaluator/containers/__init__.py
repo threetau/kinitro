@@ -155,7 +155,7 @@ class Containers:
                     container["imagePullPolicy"] = "Never"
 
             for container in pod_template["spec"]["initContainers"]:
-                if container["name"] == "fetch-submission":
+                if container["name"] in {"fetch-submission", "restrict-egress"}:
                     container["image"] = "miner-agent"
                     # Only for dev
                     container["imagePullPolicy"] = "Never"
