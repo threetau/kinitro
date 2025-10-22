@@ -391,6 +391,31 @@ class BackendService:
             if not competition.active:
                 raise RuntimeError(f"Competition {competition_id} is not active")
 
+            max_size = competition.submission_max_size_bytes
+            if max_size is not None and artifact_size_bytes > max_size:
+                raise RuntimeError(
+                    "Submission artifact exceeds the competition size limit "
+                    f"({artifact_size_bytes} bytes > {max_size} bytes)"
+                )
+
+            uploads_per_window = competition.submission_uploads_per_window
+            window_seconds = competition.submission_upload_window_seconds
+            if uploads_per_window and window_seconds:
+                window_start = datetime.utcnow() - timedelta(seconds=window_seconds)
+                recent_uploads_stmt = await session.execute(
+                    select(func.count(SubmissionUpload.submission_id)).where(
+                        SubmissionUpload.miner_hotkey == miner_hotkey,
+                        SubmissionUpload.competition_id == competition_id,
+                        SubmissionUpload.created_at >= window_start,
+                    )
+                )
+                recent_uploads = recent_uploads_stmt.scalar() or 0
+                if recent_uploads >= uploads_per_window:
+                    raise RuntimeError(
+                        "Upload rate limit exceeded for this hotkey; "
+                        "please wait before requesting another upload slot"
+                    )
+
             holdout = max(0, competition.submission_holdout_seconds)
 
             existing_submission = await session.execute(

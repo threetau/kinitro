@@ -10,6 +10,7 @@ from pydantic import field_validator
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Integer,
     ForeignKey,
     Index,
     UniqueConstraint,
@@ -70,6 +71,9 @@ class CompetitionCreateRequest(SQLModel):
     submission_holdout_seconds: int = Field(
         default=DEFAULT_SUBMISSION_HOLDOUT_SECONDS, ge=0
     )
+    submission_max_size_bytes: Optional[int] = Field(default=None, ge=1)
+    submission_upload_window_seconds: Optional[int] = Field(default=None, ge=1)
+    submission_uploads_per_window: Optional[int] = Field(default=None, ge=1)
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
 
@@ -86,6 +90,9 @@ class CompetitionResponse(SQLModel):
     win_margin_pct: float
     min_success_rate: float
     submission_holdout_seconds: int
+    submission_max_size_bytes: Optional[int]
+    submission_upload_window_seconds: Optional[int]
+    submission_uploads_per_window: Optional[int]
     current_leader_hotkey: Optional[SS58Address]
     current_leader_reward: Optional[float]
     leader_updated_at: Optional[datetime]
@@ -433,6 +440,15 @@ class Competition(TimestampMixin, SQLModel, table=True):
         nullable=False,
         sa_column_kwargs={"server_default": str(DEFAULT_SUBMISSION_HOLDOUT_SECONDS)},
     )
+    submission_max_size_bytes: Optional[int] = Field(
+        default=None, sa_column=Column(BigInteger, nullable=True)
+    )
+    submission_upload_window_seconds: Optional[int] = Field(
+        default=None, sa_column=Column(Integer, nullable=True)
+    )
+    submission_uploads_per_window: Optional[int] = Field(
+        default=None, sa_column=Column(Integer, nullable=True)
+    )
 
     # Current leader tracking
     current_leader_hotkey: Optional[SS58Address] = Field(
@@ -475,6 +491,18 @@ class Competition(TimestampMixin, SQLModel, table=True):
         CheckConstraint(
             "end_time IS NULL OR start_time IS NULL OR end_time > start_time",
             name="ck_competition_times_ordered",
+        ),
+        CheckConstraint(
+            "submission_max_size_bytes IS NULL OR submission_max_size_bytes > 0",
+            name="ck_competition_submission_max_size_positive",
+        ),
+        CheckConstraint(
+            "submission_upload_window_seconds IS NULL OR submission_upload_window_seconds > 0",
+            name="ck_competition_upload_window_positive",
+        ),
+        CheckConstraint(
+            "submission_uploads_per_window IS NULL OR submission_uploads_per_window > 0",
+            name="ck_competition_uploads_per_window_positive",
         ),
         Index("ix_competitions_active", "active"),
         Index("ix_competitions_points", "points"),

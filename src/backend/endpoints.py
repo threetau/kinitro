@@ -27,8 +27,12 @@ from backend.auth import (
     get_api_key_from_db,
     hash_api_key,
 )
-from backend.auth_middleware import AdminAuthMiddleware, ApiAuthMiddleware, admin_route
-from backend.auth_middleware import ADMIN_FLAG_ATTR
+from backend.auth_middleware import (
+    ADMIN_FLAG_ATTR,
+    AdminAuthMiddleware,
+    ApiAuthMiddleware,
+    admin_route,
+)
 from backend.constants import (
     DEFAULT_PAGE_LIMIT,
     MAX_PAGE_LIMIT,
@@ -453,6 +457,13 @@ async def create_competition(competition: CompetitionCreateRequest):
             description=competition.description,
             benchmarks=competition.benchmarks,
             points=competition.points,
+            min_avg_reward=competition.min_avg_reward,
+            win_margin_pct=competition.win_margin_pct,
+            min_success_rate=competition.min_success_rate,
+            submission_holdout_seconds=competition.submission_holdout_seconds,
+            submission_max_size_bytes=competition.submission_max_size_bytes,
+            submission_upload_window_seconds=competition.submission_upload_window_seconds,
+            submission_uploads_per_window=competition.submission_uploads_per_window,
             active=True,
             start_time=competition.start_time,
             end_time=competition.end_time,
