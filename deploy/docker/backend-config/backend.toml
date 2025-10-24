@@ -1,0 +1,20 @@
+# Backend service configuration for local Docker stack
+
+wallet_name = "local"
+hotkey_name = "local"
+
+# Database connection (asyncpg via SQLAlchemy)
+database_url = "postgresql+asyncpg://validator:CHANGEME@postgres:5432/kinitrodb"
+
+# HTTP / WebSocket server binding
+websocket_host = "0.0.0.0"
+websocket_port = 8080
+
+# Chain monitoring defaults (tuned for local smoke tests)
+max_commitment_lookback = 120
+chain_sync_interval = 30
+
+[subtensor]
+network = "finney"
+address = "wss://entrypoint-finney.opentensor.ai:443"
+netuid = 26

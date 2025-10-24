@@ -46,6 +46,34 @@ Ensure your `miner.toml` contains:
 - `submission_dir`: path to your agent package
 - wallet/hotkey configuration (used for signing)
 
+## Local Docker stack
+
+For end-to-end smoke tests against local infrastructure we ship a Compose setup under `deploy/docker/compose.yaml`. It runs Postgres, MinIO (S3-compatible storage), the backend API, validator, and evaluator using the same entrypoints as production.
+
+1. Review `deploy/docker/.env.local` and adjust credentials if needed (set `ENV_FILE` to point at a different file if you prefer to keep overrides outside the repo).
+
+2. Start the CPU evaluator stack (omit `--detach` to follow logs):
+
+   ```bash
+   docker compose -f deploy/docker/compose.yaml --profile cpu up --build
+   ```
+
+   The backend is now reachable at `http://localhost:8080`, MinIO at `http://localhost:9000`, and the optional console at `http://localhost:9001`.
+
+3. Point your `miner.toml` at the local backend:
+
+   ```toml
+   backend_url = "http://localhost:8080"
+   ```
+
+4. Run your usual `upload` command. The backend will stash artifacts in MinIO and the validator/evaluator containers will process jobs just like the hosted stack.
+
+5. When finished, tear everything down:
+
+   ```bash
+   docker compose -f deploy/docker/compose.yaml down -v
+   ```
+
 ## Committing submission info to the blockchain
 
 After a successful upload, commit the returned submission to the Bittensor blockchain:
