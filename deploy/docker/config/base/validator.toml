@@ -2,8 +2,8 @@ version = "0.1.0"
 log_level = "INFO"
 
 wallet_path = "/var/lib/kinitro/.bittensor/wallets"
-wallet_name = "local"
-hotkey_name = "local"
+wallet_name = "validator"
+hotkey_name = "validator"
 
 pg_database = "postgresql://validator:CHANGEME@postgres:5432/validatordb"
 duckdb_path = "/var/lib/kinitro/evaluation_data.duckdb"
@@ -21,9 +21,9 @@ netuid = 26
 sync_frequency = 300
 load_old_nodes = true
 allowed_validators = []
-max_commitment_lookback = 120
+max_commitment_lookback = 360
 
 [otel]
 api_key = ""
 endpoint = ""
-service_name = "validator-local"
+service_name = "validator"

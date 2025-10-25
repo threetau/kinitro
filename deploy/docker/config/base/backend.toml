@@ -1,0 +1,20 @@
+# Backend configuration defaults for base deployments
+
+wallet_name = "validator"
+hotkey_name = "validator"
+
+# Database connection
+database_url = "postgresql+asyncpg://validator:CHANGEME@postgres:5432/kinitrodb"
+
+# HTTP / WebSocket server binding
+websocket_host = "0.0.0.0"
+websocket_port = 8080
+
+# Chain monitoring defaults
+max_commitment_lookback = 360
+chain_sync_interval = 30
+
+[subtensor]
+network = "finney"
+address = "wss://entrypoint-finney.opentensor.ai:443"
+netuid = 26

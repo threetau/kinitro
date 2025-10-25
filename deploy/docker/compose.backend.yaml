@@ -1,0 +1,39 @@
+services:
+  backend:
+    image: ghcr.io/threetau/kinitro-backend:latest
+    build:
+      context: ../..
+      dockerfile: deploy/docker/backend.dockerfile
+    restart: unless-stopped
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-kinitrodb}
+      DB_USER: ${DB_USER:-validator}
+      DB_PASSWORD: ${DB_PASSWORD:-CHANGEME}
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-0}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - ./config/base/backend.toml:/etc/kinitro/backend.toml:ro
+      - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
+    env_file:
+      - ${ENV_FILE:-./env/base.env}
+
+  backend-migrator:
+    image: ghcr.io/threetau/kinitro-backend:latest
+    build:
+      context: ../..
+      dockerfile: deploy/docker/backend.dockerfile
+    profiles: ["ops"]
+    environment:
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-kinitrodb}
+      DB_USER: ${DB_USER:-validator}
+      DB_PASSWORD: ${DB_PASSWORD:-CHANGEME}
+      RUN_MIGRATIONS: "1"
+    entrypoint:
+      - /app/scripts/migrate_backend_db.sh
+    env_file:
+      - ${ENV_FILE:-./env/base.env}

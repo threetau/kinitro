@@ -9,10 +9,14 @@ temp/
 deploy/docker/*-config
 !deploy/docker/backend-config/
 !deploy/docker/backend-config/backend.toml
-!deploy/docker/validator-config/
-!deploy/docker/validator-config/validator.toml
-!deploy/docker/evaluator-config/
-!deploy/docker/evaluator-config/evaluator.toml
+!deploy/docker/config/
+!deploy/docker/config/base/
+!deploy/docker/config/base/validator.toml
+!deploy/docker/config/base/evaluator.toml
+!deploy/docker/config/local/
+!deploy/docker/config/local/validator.toml
+!deploy/docker/config/local/evaluator.toml
+!deploy/docker/local/
 
 # duckdb
 *.duckdb

@@ -48,30 +48,51 @@ Ensure your `miner.toml` contains:
 
 ## Local Docker stack
 
-For end-to-end smoke tests against local infrastructure we ship a Compose setup under `deploy/docker/compose.yaml`. It runs Postgres, MinIO (S3-compatible storage), the backend API, validator, and evaluator using the same entrypoints as production.
+For end-to-end smoke tests against local infrastructure we ship layered Compose files under `deploy/docker/`. Use the helper script to combine them:
 
-1. Review `deploy/docker/.env.local` and adjust credentials if needed (set `ENV_FILE` to point at a different file if you prefer to keep overrides outside the repo).
-
-2. Start the CPU evaluator stack (omit `--detach` to follow logs):
+1. Copy the example environment and tweak credentials if needed:
 
    ```bash
-   docker compose -f deploy/docker/compose.yaml --profile cpu up --build
+   cp deploy/docker/env/local.env.example deploy/docker/env/local.env
+   ```
+
+   The helper script will automatically reuse `$HOME/.kube/config` and `$HOME/.minikube` when they exist so the evaluator can talk to your Minikube cluster. If your kubeconfig lives elsewhere, export `HOST_KUBECONFIG` / `HOST_MINIKUBE_DIR` before running the stack.
+
+2. Bring up the full local stack (Postgres, backend, validator, evaluator, MinIO):
+
+   ```bash
+   scripts/docker/stack.sh up local --profile cpu --build
    ```
 
    The backend is now reachable at `http://localhost:8080`, MinIO at `http://localhost:9000`, and the optional console at `http://localhost:9001`.
 
-3. Point your `miner.toml` at the local backend:
+3. Generate local credentials and seed the demo competition:
+
+   ```bash
+   scripts/docker/local_setup.py bootstrap-demo
+   ```
+
+   This writes fresh admin/validator API keys to `deploy/docker/env/local.env` and creates a sample MT10 competition. Edit `deploy/docker/local/competition.json` before running the script if you want to change the benchmark or episode settings.
+
+   Recreate the validator/evaluator containers so they load the new key:
+
+   ```bash
+   scripts/docker/stack.sh up validator --force-recreate -d validator
+   scripts/docker/stack.sh up validator --profile cpu --force-recreate -d evaluator
+   ```
+
+4. Point your `miner.toml` at the local backend:
 
    ```toml
    backend_url = "http://localhost:8080"
    ```
 
-4. Run your usual `upload` command. The backend will stash artifacts in MinIO and the validator/evaluator containers will process jobs just like the hosted stack.
+5. Run your usual `upload` command. The backend will stash artifacts in MinIO and the validator/evaluator containers will process jobs just like the hosted stack.
 
-5. When finished, tear everything down:
+6. When finished, tear everything down:
 
    ```bash
-   docker compose -f deploy/docker/compose.yaml down -v
+   scripts/docker/stack.sh down local -v
    ```
 
 ## Committing submission info to the blockchain

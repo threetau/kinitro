@@ -1,0 +1,29 @@
+version = "0.1.0"
+log_level = "INFO"
+
+wallet_path = "/var/lib/kinitro/.bittensor/wallets"
+wallet_name = "alice"
+hotkey_name = "hotkey0"
+
+pg_database = "postgresql://validator:CHANGEME@postgres:5432/validatordb"
+duckdb_path = "/var/lib/kinitro/evaluation_data.duckdb"
+
+backend_url = "ws://backend:8080/ws/validator"
+reconnect_interval = 5
+heartbeat_interval = 30
+
+[subtensor]
+network = "custom"
+address = "ws://10.0.0.3:9944"
+netuid = 2
+
+[neuron]
+sync_frequency = 300
+load_old_nodes = true
+allowed_validators = []
+max_commitment_lookback = 10
+
+[otel]
+api_key = ""
+endpoint = ""
+service_name = "validator-local"

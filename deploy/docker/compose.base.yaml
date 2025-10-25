@@ -13,7 +13,6 @@ services:
       retries: 5
     volumes:
       - validator-db:/var/lib/postgresql/data
-      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     ports:
       - "5432:5432"
 
@@ -23,68 +22,11 @@ services:
       context: ../..
       dockerfile: deploy/docker/migrator.dockerfile
     profiles: ["ops"]
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
       DB_HOST: postgres
       DB_NAME: validatordb
       DB_USER: validator
       DB_PASSWORD: CHANGEME
-
-  backend:
-    image: ghcr.io/threetau/kinitro-backend:latest
-    build:
-      context: ../..
-      dockerfile: deploy/docker/backend.dockerfile
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: kinitrodb
-      DB_USER: validator
-      DB_PASSWORD: CHANGEME
-      RUN_MIGRATIONS: "1"
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./backend-config:/etc/kinitro:ro
-      - ${ENV_FILE:-./deploy/docker/.env.local}:/app/.env:ro
-      - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
-
-  minio:
-    image: quay.io/minio/minio:RELEASE.2024-08-17T01-24-54Z
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - minio-data:/data
-
-  minio-setup:
-    image: quay.io/minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_started
-    environment:
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
-      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-kinitro-submissions}
-    entrypoint: >
-      /bin/sh -c "
-      until mc alias set local http://minio:9000 $${S3_ACCESS_KEY_ID} $${S3_SECRET_ACCESS_KEY}; do
-        echo 'waiting for minio...'
-        sleep 2;
-      done;
-      mc mb --ignore-existing local/$${S3_BUCKET_NAME};
-      "
 
   validator:
     image: ghcr.io/threetau/kinitro-validator:latest
@@ -95,18 +37,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      backend:
-        condition: service_started
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: validatordb
       DB_USER: validator
       DB_PASSWORD: CHANGEME
-      KINITRO_API_KEY: "${KINITRO_API_KEY:-local-dev-key}"
+    env_file:
+      - ${ENV_FILE:-./env/base.env}
     volumes:
-      - ./validator-config:/etc/kinitro:ro
-      - ${ENV_FILE:-./deploy/docker/.env.local}:/app/.env:ro
+      - ./config/base/validator.toml:/etc/kinitro/validator.toml:ro
       - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
 
   evaluator:
@@ -129,12 +69,14 @@ services:
       DB_USER: validator
       DB_PASSWORD: CHANGEME
       RUN_MIGRATIONS: "0"
+      KUBECONFIG: /var/lib/kinitro/.kube/config
+    env_file:
+      - ${ENV_FILE:-./env/base.env}
     volumes:
-      - ./evaluator-config:/etc/kinitro:ro
-      - ${KUBECONFIG:-./deploy/docker/evaluator-config/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
-      - ${ENV_FILE:-./deploy/docker/.env.local}:/app/.env:ro
+      - ./config/base/evaluator.toml:/etc/kinitro/evaluator.toml:ro
+      - ${HOST_KUBECONFIG:-./config/base/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
+      - ${HOST_MINIKUBE_DIR:-./config/base/minikube}:/var/lib/kinitro/.minikube:ro
       - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
-    # NOTE: join minikube bridge so evaluator can reach 192.168.49.2:8443
     networks:
       - default
       - minikube
@@ -159,15 +101,16 @@ services:
       DB_PASSWORD: CHANGEME
       RUN_MIGRATIONS: "0"
       NVIDIA_VISIBLE_DEVICES: all
-      # NOTE: should we use 'all' or these specific capabilities?
-      # NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics
       NVIDIA_DRIVER_CAPABILITIES: all
       MUJOCO_GL: egl
       PYOPENGL_PLATFORM: egl
+      KUBECONFIG: /var/lib/kinitro/.kube/config
+    env_file:
+      - ${ENV_FILE:-./env/base.env}
     volumes:
-      - ./evaluator-config:/etc/kinitro:ro
-      - ${KUBECONFIG:-./deploy/docker/evaluator-config/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
-      - ${ENV_FILE:-./deploy/docker/.env.local}:/app/.env:ro
+      - ./config/base/evaluator.toml:/etc/kinitro/evaluator.toml:ro
+      - ${HOST_KUBECONFIG:-./config/base/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
+      - ${HOST_MINIKUBE_DIR:-./config/base/minikube}:/var/lib/kinitro/.minikube:ro
       - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
       - /dev/dri:/dev/dri
       - /usr/share/glvnd/egl_vendor.d/10_nvidia.json:/usr/share/glvnd/egl_vendor.d/10_nvidia.json:ro
@@ -178,8 +121,6 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    command: []
-    # NOTE: GPU evaluator also attaches to minikube network for API access
     networks:
       - default
       - minikube
@@ -187,6 +128,7 @@ services:
   watchtower:
     image: containrrr/watchtower:latest
     restart: unless-stopped
+    profiles: ["ops"]
     depends_on:
       validator:
         condition: service_started
@@ -199,9 +141,7 @@ services:
 
 volumes:
   validator-db:
-  minio-data:
 
-# NOTE: external minikube network so containers can reach kube API
 networks:
   minikube:
     external: true
