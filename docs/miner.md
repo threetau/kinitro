@@ -56,7 +56,7 @@ For end-to-end smoke tests against local infrastructure we ship layered Compose 
    cp deploy/docker/env/local.env.example deploy/docker/env/local.env
    ```
 
-   The helper script will automatically reuse `$HOME/.kube/config` and `$HOME/.minikube` when they exist so the evaluator can talk to your Minikube cluster. If your kubeconfig lives elsewhere, export `HOST_KUBECONFIG` / `HOST_MINIKUBE_DIR` before running the stack.
+   The helper script automatically reuses `$HOME/.kube/config` / `$HOME/.minikube` when they exist so the evaluator can reach your Minikube cluster. When `kubectl` (or PyYAML) is available it flattens the kubeconfig and inlines the certificates into `deploy/docker/config/local/_generated/kubeconfig.yaml`; otherwise it falls back to copying the `.minikube` assets with relaxed permissions for the non-root `kinitro` user. Rerun the script if your kubeconfig changes, and export `HOST_KUBECONFIG` / `HOST_MINIKUBE_DIR` first if you keep them elsewhere.
 
 2. Bring up the full local stack (Postgres, backend, validator, evaluator, MinIO):
 

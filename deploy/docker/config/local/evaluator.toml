@@ -1,7 +1,7 @@
 # Evaluator configuration tuned for the local Docker stack
 
-wallet_name = "local"
-hotkey_name = "local"
+wallet_name = "alice"
+hotkey_name = "hotkey0"
 
 pg_database = "postgresql://validator:CHANGEME@postgres:5432/validatordb"
 

@@ -38,7 +38,7 @@ docker compose -f deploy/docker/compose.base.yaml build
 
 > [!NOTE] **Minikube networking:** The evaluator services join the external Docker network named `minikube` (created automatically when Minikube runs with the Docker driver). Make sure Minikube is running (`minikube start --driver=docker`; see the [Minikube start guide](https://minikube.sigs.k8s.io/docs/start/?arch=%2Fmacos%2Farm64%2Fstable%2Fbinary+download)) before launching the stack so this network exists.
 
-> [!TIP] When running the full local stack, use `scripts/docker/local_setup.py bootstrap-demo` to generate API keys and seed the competition described in `deploy/docker/local/competition.json`. The script writes credentials into `deploy/docker/env/local.env` for the containers. The helper scripts automatically look for `$HOME/.kube/config` and `$HOME/.minikube`; export `HOST_KUBECONFIG` / `HOST_MINIKUBE_DIR` if you keep them elsewhere.
+> [!TIP] When running the full local stack, use `scripts/docker/local_setup.py bootstrap-demo` to generate API keys and seed the competition described in `deploy/docker/local/competition.json`. The script writes credentials into `deploy/docker/env/local.env` for the containers. The helper scripts automatically look for `$HOME/.kube/config` and `$HOME/.minikube`; when tooling is available they inline the certificates into `deploy/docker/config/local/_generated/kubeconfig.yaml`, otherwise they copy the `.minikube` assets with evaluator-friendly permissions. Export `HOST_KUBECONFIG` / `HOST_MINIKUBE_DIR` if you keep them elsewhere.
 
 ### CPU-based Evaluator
 

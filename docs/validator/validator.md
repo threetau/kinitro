@@ -103,8 +103,7 @@ We ship Docker recipes for the validator stack in `deploy/docker/`. The workflow
   ```
 
 - **GPU hosts only** – install the NVIDIA Container Toolkit (see the [official guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)).
-- **Minikube (optional)** – required when you plan to run GPU evaluations; install it and start with GPU support as described in the [Minikube start documentation](https://minikube.sigs.k8s.io/docs/start/?arch=%2Fmacos%2Farm64%2Fstable%2Fbinary+download).
-- **Minikube (optional)** – required when you plan to run GPU evaluations; install it and start with GPU support as described in the [Minikube start documentation](https://minikube.sigs.k8s.io/docs/start/?arch=%2Fmacos%2Farm64%2Fstable%2Fbinary+download). The helper scripts will reuse `$HOME/.kube/config` and `$HOME/.minikube` automatically when present; export `HOST_KUBECONFIG` / `HOST_MINIKUBE_DIR` if your paths differ.
+- **Minikube (optional)** – required when you plan to run GPU evaluations; install it and start with GPU support as described in the [Minikube start documentation](https://minikube.sigs.k8s.io/docs/start/?arch=%2Fmacos%2Farm64%2Fstable%2Fbinary+download). The helper scripts reuse `$HOME/.kube/config` and `$HOME/.minikube` when present, flattening the kubeconfig with inline certificates (or copying the `.minikube` assets as a fallback) into `deploy/docker/config/local/_generated/`. Export `HOST_KUBECONFIG` / `HOST_MINIKUBE_DIR` first if your files live elsewhere.
 
 ### 2. Prepare configuration files
 

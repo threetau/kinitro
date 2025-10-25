@@ -16,6 +16,7 @@ deploy/docker/*-config
 !deploy/docker/config/local/
 !deploy/docker/config/local/validator.toml
 !deploy/docker/config/local/evaluator.toml
+deploy/docker/config/local/_generated/
 !deploy/docker/local/
 
 # duckdb
