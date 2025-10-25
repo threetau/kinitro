@@ -1,0 +1,110 @@
+services:
+  postgres:
+    extends:
+      file: compose.base.yaml
+      service: postgres
+    volumes:
+      - validator-db:/var/lib/postgresql/data
+      - ./local/postgres-init:/docker-entrypoint-initdb.d:ro
+
+  backend:
+    extends:
+      file: compose.backend.yaml
+      service: backend
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: kinitrodb
+      DB_USER: validator
+      DB_PASSWORD: CHANGEME
+      RUN_MIGRATIONS: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    env_file:
+      - ${ENV_FILE:-./env/local.env}
+    volumes:
+      - ./config/local/backend.toml:/etc/kinitro/backend.toml:ro
+      - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
+
+  validator:
+    extends:
+      file: compose.base.yaml
+      service: validator
+    depends_on:
+      backend:
+        condition: service_started
+    env_file:
+      - ${ENV_FILE:-./env/local.env}
+    volumes:
+      - ./config/local/validator.toml:/etc/kinitro/validator.toml:ro
+      - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
+
+  evaluator:
+    extends:
+      file: compose.base.yaml
+      service: evaluator
+    depends_on:
+      backend:
+        condition: service_started
+    env_file:
+      - ${ENV_FILE:-./env/local.env}
+    volumes:
+      - ./config/local/evaluator.toml:/etc/kinitro/evaluator.toml:ro
+      - ${HOST_KUBECONFIG:-./config/local/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
+      - ${HOST_MINIKUBE_DIR:-./config/local/minikube}:/var/lib/kinitro/.minikube:ro
+      - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
+
+  evaluator-gpu:
+    extends:
+      file: compose.base.yaml
+      service: evaluator-gpu
+    depends_on:
+      backend:
+        condition: service_started
+    env_file:
+      - ${ENV_FILE:-./env/local.env}
+    volumes:
+      - ./config/local/evaluator.toml:/etc/kinitro/evaluator.toml:ro
+      - ${HOST_KUBECONFIG:-./config/local/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
+      - ${HOST_MINIKUBE_DIR:-./config/local/minikube}:/var/lib/kinitro/.minikube:ro
+      - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
+      - /dev/dri:/dev/dri
+      - /usr/share/glvnd/egl_vendor.d/10_nvidia.json:/usr/share/glvnd/egl_vendor.d/10_nvidia.json:ro
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2024-08-17T01-24-54Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  minio-setup:
+    image: quay.io/minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-kinitro-submissions}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 $${S3_ACCESS_KEY_ID} $${S3_SECRET_ACCESS_KEY}; do
+        echo 'waiting for minio...'
+        sleep 2;
+      done;
+      mc mb --ignore-existing local/$${S3_BUCKET_NAME};
+      "
+
+volumes:
+  validator-db:
+  minio-data:

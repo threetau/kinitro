@@ -1,0 +1,28 @@
+version = "0.1.0"
+log_level = "INFO"
+
+wallet_path = "/var/lib/kinitro/.bittensor/wallets"
+wallet_name = "validator"
+hotkey_name = "validator"
+
+pg_database = "postgresql://validator:CHANGEME@postgres:5432/validatordb"
+
+backend_url = "ws://backend:8080/ws/validator"
+reconnect_interval = 5
+heartbeat_interval = 30
+
+[subtensor]
+network = "finney"
+address = "wss://entrypoint-finney.opentensor.ai:443"
+netuid = 26
+
+[neuron]
+sync_frequency = 300
+load_old_nodes = true
+allowed_validators = []
+max_commitment_lookback = 360
+
+[otel]
+api_key = ""
+endpoint = ""
+service_name = "validator"

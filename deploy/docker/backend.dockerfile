@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
-# Validator image: focused on running the websocket validator service and
-# Alembic/pgqueuer migrations. Relies on the `uv.lock` file to produce
-# reproducible installs.
+# Backend image responsible for serving the REST/WebSocket API and running
+# Alembic migrations for the core backend schema.
 FROM python:3.12-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
@@ -11,44 +10,46 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# System deps needed for psycopg2 and other compiled wheels.
+# Install system dependencies required for compiled Python packages such as
+# psycopg and capnp.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
-        libpq-dev \
         curl \
         git \
+        libcapnp-dev \
+        libpq-dev \
         postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv for locked dependency resolution.
+# Install uv for lock-file driven dependency resolution.
 RUN pip install --no-cache-dir "uv>=0.4.18"
 
-# Copy metadata and lock files first to maximize layer caching.
+# Copy metadata and lock files first for better build caching.
 COPY pyproject.toml README.md uv.lock /app/
 
-# Export lockfile to requirements.txt and install dependencies.
+# Export the lock file to requirements and install production dependencies.
 RUN uv export --format requirements.txt --locked --no-dev --no-hashes \
         --no-emit-project --no-emit-workspace --no-emit-local \
         --output-file requirements.lock \
     && uv pip install --system --no-cache-dir -r requirements.lock
 
-# Copy the source tree (validator + shared core + scripts).
+# Copy project sources and helper scripts used by the entrypoint.
 COPY src /app/src
 COPY scripts /app/scripts
 
-# The validator expects configuration/credential files to be mounted.
 ENV KINITRO_HOME=/var/lib/kinitro \
     PATH="/app/.local/bin:${PATH}" \
     PYTHONPATH=/app/src
 
-# Expose a non-root user for better isolation.
+# Create non-root user for runtime and ensure ownership of relevant paths.
 RUN useradd --system --create-home --home-dir /var/lib/kinitro kinitro \
     && chown -R kinitro:kinitro /app /var/lib/kinitro
-COPY deploy/docker/entrypoint-validator.sh /entrypoint.sh
+
+COPY deploy/docker/entrypoint-backend.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh && chown kinitro:kinitro /entrypoint.sh
+
 USER kinitro
 
-# Default command runs migrations then starts the websocket validator.
-
+# Run migrations (optional) and launch the backend API.
 ENTRYPOINT ["/entrypoint.sh"]

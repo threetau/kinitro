@@ -1,0 +1,20 @@
+# Backend configuration for local docker stack
+
+wallet_name = "local"
+hotkey_name = "local"
+
+# Database connection
+database_url = "postgresql+asyncpg://validator:CHANGEME@postgres:5432/kinitrodb"
+
+# HTTP / WebSocket server binding
+websocket_host = "0.0.0.0"
+websocket_port = 8080
+
+# Chain monitoring (leaner defaults for local testing)
+max_commitment_lookback = 120
+chain_sync_interval = 30
+
+[subtensor]
+network = "local"
+address = "ws://10.0.0.3:9944"
+netuid = 2

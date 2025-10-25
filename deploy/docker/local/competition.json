@@ -1,0 +1,19 @@
+{
+  "name": "Local MT10 Demo",
+  "description": "MetaWorld MT10 competition for local testing",
+  "benchmarks": [
+    {
+      "provider": "metaworld",
+      "benchmark_name": "MT10",
+      "config": {
+        "episodes_per_task": 1,
+        "max_episode_steps": 50,
+        "tasks_per_env": 2
+      }
+    }
+  ],
+  "points": 50,
+  "min_avg_reward": 0.0,
+  "win_margin_pct": 0.05,
+  "min_success_rate": 0.0
+}

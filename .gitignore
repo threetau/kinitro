@@ -7,6 +7,17 @@ temp/
 /validator.toml
 /evaluator.toml
 deploy/docker/*-config
+!deploy/docker/backend-config/
+!deploy/docker/backend-config/backend.toml
+!deploy/docker/config/
+!deploy/docker/config/base/
+!deploy/docker/config/base/validator.toml
+!deploy/docker/config/base/evaluator.toml
+!deploy/docker/config/local/
+!deploy/docker/config/local/validator.toml
+!deploy/docker/config/local/evaluator.toml
+deploy/docker/config/local/_generated/
+!deploy/docker/local/
 
 # duckdb
 *.duckdb
