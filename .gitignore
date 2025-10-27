@@ -196,4 +196,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Local miner sandbox artifacts
+.kinitro/miner_runs/
+
 data/

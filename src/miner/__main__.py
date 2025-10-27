@@ -12,11 +12,17 @@ import requests
 from fiber.chain.chain_utils import load_hotkey_keypair
 
 from core.chain import commit_to_substrate
-from core.errors import CommitmentError, ConfigurationError, UploadError
+from core.errors import (
+    CommitmentError,
+    ConfigurationError,
+    LocalEvaluationError,
+    UploadError,
+)
 from core.log import get_logger
 from core.schemas import ChainCommitment, ModelProvider
 
 from .config import MinerConfig
+from .local_eval import handle_local_eval_command
 
 logger = get_logger(__name__)
 dotenv.load_dotenv()
@@ -227,6 +233,8 @@ def main():
             handle_upload_command(config)
         elif command == "commit":
             handle_commit_command(config)
+        elif command == "local-eval":
+            handle_local_eval_command(config)
         else:
             raise ConfigurationError(f"Unknown command: {command}")
 
@@ -238,6 +246,9 @@ def main():
         raise SystemExit(1) from e
     except CommitmentError as e:
         logger.error(f"Substrate commitment failed: {e}")
+        raise SystemExit(1) from e
+    except LocalEvaluationError as e:
+        logger.error(f"Local evaluation failed: {e}")
         raise SystemExit(1) from e
     except Exception as e:
         logger.error(f"Unexpected error: {e}")

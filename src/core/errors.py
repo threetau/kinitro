@@ -20,3 +20,9 @@ class CommitmentError(Error):
     """Raised when substrate commitment operations fail."""
 
     pass
+
+
+class LocalEvaluationError(Error):
+    """Raised when local evaluation sandbox runs fail."""
+
+    pass

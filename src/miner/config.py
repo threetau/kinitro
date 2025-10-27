@@ -76,6 +76,122 @@ class MinerConfig(Config):
         # CLI commands
         self._parser.add_argument(
             "command",
-            choices=["upload", "commit"],
-            help="Command to execute: 'upload' to send submission artifact, 'commit' to commit to the substrate chain",
+            choices=["upload", "commit", "local-eval"],
+            help=(
+                "Command to execute: 'upload' to send submission artifact, "
+                "'commit' to commit to the substrate chain, "
+                "'local-eval' to run a local benchmark against your agent"
+            ),
+        )
+
+        # Local evaluation settings
+        local_eval = self.settings.get("local_eval", {}) or {}
+        agent_port_default = local_eval.get("agent_port", 8000)
+        if agent_port_default is None:
+            agent_port_default = 8000
+        episodes_per_task_default = local_eval.get("episodes_per_task", 1)
+        if episodes_per_task_default is None:
+            episodes_per_task_default = 1
+        max_episode_steps_default = local_eval.get("max_episode_steps", 200)
+        if max_episode_steps_default is None:
+            max_episode_steps_default = 200
+        tasks_per_env_default = local_eval.get("tasks_per_env", 1)
+        if tasks_per_env_default is None:
+            tasks_per_env_default = 1
+        agent_start_timeout_default = local_eval.get("agent_start_timeout", 30)
+        if agent_start_timeout_default is None:
+            agent_start_timeout_default = 30
+        ray_num_cpus_default = local_eval.get("ray_num_cpus", 2)
+        if ray_num_cpus_default is None:
+            ray_num_cpus_default = 2
+        ray_num_gpus_default = local_eval.get("ray_num_gpus", 0)
+        if ray_num_gpus_default is None:
+            ray_num_gpus_default = 0
+
+        self._parser.add_argument(
+            "--agent-host",
+            type=str,
+            help="Hostname or IP address where your agent RPC server listens",
+            default=local_eval.get("agent_host", "127.0.0.1"),
+        )
+        self._parser.add_argument(
+            "--agent-port",
+            type=int,
+            help="Port where your agent RPC server listens",
+            default=int(agent_port_default),
+        )
+        self._parser.add_argument(
+            "--agent-start-cmd",
+            type=str,
+            help="Optional shell command to launch your agent server before evaluation",
+            default=local_eval.get("agent_start_cmd"),
+        )
+        self._parser.add_argument(
+            "--agent-start-timeout",
+            type=float,
+            help="Seconds to wait for the agent RPC server to accept connections",
+            default=float(agent_start_timeout_default),
+        )
+        self._parser.add_argument(
+            "--benchmark-provider",
+            type=str,
+            help="Benchmark provider to evaluate against (e.g., metaworld)",
+            default=local_eval.get("benchmark_provider", "metaworld"),
+        )
+        self._parser.add_argument(
+            "--benchmark-spec-file",
+            type=str,
+            help=(
+                "Path to a JSON or TOML file containing benchmark specs. "
+                "When provided, overrides --benchmark-provider/--benchmark-name."
+            ),
+            default=local_eval.get("benchmark_spec_file"),
+        )
+        self._parser.add_argument(
+            "--benchmark-name",
+            type=str,
+            help="Benchmark suite name (e.g., MT1, MT10)",
+            default=local_eval.get("benchmark_name", "MT1"),
+        )
+        self._parser.add_argument(
+            "--episodes-per-task",
+            type=int,
+            help="Number of episodes to run per sampled task",
+            default=int(episodes_per_task_default),
+        )
+        self._parser.add_argument(
+            "--max-episode-steps",
+            type=int,
+            help="Maximum number of steps per episode",
+            default=int(max_episode_steps_default),
+        )
+        self._parser.add_argument(
+            "--tasks-per-env",
+            type=int,
+            help="How many task variants to sample per environment",
+            default=int(tasks_per_env_default),
+        )
+        self._parser.add_argument(
+            "--task-seed",
+            type=int,
+            help="Optional RNG seed for deterministic task sampling",
+            default=local_eval.get("task_seed"),
+        )
+        self._parser.add_argument(
+            "--ray-num-cpus",
+            type=float,
+            help="Number of Ray CPUs to reserve for the local rollout worker",
+            default=ray_num_cpus_default,
+        )
+        self._parser.add_argument(
+            "--ray-num-gpus",
+            type=float,
+            help="Number of Ray GPUs to reserve for the local rollout worker",
+            default=ray_num_gpus_default,
+        )
+        self._parser.add_argument(
+            "--local-results-dir",
+            type=str,
+            help="Directory to store local evaluation artifacts and summaries",
+            default=local_eval.get("local_results_dir", ".kinitro/miner_runs"),
         )
