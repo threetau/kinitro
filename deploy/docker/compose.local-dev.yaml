@@ -51,6 +51,11 @@ services:
         condition: service_started
     env_file:
       - ${ENV_FILE:-./env/local.env}
+    environment:
+      S3_ENDPOINT_URL: ${EVALUATOR_S3_ENDPOINT_URL:-http://minio:9000}
+      S3_PUBLIC_URL_BASE: ${EVALUATOR_S3_PUBLIC_URL_BASE:-http://localhost:9000}
+      OVERRIDE_IMAGE: ${OVERRIDE_IMAGE:-""}
+      POD_ARTIFACT_BASE_URL: ${POD_ARTIFACT_BASE_URL:-http://host.minikube.internal:9000}
     volumes:
       - ./config/local/evaluator.toml:/etc/kinitro/evaluator.toml:ro
       - ${HOST_KUBECONFIG:-./config/local/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
@@ -66,6 +71,11 @@ services:
         condition: service_started
     env_file:
       - ${ENV_FILE:-./env/local.env}
+    environment:
+      S3_ENDPOINT_URL: ${EVALUATOR_S3_ENDPOINT_URL:-http://minio:9000}
+      S3_PUBLIC_URL_BASE: ${EVALUATOR_S3_PUBLIC_URL_BASE:-http://localhost:9000}
+      OVERRIDE_IMAGE: ${OVERRIDE_IMAGE:-""}
+      POD_ARTIFACT_BASE_URL: ${POD_ARTIFACT_BASE_URL:-http://host.minikube.internal:9000}
     volumes:
       - ./config/local/evaluator.toml:/etc/kinitro/evaluator.toml:ro
       - ${HOST_KUBECONFIG:-./config/local/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
@@ -97,12 +107,19 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-kinitro-submissions}
     entrypoint: >
-      /bin/sh -c "
-      until mc alias set local http://minio:9000 $${S3_ACCESS_KEY_ID} $${S3_SECRET_ACCESS_KEY}; do
-        echo 'waiting for minio...'
-        sleep 2;
-      done;
+      /bin/sh -eu -c "
+      echo 'Configuring mc alias with credentials...';
+      mc alias set local http://minio:9000 $${S3_ACCESS_KEY_ID} $${S3_SECRET_ACCESS_KEY};
+      echo 'Current mc aliases:';
+      mc alias list || true;
+      echo 'Waiting for MinIO to be ready...';
+      until mc ls local >/dev/null 2>&1; do sleep 2; done;
+      echo 'Creating bucket if needed...';
       mc mb --ignore-existing local/$${S3_BUCKET_NAME};
+      echo 'Applying anonymous read policy...';
+      mc anonymous set download local/$${S3_BUCKET_NAME} || true;
+      echo 'Verifying bucket policy:';
+      mc anonymous get local/$${S3_BUCKET_NAME} || true;
       "
 
 volumes:

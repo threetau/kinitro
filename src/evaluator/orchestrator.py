@@ -1,8 +1,10 @@
 import asyncio
 import gc
+import os
 import threading
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+from urllib.parse import urlparse, urlunparse
 
 import asyncpg
 import ray
@@ -47,6 +49,7 @@ class Orchestrator:
             wallet_name=config.settings["wallet_name"],
             hotkey_name=config.settings["hotkey_name"],
         )
+        self.pod_artifact_base_url = os.getenv("POD_ARTIFACT_BASE_URL")
 
         # Track running jobs for concurrent execution
         self.running_jobs: Dict[str, Dict] = {}  # job_id -> job_info
@@ -164,16 +167,17 @@ class Orchestrator:
                 f"Job {eval_job_msg.job_id} missing artifact URL; cannot start container"
             )
 
+        pod_artifact_url = self._rewrite_artifact_url(eval_job_msg.artifact_url)
         logger.info(
             "Creating container for job %s using artifact %s",
             eval_job_msg.job_id,
-            eval_job_msg.artifact_url,
+            pod_artifact_url,
         )
 
         containers = Containers()
         pod = containers.create_container(
             eval_job_msg.submission_id,
-            archive_url=eval_job_msg.artifact_url,
+            archive_url=pod_artifact_url,
             archive_sha256=eval_job_msg.artifact_sha256,
         )
         logger.info(f"Created pod: {pod}")
@@ -852,6 +856,48 @@ class Orchestrator:
                 logger.info("Periodic cleanup completed")
             except Exception as e:
                 logger.error(f"Error during periodic cleanup: {e}")
+
+    def _rewrite_artifact_url(self, url: str) -> str:
+        """Rewrite artifact URL for pod consumption if override provided."""
+
+        if not url or not self.pod_artifact_base_url:
+            return url
+
+        try:
+            original = urlparse(url)
+            override = urlparse(self.pod_artifact_base_url)
+        except Exception as exc:
+            logger.warning(
+                "Invalid POD_ARTIFACT_BASE_URL=%s (%s); using original artifact URL",
+                self.pod_artifact_base_url,
+                exc,
+            )
+            return url
+
+        scheme = override.scheme or original.scheme
+        netloc = override.netloc or original.netloc
+        if not scheme or not netloc:
+            return url
+
+        path = original.path
+        if override.path and override.path != "/":
+            base_path = override.path.rstrip("/")
+            tail = original.path.lstrip("/")
+            path = f"{base_path}/{tail}" if tail else base_path
+
+        rewritten = urlunparse(
+            (
+                scheme,
+                netloc,
+                path,
+                original.params,
+                original.query,
+                original.fragment,
+            )
+        )
+        if rewritten != url:
+            logger.debug("Rewrote artifact URL %s -> %s", url, rewritten)
+        return rewritten
 
     async def start(self):
         logger.info("Starting orchestrator...")
