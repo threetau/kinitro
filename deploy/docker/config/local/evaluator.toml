@@ -1,0 +1,17 @@
+# Evaluator configuration tuned for the local Docker stack
+
+wallet_name = "alice"
+hotkey_name = "hotkey0"
+
+pg_database = "postgresql://validator:CHANGEME@postgres:5432/validatordb"
+
+episode_log_interval = 1
+step_log_interval = 5
+
+max_concurrent_jobs = 2
+
+ray_num_cpus = 2
+ray_num_gpus = 0
+worker_num_cpus = 1
+worker_num_gpus = 0
+worker_memory_gb = 2

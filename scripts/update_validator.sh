@@ -1,24 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker/compose.yaml}"
+DEFAULT_ARGS=(-f deploy/docker/compose.base.yaml)
+if [[ -n "${COMPOSE_FILES:-}" ]]; then
+  # shellcheck disable=SC2206
+  COMPOSE_ARGS=(${COMPOSE_FILES})
+else
+  COMPOSE_ARGS=("${DEFAULT_ARGS[@]}")
+fi
 
 echo "Pulling latest validator/evaluator images..."
-docker compose -f "${COMPOSE_FILE}" pull validator evaluator
+docker compose "${COMPOSE_ARGS[@]}" pull validator evaluator
 
 echo "Running database migrations..."
-docker compose -f "${COMPOSE_FILE}" --profile ops run --rm migrator
+docker compose "${COMPOSE_ARGS[@]}" --profile ops run --rm migrator
 
 echo "Restarting validator stack..."
 if [[ "${USE_GPU_EVALUATOR:-0}" == "1" ]]; then
-  docker compose -f "${COMPOSE_FILE}" up -d validator
-  docker compose -f "${COMPOSE_FILE}" --profile gpu up -d evaluator-gpu
-  docker compose -f "${COMPOSE_FILE}" stop evaluator || true
+  docker compose "${COMPOSE_ARGS[@]}" up -d validator
+  docker compose "${COMPOSE_ARGS[@]}" --profile gpu up -d evaluator-gpu
+  docker compose "${COMPOSE_ARGS[@]}" stop evaluator || true
 else
-  docker compose -f "${COMPOSE_FILE}" up -d validator evaluator
-  docker compose -f "${COMPOSE_FILE}" --profile gpu stop evaluator-gpu || true
+  docker compose "${COMPOSE_ARGS[@]}" up -d validator evaluator
+  docker compose "${COMPOSE_ARGS[@]}" --profile gpu stop evaluator-gpu || true
 fi
 
-docker compose -f "${COMPOSE_FILE}" up -d watchtower
+docker compose "${COMPOSE_ARGS[@]}" up -d watchtower
 
 echo "Update complete."

@@ -1,0 +1,17 @@
+# Evaluator configuration defaults for base deployments
+
+wallet_name = "validator"
+hotkey_name = "validator"
+
+pg_database = "postgresql://validator:CHANGEME@postgres:5432/validatordb"
+
+episode_log_interval = 1
+step_log_interval = 10
+
+max_concurrent_jobs = 4
+
+ray_num_cpus = 4
+ray_num_gpus = 0
+worker_num_cpus = 1
+worker_num_gpus = 0
+worker_memory_gb = 4

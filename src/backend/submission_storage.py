@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
+from urllib.parse import urlparse, urlunparse
 
 import boto3
 from botocore.exceptions import ClientError
@@ -87,6 +88,7 @@ class SubmissionStorage:
             raise
 
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        url = self._apply_public_host(url)
         return PresignedUpload(
             url=url,
             method="PUT",
@@ -109,7 +111,7 @@ class SubmissionStorage:
             raise
 
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-        return url, expires_at
+        return self._apply_public_host(url), expires_at
 
     def head_object(self, object_key: str) -> Optional[ArtifactMetadata]:
         """Retrieve metadata for an uploaded artifact, if it exists."""
@@ -153,3 +155,22 @@ class SubmissionStorage:
         if self.config.public_url_base:
             return f"{self.config.public_url_base.rstrip('/')}/{object_key}"
         return None
+
+    def _apply_public_host(self, url: str) -> str:
+        """Rewrite the presigned URL host if a public base is configured."""
+
+        base = self.config.public_url_base
+        if not base:
+            return url
+
+        parsed_url = urlparse(url)
+        parsed_base = urlparse(base)
+
+        if not parsed_base.scheme or not parsed_base.netloc:
+            return url
+
+        rebuilt = parsed_url._replace(
+            scheme=parsed_base.scheme,
+            netloc=parsed_base.netloc,
+        )
+        return urlunparse(rebuilt)

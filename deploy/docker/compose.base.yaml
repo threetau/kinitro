@@ -22,9 +22,6 @@ services:
       context: ../..
       dockerfile: deploy/docker/migrator.dockerfile
     profiles: ["ops"]
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
       DB_HOST: postgres
       DB_NAME: validatordb
@@ -46,12 +43,11 @@ services:
       DB_NAME: validatordb
       DB_USER: validator
       DB_PASSWORD: CHANGEME
-      KINITRO_API_KEY: "${KINITRO_API_KEY}"
+    env_file:
+      - ${ENV_FILE:-./env/base.env}
     volumes:
-      - ./validator-config:/etc/kinitro:ro
-      - ${ENV_FILE:-deploy/docker/.env}:/app/.env:ro
+      - ./config/base/validator.toml:/etc/kinitro/validator.toml:ro
       - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
-    command: ["--"]
 
   evaluator:
     profiles: ["cpu"]
@@ -73,13 +69,14 @@ services:
       DB_USER: validator
       DB_PASSWORD: CHANGEME
       RUN_MIGRATIONS: "0"
+      KUBECONFIG: /var/lib/kinitro/.kube/config
+    env_file:
+      - ${ENV_FILE:-./env/base.env}
     volumes:
-      - ./evaluator-config:/etc/kinitro:ro
-      - ${KUBECONFIG:-./deploy/docker/evaluator-config/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
-      - ${ENV_FILE:-./deploy/docker/.env}:/app/.env:ro
+      - ./config/base/evaluator.toml:/etc/kinitro/evaluator.toml:ro
+      - ${HOST_KUBECONFIG:-./config/base/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
+      - ${HOST_MINIKUBE_DIR:-./config/base/minikube}:/var/lib/kinitro/.minikube:ro
       - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
-    command: ["--"]
-    # NOTE: join minikube bridge so evaluator can reach 192.168.49.2:8443
     networks:
       - default
       - minikube
@@ -104,15 +101,16 @@ services:
       DB_PASSWORD: CHANGEME
       RUN_MIGRATIONS: "0"
       NVIDIA_VISIBLE_DEVICES: all
-      # NOTE: should we use 'all' or these specific capabilities?
-      # NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics
       NVIDIA_DRIVER_CAPABILITIES: all
       MUJOCO_GL: egl
       PYOPENGL_PLATFORM: egl
+      KUBECONFIG: /var/lib/kinitro/.kube/config
+    env_file:
+      - ${ENV_FILE:-./env/base.env}
     volumes:
-      - ./evaluator-config:/etc/kinitro:ro
-      - ${KUBECONFIG:-./deploy/docker/evaluator-config/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
-      - ${ENV_FILE:-./deploy/docker/.env}:/app/.env:ro
+      - ./config/base/evaluator.toml:/etc/kinitro/evaluator.toml:ro
+      - ${HOST_KUBECONFIG:-./config/base/kubeconfig.yaml}:/var/lib/kinitro/.kube/config:ro
+      - ${HOST_MINIKUBE_DIR:-./config/base/minikube}:/var/lib/kinitro/.minikube:ro
       - ${BITTENSOR_HOME:-${HOME}/.bittensor}:/var/lib/kinitro/.bittensor
       - /dev/dri:/dev/dri
       - /usr/share/glvnd/egl_vendor.d/10_nvidia.json:/usr/share/glvnd/egl_vendor.d/10_nvidia.json:ro
@@ -123,8 +121,6 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    command: ["--"]
-    # NOTE: GPU evaluator also attaches to minikube network for API access
     networks:
       - default
       - minikube
@@ -132,6 +128,7 @@ services:
   watchtower:
     image: containrrr/watchtower:latest
     restart: unless-stopped
+    profiles: ["ops"]
     depends_on:
       validator:
         condition: service_started
@@ -145,7 +142,6 @@ services:
 volumes:
   validator-db:
 
-# NOTE: external minikube network so containers can reach kube API
 networks:
   minikube:
     external: true

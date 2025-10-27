@@ -213,8 +213,9 @@ class S3StorageClient:
             URL string
         """
         if self.config.public_url_base:
-            # Use public URL if configured
-            return f"{self.config.public_url_base}/{key}"
+            # Use public URL if configured (path-style: base/bucket/key)
+            base = self.config.public_url_base.rstrip("/")
+            return f"{base}/{self.bucket_name}/{key}"
         else:
             # Generate presigned URL (valid for 7 days)
             return self.s3_client.generate_presigned_url(
