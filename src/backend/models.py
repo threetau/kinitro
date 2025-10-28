@@ -183,6 +183,7 @@ class MinerSubmissionResponse(SQLModel):
     commitment_block: int
     submission_time: datetime
     created_at: datetime
+    evaluation_status: Optional[EvaluationStatus] = None
 
     class Config:
         from_attributes = True

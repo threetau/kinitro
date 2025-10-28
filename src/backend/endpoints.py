@@ -4,7 +4,7 @@ import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional, cast
+from typing import Any, Dict, List, Literal, Optional, Sequence, cast
 
 from fastapi import (
     Body,
@@ -19,7 +19,8 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.auth import (
     UserRole,
@@ -184,6 +185,123 @@ def _build_submission_upload_message(payload: SubmissionUploadRequest) -> bytes:
 config = BackendConfig()
 backend_service = BackendService(config)
 API_SECURITY_SCHEME_NAME = "ApiKeyAuth"
+
+
+STATUS_PRIORITY = [
+    EvaluationStatus.FAILED,
+    EvaluationStatus.TIMEOUT,
+    EvaluationStatus.CANCELLED,
+    EvaluationStatus.RUNNING,
+    EvaluationStatus.STARTING,
+    EvaluationStatus.QUEUED,
+]
+
+
+def _derive_submission_status(
+    statuses: Sequence[EvaluationStatus],
+) -> Optional[EvaluationStatus]:
+    """Collapse per-job statuses into a single submission-level status."""
+    if not statuses:
+        return None
+
+    if all(status == EvaluationStatus.COMPLETED for status in statuses):
+        return EvaluationStatus.COMPLETED
+
+    for priority_status in STATUS_PRIORITY:
+        if priority_status in statuses:
+            return priority_status
+
+    # Fallback - should not be reached, but preserve latest observed status
+    return statuses[0]
+
+
+async def _get_submission_evaluation_statuses(
+    session: AsyncSession, submission_ids: Sequence[int]
+) -> Dict[int, Optional[EvaluationStatus]]:
+    """Fetch the aggregated evaluation status for each submission."""
+    if not submission_ids:
+        return {}
+
+    job_rows = await session.execute(
+        select(BackendEvaluationJob.id, BackendEvaluationJob.submission_id).where(
+            BackendEvaluationJob.submission_id.in_(submission_ids)
+        )
+    )
+    jobs_by_submission: Dict[int, List[int]] = {}
+    for job_id, submission_id in job_rows:
+        jobs_by_submission.setdefault(int(submission_id), []).append(int(job_id))
+
+    if not jobs_by_submission:
+        return {}
+
+    job_ids = {
+        job_id
+        for submission_jobs in jobs_by_submission.values()
+        for job_id in submission_jobs
+    }
+    job_id_values = tuple(job_ids)
+
+    if not job_id_values:
+        return {}
+
+    latest_status_subquery = (
+        select(
+            BackendEvaluationJobStatus.job_id,
+            func.max(BackendEvaluationJobStatus.created_at).label("max_created_at"),
+        )
+        .where(BackendEvaluationJobStatus.job_id.in_(job_id_values))
+        .group_by(BackendEvaluationJobStatus.job_id)
+        .subquery()
+    )
+
+    status_rows = await session.execute(
+        select(
+            BackendEvaluationJob.submission_id,
+            BackendEvaluationJob.id,
+            BackendEvaluationJobStatus.status,
+        )
+        .select_from(BackendEvaluationJob)
+        .join(
+            BackendEvaluationJobStatus,
+            BackendEvaluationJob.id == BackendEvaluationJobStatus.job_id,
+        )
+        .join(
+            latest_status_subquery,
+            and_(
+                BackendEvaluationJobStatus.job_id == latest_status_subquery.c.job_id,
+                BackendEvaluationJobStatus.created_at
+                == latest_status_subquery.c.max_created_at,
+            ),
+        )
+        .where(BackendEvaluationJob.id.in_(job_id_values))
+    )
+
+    job_status_map: Dict[int, EvaluationStatus] = {}
+    submission_statuses: Dict[int, List[EvaluationStatus]] = {}
+
+    for submission_id, job_id, status_value in status_rows:
+        status_enum = (
+            status_value
+            if isinstance(status_value, EvaluationStatus)
+            else EvaluationStatus(status_value)
+        )
+        submission_key = int(submission_id)
+        job_key = int(job_id)
+        job_status_map[job_key] = status_enum
+        submission_statuses.setdefault(submission_key, []).append(status_enum)
+
+    # Default jobs without a status entry to QUEUED so they are reflected in aggregation
+    for submission_id, job_ids_for_submission in jobs_by_submission.items():
+        statuses = submission_statuses.setdefault(submission_id, [])
+        for job_id in job_ids_for_submission:
+            if job_id not in job_status_map:
+                statuses.append(EvaluationStatus.QUEUED)
+
+    aggregated_statuses: Dict[int, Optional[EvaluationStatus]] = {}
+    for submission_id, statuses in submission_statuses.items():
+        aggregated_statuses[submission_id] = _derive_submission_status(statuses)
+
+    return aggregated_statuses
 
 
 @asynccontextmanager
@@ -959,7 +1077,17 @@ async def list_submissions(
         result = await session.execute(query)
         submissions = result.scalars().all()
 
-        return [MinerSubmissionResponse.model_validate(s) for s in submissions]
+        status_map = await _get_submission_evaluation_statuses(
+            session, [int(s.id) for s in submissions]
+        )
+
+        responses: List[MinerSubmissionResponse] = []
+        for submission in submissions:
+            response = MinerSubmissionResponse.model_validate(submission)
+            response.evaluation_status = status_map.get(int(submission.id))
+            responses.append(response)
+
+        return responses
 
 
 @app.get("/submissions/revealed", response_model=List[RevealedSubmissionResponse])
@@ -1026,10 +1154,17 @@ async def list_revealed_submissions(
         result = await session.execute(query)
         submissions = result.scalars().all()
 
-        return [
-            RevealedSubmissionResponse.model_validate(submission)
-            for submission in submissions
-        ]
+        status_map = await _get_submission_evaluation_statuses(
+            session, [int(s.id) for s in submissions]
+        )
+
+        responses: List[RevealedSubmissionResponse] = []
+        for submission in submissions:
+            response = RevealedSubmissionResponse.model_validate(submission)
+            response.evaluation_status = status_map.get(int(submission.id))
+            responses.append(response)
+
+        return responses
 
 
 @app.post(
@@ -1103,7 +1238,14 @@ async def get_revealed_submission(submission_id: int):
                 detail="Revealed submission not found",
             )
 
-        return RevealedSubmissionResponse.model_validate(submission)
+        status_map = await _get_submission_evaluation_statuses(
+            session, [int(submission.id)]
+        )
+
+        response = RevealedSubmissionResponse.model_validate(submission)
+        response.evaluation_status = status_map.get(int(submission.id))
+
+        return response
 
 
 @app.get("/submissions/{submission_id}", response_model=MinerSubmissionResponse)
@@ -1125,7 +1267,14 @@ async def get_submission(submission_id: int):
                 status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found"
             )
 
-        return MinerSubmissionResponse.model_validate(submission)
+        status_map = await _get_submission_evaluation_statuses(
+            session, [int(submission.id)]
+        )
+
+        response = MinerSubmissionResponse.model_validate(submission)
+        response.evaluation_status = status_map.get(int(submission.id))
+
+        return response
 
 
 # Job endpoints
