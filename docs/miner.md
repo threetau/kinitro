@@ -84,6 +84,10 @@ uv run python -m miner local-eval --config miner.toml \
 
 The CLI connects to your agent, launches a single rollout worker on Ray, and streams benchmark metrics. When the run finishes it writes a JSON summary under `.kinitro/miner_runs/`.
 
+> [!NOTE]
+> On mainnet the evaluator launches your submission with the exact command:
+> `/workspace/submission/.venv/bin/python /workspace/submission/main.py --host 0.0.0.0 --port 8000`.
+
 `config/benchmarks/local_mt10.json` is an example spec file which runs MT10 tasks locally. You can read the current list of competitions and their respective benchmark specs [here](https://api.kinitro.ai/docs#/default/list_competitions_competitions_get) if you would like to evaluate your agent on these tasks before submitting it to our backend.
 
 ```mermaid
