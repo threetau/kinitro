@@ -18,21 +18,33 @@ spec:
       - sh
       - -c
       - |
-        set -e
+        set -euo pipefail
         mkdir -p /workspace/submission
-        if [ -z "$SUBMISSION_ARCHIVE_URL" ]; then
+        if [ -z "${SUBMISSION_ARCHIVE_URL:-}" ]; then
           echo "SUBMISSION_ARCHIVE_URL is not set" >&2
           exit 1
         fi
         echo "Downloading submission archive from $SUBMISSION_ARCHIVE_URL"
         curl -L --fail "$SUBMISSION_ARCHIVE_URL" -o /tmp/submission.tar.gz
-        if [ -n "$SUBMISSION_ARCHIVE_SHA256" ]; then
+        if [ -n "${SUBMISSION_ARCHIVE_SHA256:-}" ]; then
           echo "$SUBMISSION_ARCHIVE_SHA256  /tmp/submission.tar.gz" | sha256sum -c -
         fi
         tar -xzf /tmp/submission.tar.gz -C /workspace/submission
+        # Copy evaluator-provided templates into the submission tree (agent server, schema, entrypoint)
         cp /templates/* /workspace/submission/
+        # Create an isolated virtual environment for the submission
+        python -m venv /workspace/submission/.venv
+        # Upgrade pip + wheel inside the venv to improve wheels resolution
+        /workspace/submission/.venv/bin/python -m pip install --upgrade pip wheel setuptools
+        # Install miner-specified dependencies
         if [ -f /workspace/submission/requirements.txt ]; then
-          pip install --no-cache-dir -r /workspace/submission/requirements.txt
+          echo "Installing dependencies from requirements.txt into venv"
+          /workspace/submission/.venv/bin/pip install --no-cache-dir -r /workspace/submission/requirements.txt
+        elif [ -f /workspace/submission/pyproject.toml ]; then
+          echo "Installing submission as a project (pyproject.toml detected)"
+          /workspace/submission/.venv/bin/pip install --no-cache-dir /workspace/submission
+        else
+          echo "No requirements.txt or pyproject.toml found; proceeding without extra deps"
         fi
     volumeMounts:
       - name: workspace
@@ -78,7 +90,7 @@ spec:
         value: ""
       - name: SUBMISSION_ARCHIVE_SHA256
         value: ""
-    command: ["python", "/workspace/submission/main.py", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["/workspace/submission/.venv/bin/python", "/workspace/submission/main.py", "--host", "0.0.0.0", "--port", "8000"]
     volumeMounts:
       - name: workspace
         mountPath: /workspace/submission

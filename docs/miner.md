@@ -56,6 +56,19 @@ python -m miner commit --config miner.toml --submission-id <SUBMISSION_ID>
 
 Only the submission id is required on-chain; the validator uses its own stored metadata (hash and size) during evaluation.
 
+### Declaring dependencies
+
+The evaluator installs your agent's Python dependencies into an isolated virtual environment inside the submission container before execution. Declare your dependencies using one of the following in the root of your submission archive:
+
+- `requirements.txt` – standard pip requirements file
+- `pyproject.toml` – your project is installed via `pip install /workspace/submission`
+
+Notes:
+
+- Network egress is allowed only during the init phase to install dependencies; runtime egress is blocked.
+- The container includes minimal runtime packages for the RPC layer (`pycapnp`, `numpy`). You must include any ML/framework libraries (e.g., `torch`, `gymnasium`, `transformers`) your agent requires.
+- A virtual environment is created at `/workspace/submission/.venv` and used to run your `main.py`.
+
 ## Local evaluation sandbox
 
 Dry run your agent before uploading by spinning up the lightweight evaluator stack locally:

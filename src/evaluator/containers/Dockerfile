@@ -7,16 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libegl1 libgles2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install ML dependencies (pin versions for reproducibility)
+# Install minimal runtime deps for the RPC layer only.
+# Miner-specified packages are installed at runtime into a per-submission venv.
 RUN pip install --no-cache-dir \
-    torch==2.3.0 \
-    transformers==4.44.0 \
     numpy==1.26.4 \
-    pandas==2.2.2 \
-    pycapnp==2.0.0 \
-    metaworld==3.0.0 \
-    gymnasium==1.2.0 \
-    Pillow==10.4.0
+    pycapnp==2.0.0
 
 # Create workspace directories
 RUN mkdir -p /workspace/submission
