@@ -1,5 +1,6 @@
 exclude = [".git", ".pyenv", ".ruff_cache", ".venv", ".vscode"]
 indent-width = 4
+target-version = "py312"
 
 [lint]
 fixable = ["ALL"]
