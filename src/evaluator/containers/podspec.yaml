@@ -30,8 +30,14 @@ spec:
           echo "$SUBMISSION_ARCHIVE_SHA256  /tmp/submission.tar.gz" | sha256sum -c -
         fi
         tar -xzf /tmp/submission.tar.gz -C /workspace/submission
-        # Copy evaluator-provided templates into the submission tree (agent server, schema, entrypoint)
-        cp /templates/* /workspace/submission/
+        # Provide evaluator templates only when the submission is missing a file
+        for template in /templates/*; do
+          name=$(basename "$template")
+          dest="/workspace/submission/$name"
+          if [ ! -e "$dest" ]; then
+            cp "$template" "$dest"
+          fi
+        done
         # Create an isolated virtual environment for the submission
         python -m venv /workspace/submission/.venv
         # Upgrade pip + wheel inside the venv to improve wheels resolution
