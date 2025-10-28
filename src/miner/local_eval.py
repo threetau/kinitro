@@ -6,6 +6,7 @@ import socket
 import subprocess
 import threading
 import time
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -19,11 +20,6 @@ from core.log import get_logger
 from evaluator.rollout import BenchmarkSpec, RolloutCluster
 from evaluator.rollout.envs import EnvResult
 from evaluator.rpc.rpc_process import RPCProcess
-
-try:  # Python >=3.11
-    import tomllib  # type: ignore[attr-defined]
-except ModuleNotFoundError:  # pragma: no cover - fallback for <3.11
-    tomllib = None
 
 logger = get_logger(__name__)
 
