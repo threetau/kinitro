@@ -62,7 +62,7 @@ Dry run your agent before uploading by spinning up the lightweight evaluator sta
 
 1. Update `miner.toml` with a `[local_eval]` block (defaults provided in `config/miner.toml.example`).
 2. Start your agent server manually or set `agent_start_cmd` so the CLI launches it for you.
-3. Run with a benchmark spec file (required):
+3. Run with a benchmark spec file:
 
 ```bash
 uv run python -m miner local-eval --config miner.toml \
@@ -71,20 +71,20 @@ uv run python -m miner local-eval --config miner.toml \
 
 The CLI connects to your agent, launches a single rollout worker on Ray, and streams benchmark metrics. When the run finishes it writes a JSON summary under `.kinitro/miner_runs/`.
 
-`config/benchmarks/local_mt10.json` mirrors the payload used in `scripts/test_comp.sh`, so local runs match the MT10 competition definition.
+`config/benchmarks/local_mt10.json` is an example spec file which runs MT10 tasks locally. You can read the current list of competitions and their respective benchmark specs [here](https://api.kinitro.ai/docs#/default/list_competitions_competitions_get) if you would like to evaluate your agent on these tasks before submitting it to our backend.
 
-```text
-+-----------------+   spawn (optional)   +-------------------+
-| miner CLI       | -------------------> | Agent Server      |
-| local-eval cmd  |                      | (your submission) |
-+-----------------+                      +-------------------+
-         |                                        ^
-         | RPC queues (Ray)                       |
-         v                                        |
-+-----------------+   capnp RPC ping/act   +---------------+
-| Rollout worker  | <--------------------> | RPC process   |
-| (Ray actor)     |                        | thread        |
-+-----------------+                        +---------------+
+```mermaid
+flowchart LR
+  CLI["miner CLI<br/>local-eval cmd"]
+  AGENT["Agent Server<br/>(your submission)"]
+  WORKER["Rollout worker<br/>(Ray actor)"]
+  RPCT["RPC process<br/>thread"]
+
+  CLI -- "spawn (optional)" --> AGENT
+  CLI -. "create Ray queues" .-> WORKER
+  CLI -. "start RPC thread" .-> RPCT
+  WORKER <-- "RPCRequest/RPCResponse via Ray queues" --> RPCT
+  RPCT <-- "capnp ping/act" --> AGENT
 ```
 
 ### Tips and troubleshooting

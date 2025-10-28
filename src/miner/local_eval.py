@@ -211,16 +211,14 @@ def _build_benchmark_spec_from_entry(
 
 
 def _resolve_benchmark_specs(settings) -> list[BenchmarkSpec]:
-    """Resolve benchmark specs from a file or CLI fallbacks."""
+    """Resolve benchmark specs from a file"""
     spec_file = settings.get("benchmark_spec_file")
     specs: list[BenchmarkSpec] = []
 
     if spec_file:
         path = Path(spec_file).expanduser().resolve()
         entries = _load_benchmark_entries_from_file(path)
-        specs = [
-            _build_benchmark_spec_from_entry(entry, settings) for entry in entries
-        ]
+        specs = [_build_benchmark_spec_from_entry(entry, settings) for entry in entries]
     else:
         raise ConfigurationError(
             "--benchmark-spec-file (or [local_eval].benchmark_spec_file) is required for local-eval"
