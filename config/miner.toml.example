@@ -26,13 +26,8 @@ netuid = 26
 agent_host = "127.0.0.1"
 agent_port = 8000
 # agent_start_cmd = "uv run python submission_template/main.py --host 127.0.0.1 --port 8000"
-benchmark_provider = "metaworld"
-benchmark_name = "MT1"
-episodes_per_task = 1
-max_episode_steps = 200
-tasks_per_env = 1
 ray_num_cpus = 2
 ray_num_gpus = 0
 local_results_dir = ".kinitro/miner_runs"
-# Optional: point to a JSON/TOML file with detailed specs (see config/benchmarks/local_mt10.json)
-# benchmark_spec_file = "config/benchmarks/local_mt10.json"
+# Required: point to a JSON/TOML file with detailed specs (see config/benchmarks/local_mt10.json)
+benchmark_spec_file = "config/benchmarks/local_mt10.json"

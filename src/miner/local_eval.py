@@ -149,28 +149,10 @@ def _load_benchmark_entries_from_file(path: Path) -> list[dict[str, Any]]:
 
 def _apply_config_defaults(
     config: dict[str, Any],
-    settings,
+    _settings,
 ) -> dict[str, Any]:
-    """Overlay CLI/config defaults onto a benchmark config if keys are missing."""
-    merged = dict(config)
-
-    overrides = {
-        "episodes_per_task": settings.get("episodes_per_task"),
-        "max_episode_steps": settings.get("max_episode_steps"),
-        "tasks_per_env": settings.get("tasks_per_env"),
-    }
-
-    for key, value in overrides.items():
-        if value is not None and key not in merged:
-            merged[key] = int(value)
-
-    if settings.get("task_seed") is not None and "task_seed" not in merged:
-        merged["task_seed"] = int(settings.get("task_seed"))
-
-    if settings.get("env_name") and "env_name" not in merged:
-        merged["env_name"] = settings.get("env_name")
-
-    return merged
+    """Return config unchanged; CLI overrides removed for local eval."""
+    return dict(config)
 
 
 def _to_string_tuple(value: Any) -> tuple[str, ...]:
@@ -189,16 +171,16 @@ def _to_string_tuple(value: Any) -> tuple[str, ...]:
 
 def _build_benchmark_spec_from_entry(
     entry: dict[str, Any],
-    settings,
+    _settings,
 ) -> BenchmarkSpec:
     """Convert a dict entry into a BenchmarkSpec."""
-    provider = entry.get("provider") or settings.get("benchmark_provider")
+    provider = entry.get("provider")
     if not provider:
         raise ConfigurationError(
             "Benchmark provider missing; supply it in the spec file or via --benchmark-provider"
         )
 
-    name = entry.get("benchmark_name") or settings.get("benchmark_name")
+    name = entry.get("benchmark_name")
     if not name:
         raise ConfigurationError(
             "Benchmark name missing; supply it in the spec file or via --benchmark-name"
@@ -208,23 +190,17 @@ def _build_benchmark_spec_from_entry(
     if not isinstance(base_config, dict):
         raise ConfigurationError("Benchmark config must be an object/dict")
 
-    merged_config = _apply_config_defaults(base_config, settings)
+    merged_config = _apply_config_defaults(base_config, None)
 
     spec_kwargs: dict[str, Any] = {}
-    if "render_mode" in entry or settings.get("render_mode"):
-        spec_kwargs["render_mode"] = entry.get(
-            "render_mode", settings.get("render_mode", "rgb_array")
-        )
+    if "render_mode" in entry:
+        spec_kwargs["render_mode"] = entry.get("render_mode")
 
     if "camera_names" in entry:
         spec_kwargs["camera_names"] = _to_string_tuple(entry["camera_names"])
-    elif settings.get("camera_names"):
-        spec_kwargs["camera_names"] = _to_string_tuple(settings.get("camera_names"))
 
-    if "camera_attribute" in entry or settings.get("camera_attribute"):
-        spec_kwargs["camera_attribute"] = entry.get(
-            "camera_attribute", settings.get("camera_attribute")
-        )
+    if "camera_attribute" in entry:
+        spec_kwargs["camera_attribute"] = entry.get("camera_attribute")
 
     return BenchmarkSpec(
         provider=str(provider),
@@ -242,18 +218,13 @@ def _resolve_benchmark_specs(settings) -> list[BenchmarkSpec]:
     if spec_file:
         path = Path(spec_file).expanduser().resolve()
         entries = _load_benchmark_entries_from_file(path)
-        specs = [_build_benchmark_spec_from_entry(entry, settings) for entry in entries]
-    else:
         specs = [
-            _build_benchmark_spec_from_entry(
-                {
-                    "provider": settings.get("benchmark_provider", "metaworld"),
-                    "benchmark_name": settings.get("benchmark_name"),
-                    "config": {},
-                },
-                settings,
-            )
+            _build_benchmark_spec_from_entry(entry, settings) for entry in entries
         ]
+    else:
+        raise ConfigurationError(
+            "--benchmark-spec-file (or [local_eval].benchmark_spec_file) is required for local-eval"
+        )
 
     if not specs:
         raise ConfigurationError("No benchmark specifications were resolved")

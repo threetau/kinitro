@@ -62,25 +62,18 @@ Dry run your agent before uploading by spinning up the lightweight evaluator sta
 
 1. Update `miner.toml` with a `[local_eval]` block (defaults provided in `config/miner.toml.example`).
 2. Start your agent server manually or set `agent_start_cmd` so the CLI launches it for you.
-3. Run:
-
-```bash
-uv run python -m miner local-eval --config miner.toml \
-  --benchmark-name MT1 --episodes-per-task 2
-```
-
-The CLI will connect to your agent, launch a single rollout worker on Ray, and stream benchmark metrics. When the run finishes it writes a JSON summary under `.kinitro/miner_runs/`.
-
-Want to mirror the backend competition spec? Create (or reuse) a benchmark spec file and point the CLI at it:
+3. Run with a benchmark spec file (required):
 
 ```bash
 uv run python -m miner local-eval --config miner.toml \
   --benchmark-spec-file config/benchmarks/local_mt10.json
 ```
 
+The CLI connects to your agent, launches a single rollout worker on Ray, and streams benchmark metrics. When the run finishes it writes a JSON summary under `.kinitro/miner_runs/`.
+
 `config/benchmarks/local_mt10.json` mirrors the payload used in `scripts/test_comp.sh`, so local runs match the MT10 competition definition.
 
-```
+```text
 +-----------------+   spawn (optional)   +-------------------+
 | miner CLI       | -------------------> | Agent Server      |
 | local-eval cmd  |                      | (your submission) |
@@ -97,6 +90,6 @@ uv run python -m miner local-eval --config miner.toml \
 ### Tips and troubleshooting
 
 - `agent_start_cmd` can be any shell snippet (`uv run python submission_template/main.py --port 8000`).
-- Set `episodes_per_task`, `max_episode_steps`, and `tasks_per_env` to keep runs lightweight.
+- In your spec file, tune `episodes_per_task`, `max_episode_steps`, and `tasks_per_env` to keep runs lightweight.
 - Logs and summaries live in `.kinitro/miner_runs/`; delete the directory to reset.
 - If you see timeouts, confirm the agent RPC server is reachable on `agent_host:agent_port`.

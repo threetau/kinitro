@@ -89,15 +89,6 @@ class MinerConfig(Config):
         agent_port_default = local_eval.get("agent_port", 8000)
         if agent_port_default is None:
             agent_port_default = 8000
-        episodes_per_task_default = local_eval.get("episodes_per_task", 1)
-        if episodes_per_task_default is None:
-            episodes_per_task_default = 1
-        max_episode_steps_default = local_eval.get("max_episode_steps", 200)
-        if max_episode_steps_default is None:
-            max_episode_steps_default = 200
-        tasks_per_env_default = local_eval.get("tasks_per_env", 1)
-        if tasks_per_env_default is None:
-            tasks_per_env_default = 1
         agent_start_timeout_default = local_eval.get("agent_start_timeout", 30)
         if agent_start_timeout_default is None:
             agent_start_timeout_default = 30
@@ -133,49 +124,13 @@ class MinerConfig(Config):
             default=float(agent_start_timeout_default),
         )
         self._parser.add_argument(
-            "--benchmark-provider",
-            type=str,
-            help="Benchmark provider to evaluate against (e.g., metaworld)",
-            default=local_eval.get("benchmark_provider", "metaworld"),
-        )
-        self._parser.add_argument(
             "--benchmark-spec-file",
             type=str,
             help=(
                 "Path to a JSON or TOML file containing benchmark specs. "
-                "When provided, overrides --benchmark-provider/--benchmark-name."
+                "This is required for local evaluation."
             ),
             default=local_eval.get("benchmark_spec_file"),
-        )
-        self._parser.add_argument(
-            "--benchmark-name",
-            type=str,
-            help="Benchmark suite name (e.g., MT1, MT10)",
-            default=local_eval.get("benchmark_name", "MT1"),
-        )
-        self._parser.add_argument(
-            "--episodes-per-task",
-            type=int,
-            help="Number of episodes to run per sampled task",
-            default=int(episodes_per_task_default),
-        )
-        self._parser.add_argument(
-            "--max-episode-steps",
-            type=int,
-            help="Maximum number of steps per episode",
-            default=int(max_episode_steps_default),
-        )
-        self._parser.add_argument(
-            "--tasks-per-env",
-            type=int,
-            help="How many task variants to sample per environment",
-            default=int(tasks_per_env_default),
-        )
-        self._parser.add_argument(
-            "--task-seed",
-            type=int,
-            help="Optional RNG seed for deterministic task sampling",
-            default=local_eval.get("task_seed"),
         )
         self._parser.add_argument(
             "--ray-num-cpus",
