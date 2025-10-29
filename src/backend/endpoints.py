@@ -1044,6 +1044,10 @@ async def list_submissions(
     ),
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_LIMIT, ge=MIN_PAGE_LIMIT, le=MAX_PAGE_LIMIT),
+    include_status: bool = Query(
+        False,
+        description="When true, include aggregated evaluation status for each submission",
+    ),
 ):
     """List miner submissions."""
     if not backend_service.async_session:
@@ -1077,14 +1081,17 @@ async def list_submissions(
         result = await session.execute(query)
         submissions = result.scalars().all()
 
-        status_map = await _get_submission_evaluation_statuses(
-            session, [int(s.id) for s in submissions]
-        )
+        status_map: Dict[int, Optional[EvaluationStatus]] = {}
+        if include_status:
+            status_map = await _get_submission_evaluation_statuses(
+                session, [int(s.id) for s in submissions]
+            )
 
         responses: List[MinerSubmissionResponse] = []
         for submission in submissions:
             response = MinerSubmissionResponse.model_validate(submission)
-            response.evaluation_status = status_map.get(int(submission.id))
+            if include_status:
+                response.evaluation_status = status_map.get(int(submission.id))
             responses.append(response)
 
         return responses
@@ -1112,6 +1119,10 @@ async def list_revealed_submissions(
     ),
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_LIMIT, ge=MIN_PAGE_LIMIT, le=MAX_PAGE_LIMIT),
+    include_status: bool = Query(
+        False,
+        description="When true, include aggregated evaluation status for each submission",
+    ),
 ):
     """List submissions whose hold-out period has ended."""
     if not backend_service.async_session:
@@ -1154,14 +1165,17 @@ async def list_revealed_submissions(
         result = await session.execute(query)
         submissions = result.scalars().all()
 
-        status_map = await _get_submission_evaluation_statuses(
-            session, [int(s.id) for s in submissions]
-        )
+        status_map: Dict[int, Optional[EvaluationStatus]] = {}
+        if include_status:
+            status_map = await _get_submission_evaluation_statuses(
+                session, [int(s.id) for s in submissions]
+            )
 
         responses: List[RevealedSubmissionResponse] = []
         for submission in submissions:
             response = RevealedSubmissionResponse.model_validate(submission)
-            response.evaluation_status = status_map.get(int(submission.id))
+            if include_status:
+                response.evaluation_status = status_map.get(int(submission.id))
             responses.append(response)
 
         return responses
@@ -1214,7 +1228,13 @@ async def rerun_submission_evaluations(
     "/submissions/revealed/{submission_id}",
     response_model=RevealedSubmissionResponse,
 )
-async def get_revealed_submission(submission_id: int):
+async def get_revealed_submission(
+    submission_id: int,
+    include_status: bool = Query(
+        False,
+        description="When true, include aggregated evaluation status for the submission",
+    ),
+):
     """Get a specific revealed submission by ID."""
     if not backend_service.async_session:
         raise HTTPException(
@@ -1238,18 +1258,24 @@ async def get_revealed_submission(submission_id: int):
                 detail="Revealed submission not found",
             )
 
-        status_map = await _get_submission_evaluation_statuses(
-            session, [int(submission.id)]
-        )
-
         response = RevealedSubmissionResponse.model_validate(submission)
-        response.evaluation_status = status_map.get(int(submission.id))
+        if include_status:
+            status_map = await _get_submission_evaluation_statuses(
+                session, [int(submission.id)]
+            )
+            response.evaluation_status = status_map.get(int(submission.id))
 
         return response
 
 
 @app.get("/submissions/{submission_id}", response_model=MinerSubmissionResponse)
-async def get_submission(submission_id: int):
+async def get_submission(
+    submission_id: int,
+    include_status: bool = Query(
+        False,
+        description="When true, include aggregated evaluation status for the submission",
+    ),
+):
     """Get a specific submission by ID."""
     if not backend_service.async_session:
         raise HTTPException(
@@ -1267,12 +1293,12 @@ async def get_submission(submission_id: int):
                 status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found"
             )
 
-        status_map = await _get_submission_evaluation_statuses(
-            session, [int(submission.id)]
-        )
-
         response = MinerSubmissionResponse.model_validate(submission)
-        response.evaluation_status = status_map.get(int(submission.id))
+        if include_status:
+            status_map = await _get_submission_evaluation_statuses(
+                session, [int(submission.id)]
+            )
+            response.evaluation_status = status_map.get(int(submission.id))
 
         return response
 
