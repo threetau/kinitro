@@ -355,8 +355,9 @@ class Orchestrator:
             "schema_version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "job": {
-                "id": job_context.get("job_id"),
-                "submission_id": eval_job_msg.submission_id,
+                # NOTE: str these ids for JS compat.
+                "id": str(job_context.get("job_id")),
+                "submission_id": str(eval_job_msg.submission_id),
                 "competition_id": eval_job_msg.competition_id,
                 "miner_hotkey": eval_job_msg.miner_hotkey,
                 "validator_hotkey": self.keypair.ss58_address,
