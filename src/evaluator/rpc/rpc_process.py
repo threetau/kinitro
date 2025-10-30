@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import dataclass
+from datetime import timedelta
 from enum import Enum
 from typing import Any, Optional
 
@@ -39,11 +40,11 @@ class RPCRequest:
     method: RPCMethod
     request_id: str
     params: dict[str, Any]
-    timeout: float = DEFAULT_RPC_TIMEOUT
+    timeout: timedelta = timedelta(seconds=DEFAULT_RPC_TIMEOUT)
 
     @classmethod
     def create_ping(
-        cls, message: str, timeout: float = DEFAULT_RPC_TIMEOUT
+        cls, message: str, timeout: timedelta = timedelta(seconds=DEFAULT_RPC_TIMEOUT)
     ) -> "RPCRequest":
         """Create a ping request"""
         return cls(
@@ -54,7 +55,9 @@ class RPCRequest:
         )
 
     @classmethod
-    def create_act(cls, obs: Any, timeout: float = DEFAULT_RPC_TIMEOUT) -> "RPCRequest":
+    def create_act(
+        cls, obs: Any, timeout: timedelta = timedelta(seconds=DEFAULT_RPC_TIMEOUT)
+    ) -> "RPCRequest":
         """Create an act request with observation payload (array or dict)."""
         return cls(
             method=RPCMethod.ACT,
@@ -64,7 +67,9 @@ class RPCRequest:
         )
 
     @classmethod
-    def create_reset(cls, timeout: float = DEFAULT_RPC_TIMEOUT) -> "RPCRequest":
+    def create_reset(
+        cls, timeout: timedelta = timedelta(seconds=DEFAULT_RPC_TIMEOUT)
+    ) -> "RPCRequest":
         """Create a reset request"""
         return cls(
             method=RPCMethod.RESET,
