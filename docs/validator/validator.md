@@ -5,7 +5,13 @@ section: 'Start Validating'
 # Validator
 
 Validators are responsible for evaluating the performance of miner-submitted agents on a variety of tasks.
-There are two ways to run a validator:
+
+**Choose your validator type first:**
+
+1. [WebSocket Validator (full pipeline)](#websocket-validator-full-pipeline) – runs evaluations, streams logs, and requires the evaluator + Postgres stack.
+2. [Lite Validator (HTTP weight setter)](#lite-validator-http-weight-setter) – polls the public weight endpoint and only sets weights on-chain.
+
+After picking the implementation, choose how you want to deploy it:
 
 1. [Bare Metal](#setup---bare-metal)
 2. [Containerized deployment](#setup---containerized-deployment)
@@ -22,19 +28,37 @@ cp .env.validator.example .env
 
 You will need to create an R2 bucket and set the relevant environment variables. This is required for storing some evaluation data. For more information please refer to Cloudflare's [R2 documentation](https://developers.cloudflare.com/r2/buckets/).
 
-You will need to set `KINITRO_API_KEY` to obtain access to the Kinitro backend. Please contact us on our [discord channel](https://discord.gg/96SdmpeMqG) for access.
+If you are running a WebSocket Validator (*not* a lite validator), You will need to set `KINITRO_API_KEY` to obtain access to the Kinitro backend. Please contact us on our [discord channel](https://discord.gg/96SdmpeMqG) for access.
 
 ### Configuration
 
-To configure the validator websocket app, you will need to create a configuration file. You can start by copying the example configuration file:
+To configure a validator, start by copying the example configuration file:
 
 ```bash
 cp config/validator.toml.example validator.toml
 ```
 
-Edit `validator.toml` to set your desired parameters, such as the Bittensor wallet to use, the backend websocket URL, and other settings.
+The example config now includes both the full WebSocket validator and the lightweight HTTP-based weight setter. Core knobs look like:
 
-You will also need to set up the evaluator configuration file. You can start by copying the example configuration file:
+```toml
+validator_mode = "websocket"         # switch to "lite" to run the HTTP weight setter
+weights_url = "http://api.kinitro.ai/weights"
+weights_poll_interval = 30.0
+weights_request_timeout = 10.0
+weights_stale_threshold = 180.0
+```
+
+Use the default `weights_url` unless you operate your own backend; the lite mode polls this endpoint and pushes updates on-chain.
+
+#### WebSocket validator (full pipeline)
+
+Set `validator_mode = "websocket"` to run the full evaluator pipeline. This mode:
+
+- maintains a WebSocket connection to the backend for job distribution and telemetry,
+- requires the PostgreSQL queue (`pg_database`) and evaluator service,
+- forwards evaluation results back to the backend.
+
+You will also need `evaluator.toml` for the orchestrator that executes jobs:
 
 ```bash
 cp config/evaluator.toml.example evaluator.toml
@@ -47,9 +71,19 @@ Key resource knobs in `evaluator.toml`:
 - `ray_num_cpus`, `ray_num_gpus`, `ray_memory_gb`, `ray_object_store_memory_gb` – tune the Ray head resources the orchestrator reserves when it boots.
 - `worker_num_cpus`, `worker_num_gpus`, `worker_memory_gb`, `worker_max_restarts`, `worker_max_task_retries` – control how much CPU/GPU/memory each rollout worker actor requests from Ray.
 
+#### Lite validator (HTTP weight setter)
+
+Set `validator_mode = "lite"` when you only need to mirror backend weight decisions on-chain. This mode:
+
+- polls `weights_url` over HTTPS for the latest snapshot,
+- reuses your Bittensor wallet/hotkey to submit weights,
+- does **not** require the evaluator service or Postgres queue.
+
+You still need valid wallet credentials and chain connectivity, but no backend API key is required because the `/weights` endpoint is public.
+
 ### Setting up database
 
-The validator requires a PostgreSQL database for queuing evaluation jobs and results.
+The WebSocket validator requires a PostgreSQL database for queuing evaluation jobs and results. The lite validator can skip this section.
 
 To set up the database, you can either:
 
@@ -69,19 +103,20 @@ To set up the database, you can either:
 
 The migration script will check if the database exists and run Alembic migrations to bring it up to date. It will also ensure the pgq extension is installed if needed.
 
-### Running the Websocket app
+### Running the validator
 
-The websocket app will connect to the Kinitro backend, listen for evaluation jobs, and forward them to the evaluator to execute.
-Once your configuration file is set up, you can run the validator using the following command:
+Regardless of mode, launch the process with:
 
 ```bash
 python -m validator --config validator.toml
 ```
 
+- With `validator_mode = "websocket"` the service opens the backend WebSocket and requires the evaluator plus database to be running.
+- With `validator_mode = "lite"` the service polls `/weights` and immediately applies updates on-chain. No evaluator or database is needed.
+
 ### Running the Evaluator
 
-The evaluator is responsible for executing the evaluation jobs received from the websocket app. It will run the agents in the specified environments and log the results to the database.
-To start the evaluator, use the following command:
+Only required for the WebSocket validator. Start it once your validator is up:
 
 ```bash
 python -m evaluator.orchestrator --config evaluator.toml
@@ -89,7 +124,7 @@ python -m evaluator.orchestrator --config evaluator.toml
 
 ## Setup - Containerized deployment
 
-We ship Docker recipes for the validator stack in `deploy/docker/`. The workflow below covers both CPU-only and GPU-enabled setups.
+We ship Docker recipes for the validator stack in `deploy/docker/`. The workflow below covers both CPU-only and GPU-enabled setups. The provided Compose profiles target the full WebSocket validator; the lite validator can be run as a lightweight bare-metal process alongside the stack if desired.
 
 ### 1. Prerequisites
 

@@ -244,6 +244,8 @@ class BackendService:
 
         # Store latest scores for weight broadcasting
         self._latest_miner_scores: Dict[SS58Address, float] = {}
+        self._latest_weights_snapshot: Optional[Dict[str, Any]] = None
+        self._weights_sequence: int = 0
 
         # ID generator
         self.id_generator = SnowflakeGenerator(42)
@@ -1952,6 +1954,15 @@ class BackendService:
             for node in self.nodes.values():
                 weights_dict.setdefault(node.node_id, 0.0)
 
+            snapshot_total_weight = float(sum(weights_dict.values()))
+            self._weights_sequence += 1
+            self._latest_weights_snapshot = {
+                "sequence": self._weights_sequence,
+                "updated_at": datetime.now(timezone.utc),
+                "total_weight": snapshot_total_weight,
+                "weights": dict(weights_dict),
+            }
+
             # Broadcast to validators
             weight_msg = SetWeightsMessage(weights=weights_dict)
             weights_msg_str = weight_msg.model_dump_json()
@@ -1978,6 +1989,19 @@ class BackendService:
             )
         except Exception as e:
             logger.error(f"Failed to broadcast weights: {e}")
+
+    def get_latest_weights_snapshot(self) -> Optional[dict[str, Any]]:
+        """Return the most recent weight broadcast snapshot, if available."""
+        snapshot = self._latest_weights_snapshot
+        if not snapshot:
+            return None
+
+        return {
+            "sequence": snapshot["sequence"],
+            "updated_at": snapshot["updated_at"],
+            "total_weight": snapshot["total_weight"],
+            "weights": dict(snapshot["weights"]),
+        }
 
     async def _get_latest_block(self) -> int:
         """Get latest block from chain.

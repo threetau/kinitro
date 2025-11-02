@@ -171,6 +171,13 @@ class SubmissionUploadResponse(BaseModel):
     commit_payload: Dict[str, Any]
 
 
+class WeightsSnapshotResponse(BaseModel):
+    sequence: int
+    updated_at: datetime
+    total_weight: float
+    weights: Dict[int, float]
+
+
 def _build_submission_upload_message(payload: SubmissionUploadRequest) -> bytes:
     parts = [
         payload.hotkey,
@@ -427,6 +434,18 @@ async def health_check() -> dict:
         "chain_connected": backend_service.substrate is not None,
         "database_connected": backend_service.engine is not None,
     }
+
+
+@app.get("/weights", response_model=WeightsSnapshotResponse)
+async def get_latest_weights() -> WeightsSnapshotResponse:
+    """Expose the most recent weight snapshot for validators and monitoring tools."""
+    snapshot = backend_service.get_latest_weights_snapshot()
+    if not snapshot:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Weights not available yet",
+        )
+    return WeightsSnapshotResponse(**snapshot)
 
 
 @app.post(
