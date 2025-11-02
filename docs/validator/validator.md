@@ -8,7 +8,7 @@ Validators are responsible for evaluating the performance of miner-submitted age
 
 **Choose your validator type first:**
 
-1. [WebSocket Validator (full pipeline)](#websocket-validator-full-pipeline) – runs evaluations, streams logs, and requires the evaluator + Postgres stack.
+1. [Full Validator (full pipeline)](#full-validator-full-pipeline) – runs evaluations, streams logs, and requires the evaluator + Postgres stack.
 2. [Lite Validator (HTTP weight setter)](#lite-validator-http-weight-setter) – polls the public weight endpoint and only sets weights on-chain.
 
 After picking the implementation, choose how you want to deploy it:
@@ -28,7 +28,7 @@ cp .env.validator.example .env
 
 You will need to create an R2 bucket and set the relevant environment variables. This is required for storing some evaluation data. For more information please refer to Cloudflare's [R2 documentation](https://developers.cloudflare.com/r2/buckets/).
 
-If you are running a WebSocket Validator (*not* a lite validator), You will need to set `KINITRO_API_KEY` to obtain access to the Kinitro backend. Please contact us on our [discord channel](https://discord.gg/96SdmpeMqG) for access.
+If you are running a Full Validator (*not* a lite validator), You will need to set `KINITRO_API_KEY` to obtain access to the Kinitro backend. Please contact us on our [discord channel](https://discord.gg/96SdmpeMqG) for access.
 
 ### Configuration
 
@@ -38,11 +38,11 @@ To configure a validator, start by copying the example configuration file:
 cp config/validator.toml.example validator.toml
 ```
 
-The example config now includes both the full WebSocket validator and the lightweight HTTP-based weight setter. Core knobs look like:
+The example config now includes both the Full validator and the lightweight HTTP-based weight setter. Core knobs look like:
 
 ```toml
-validator_mode = "websocket"         # switch to "lite" to run the HTTP weight setter
-weights_url = "http://api.kinitro.ai/weights"
+validator_mode = "full"         # switch to "lite" to run the HTTP weight setter
+weights_url = "https://api.kinitro.ai/weights"
 weights_poll_interval = 30.0
 weights_request_timeout = 10.0
 weights_stale_threshold = 180.0
@@ -50,9 +50,9 @@ weights_stale_threshold = 180.0
 
 Use the default `weights_url` unless you operate your own backend; the lite mode polls this endpoint and pushes updates on-chain.
 
-#### WebSocket validator (full pipeline)
+#### Full validator (full pipeline)
 
-Set `validator_mode = "websocket"` to run the full evaluator pipeline. This mode:
+Set `validator_mode = "full"` to run the full evaluator pipeline. This mode:
 
 - maintains a WebSocket connection to the backend for job distribution and telemetry,
 - requires the PostgreSQL queue (`pg_database`) and evaluator service,
@@ -83,7 +83,7 @@ You still need valid wallet credentials and chain connectivity, but no backend A
 
 ### Setting up database
 
-The WebSocket validator requires a PostgreSQL database for queuing evaluation jobs and results. The lite validator can skip this section.
+The Full validator requires a PostgreSQL database for queuing evaluation jobs and results. The lite validator can skip this section.
 
 To set up the database, you can either:
 
@@ -111,12 +111,12 @@ Regardless of mode, launch the process with:
 python -m validator --config validator.toml
 ```
 
-- With `validator_mode = "websocket"` the service opens the backend WebSocket and requires the evaluator plus database to be running.
+- With `validator_mode = "full"` the service opens the backend WebSocket and requires the evaluator plus database to be running.
 - With `validator_mode = "lite"` the service polls `/weights` and immediately applies updates on-chain. No evaluator or database is needed.
 
 ### Running the Evaluator
 
-Only required for the WebSocket validator. Start it once your validator is up:
+Only required for the Full validator. Start it once your validator is up:
 
 ```bash
 python -m evaluator.orchestrator --config evaluator.toml
@@ -124,7 +124,7 @@ python -m evaluator.orchestrator --config evaluator.toml
 
 ## Setup - Containerized deployment
 
-We ship Docker recipes for the validator stack in `deploy/docker/`. The workflow below covers both CPU-only and GPU-enabled setups. The provided Compose profiles target the full WebSocket validator; the lite validator can be run as a lightweight bare-metal process alongside the stack if desired.
+We ship Docker recipes for the validator stack in `deploy/docker/`. The workflow below covers both CPU-only and GPU-enabled setups. The provided Compose profiles target the full validator; the lite validator can be run as a lightweight bare-metal process alongside the stack if desired.
 
 ### 1. Prerequisites
 
@@ -190,7 +190,7 @@ If you prefer to keep both profiles running, bring up each profile explicitly (`
 
 | Image | Purpose | Variant |
 | --- | --- | --- |
-| `ghcr.io/threetau/kinitro-validator` | WebSocket validator service | CPU |
+| `ghcr.io/threetau/kinitro-validator` | Full validator service | CPU |
 | `ghcr.io/threetau/kinitro-evaluator` | Orchestrator & Ray rollout workers | CPU / `-gpu` |
 | `ghcr.io/threetau/kinitro-miner-agent` | Submission runtime for evaluator-launched pods (Minikube) | CPU / `-gpu` |
 | `kinitro-migrator` (local build) | Alembic + pgq migrations | CPU |

@@ -29,7 +29,7 @@ class LiteValidator(Neuron):
         super().__init__(config)
         self.hotkey = self.keypair.ss58_address
         self.weights_url = config.settings.get(
-            "weights_url", "http://api.kinitro.ai/weights"
+            "weights_url", "https://api.kinitro.ai/weights"
         )
         self.poll_interval = float(config.settings.get("weights_poll_interval", 30.0))
         self.request_timeout = float(

@@ -22,7 +22,7 @@ class ValidatorService:
         self.config = ValidatorConfig()
         self.validator = None
         self._shutdown_event = asyncio.Event()
-        self.mode = self.config.settings.get("validator_mode", "websocket")
+        self.mode = self.config.settings.get("validator_mode", "full")
 
     def setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown."""
@@ -42,7 +42,7 @@ class ValidatorService:
             # Create validator instance
             if self.mode == "lite":
                 self.validator = LiteValidator(self.config)
-            elif self.mode == "websocket":
+            elif self.mode == "full":
                 self.validator = WebSocketValidator(self.config)
             else:
                 raise ValueError(f"Unknown validator mode: {self.mode}")

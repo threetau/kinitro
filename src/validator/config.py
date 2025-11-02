@@ -51,16 +51,16 @@ class ValidatorConfig(Config):
         self._parser.add_argument(
             "--validator-mode",
             type=str,
-            choices=("websocket", "lite"),
+            choices=("full", "lite"),
             help="Validator service mode",
-            default=self.settings.get("validator_mode", "websocket"),
+            default=self.settings.get("validator_mode", "full"),
         )
 
         self._parser.add_argument(
             "--weights-url",
             type=str,
             help="HTTP endpoint that exposes weight snapshots",
-            default=self.settings.get("weights_url", "http://api.kinitro.ai/weights"),
+            default=self.settings.get("weights_url", "https://api.kinitro.ai/weights"),
         )
 
         self._parser.add_argument(
