@@ -1,5 +1,12 @@
+from enum import Enum
+
 from core.config import Config, ConfigOpts
 from core.constants import NeuronType
+
+
+class ValidatorMode(str, Enum):
+    FULL = "full"
+    LITE = "lite"
 
 
 class ValidatorConfig(Config):
@@ -10,6 +17,7 @@ class ValidatorConfig(Config):
             settings_files=["validator.toml"],
         )
         super().__init__(opts)
+        self._normalize_validator_mode()
 
     def add_args(self):
         """Add command line arguments"""
@@ -51,9 +59,9 @@ class ValidatorConfig(Config):
         self._parser.add_argument(
             "--validator-mode",
             type=str,
-            choices=("full", "lite"),
+            choices=tuple(mode.value for mode in ValidatorMode),
             help="Validator service mode",
-            default=self.settings.get("validator_mode", "full"),
+            default=self.settings.get("validator_mode", ValidatorMode.FULL.value),
         )
 
         self._parser.add_argument(
@@ -83,3 +91,19 @@ class ValidatorConfig(Config):
             help="Warn if backend weight snapshot is older than this many seconds",
             default=self.settings.get("weights_stale_threshold", 180.0),
         )
+
+    def _normalize_validator_mode(self) -> None:
+        """Ensure validator_mode is set to a supported value."""
+
+        raw_mode = self.settings.get("validator_mode", ValidatorMode.FULL.value)
+        if isinstance(raw_mode, ValidatorMode):
+            normalized = raw_mode.value
+        else:
+            normalized = str(raw_mode).lower()
+
+        try:
+            ValidatorMode(normalized)
+        except ValueError as exc:
+            raise ValueError(f"Invalid validator_mode '{raw_mode}'") from exc
+
+        self.settings["validator_mode"] = normalized

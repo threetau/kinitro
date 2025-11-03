@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Optional
 
-import requests
+import httpx
+from pydantic import ValidationError
 
+from backend.models import WeightsSnapshot
 from core.chain import set_node_weights
 from core.log import get_logger
 from core.neuron import Neuron
@@ -40,12 +42,14 @@ class LiteValidator(Neuron):
         )
         self._running = False
         self._stop_event = asyncio.Event()
-        self._last_sequence: Optional[int] = None
+        self._last_snapshot_timestamp: Optional[datetime] = None
+        self._last_weights_signature: Optional[tuple[tuple[int, float], ...]] = None
         self._last_backend_timestamp: Optional[datetime] = None
         self._last_success_at: Optional[datetime] = None
         self._max_backoff = max(self.poll_interval * 10.0, 300.0)
         self._node_resync_interval = max(self.stale_threshold, 300.0)
         self._last_resync_at: Optional[datetime] = None
+        self._http_client: Optional[httpx.AsyncClient] = None
 
         logger.info(
             "Lite validator initialized (hotkey=%s, weights_url=%s, poll_interval=%.1fs, stale_threshold=%.1fs)",
@@ -65,6 +69,9 @@ class LiteValidator(Neuron):
         self._running = True
         self._stop_event.clear()
         backoff = self.poll_interval
+        self._http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(self.request_timeout)
+        )
 
         try:
             while self._running:
@@ -82,6 +89,7 @@ class LiteValidator(Neuron):
         finally:
             self._running = False
             self._stop_event.set()
+            await self._close_http_client()
             logger.info("Lite validator loop exited")
 
     async def stop(self) -> None:
@@ -92,6 +100,17 @@ class LiteValidator(Neuron):
         logger.info("Stopping lite validator")
         self._running = False
         self._stop_event.set()
+        await self._close_http_client()
+
+    async def _close_http_client(self) -> None:
+        client = self._http_client
+        if client is None:
+            return
+        self._http_client = None
+        try:
+            await client.aclose()
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Error closing HTTP client: %s", exc)
 
     async def _poll_once(self) -> bool:
         """Fetch and process a single weight snapshot."""
@@ -115,110 +134,107 @@ class LiteValidator(Neuron):
                     )
             return False
 
+        if self._stop_event.is_set():
+            logger.debug("Shutdown requested; skipping snapshot processing")
+            return False
+
         now = datetime.now(timezone.utc)
 
         try:
-            processed = await self._handle_snapshot(snapshot, now)
+            await self._handle_snapshot(snapshot, now)
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.error("Error handling weights snapshot: %s", exc)
             return False
 
-        if processed:
-            self._last_success_at = now
-        else:
-            logger.debug("Snapshot processed without chain update (sequence unchanged)")
-
         return True
 
-    async def _fetch_weights_snapshot(self) -> Optional[Dict[str, Any]]:
+    async def _fetch_weights_snapshot(self) -> Optional[WeightsSnapshot]:
         """Retrieve the latest weights via HTTP."""
 
-        def _fetch() -> Optional[Dict[str, Any]]:
-            try:
-                response = requests.get(self.weights_url, timeout=self.request_timeout)
-            except requests.RequestException as exc:
+        if self._stop_event.is_set():
+            return None
+
+        client = self._http_client
+        if client is None:
+            raise RuntimeError("HTTP client not initialized")
+
+        try:
+            response = await client.get(self.weights_url)
+        except httpx.RequestError as exc:
+            if self._running:
                 logger.warning("Weight endpoint request failed: %s", exc)
-                return None
+            return None
 
-            if response.status_code == 404:
-                return None
+        if response.status_code == 404:
+            return None
 
-            try:
-                response.raise_for_status()
-            except requests.HTTPError as exc:
-                logger.error("Unexpected response from weight endpoint: %s", exc)
-                return None
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            logger.error("Unexpected response from weight endpoint: %s", exc)
+            return None
 
-            try:
-                return response.json()
-            except ValueError as exc:
-                logger.error("Failed to decode weights JSON payload: %s", exc)
-                return None
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            logger.error("Failed to decode weights JSON payload: %s", exc)
+            return None
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _fetch)
+        try:
+            return WeightsSnapshot.model_validate(payload)
+        except ValidationError as exc:
+            logger.error("Failed to validate weights snapshot payload: %s", exc)
+            return None
 
-    async def _handle_snapshot(self, snapshot: Dict[str, Any], now: datetime) -> bool:
+    async def _handle_snapshot(self, snapshot: WeightsSnapshot, now: datetime) -> bool:
         """Validate and, if new, apply the weight snapshot."""
-        sequence = snapshot.get("sequence")
-        if sequence is None:
-            logger.error("Weights snapshot missing 'sequence' field: %s", snapshot)
+
+        timestamp = snapshot.updated_at
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+
+        snapshot_label = timestamp.isoformat()
+        self._last_backend_timestamp = timestamp
+        age = (now - timestamp).total_seconds()
+        if age > self.stale_threshold:
+            logger.warning(
+                "Weights snapshot (updated_at=%s) is stale by %.1fs (threshold=%.1fs)",
+                snapshot_label,
+                age,
+                self.stale_threshold,
+            )
+
+        weights_payload = snapshot.weights
+        if not weights_payload:
+            logger.error("No valid weights found in snapshot (%s)", snapshot_label)
             return False
 
-        weights_payload = snapshot.get("weights")
-        if not isinstance(weights_payload, dict):
-            logger.error("Weights snapshot has invalid 'weights' payload: %s", snapshot)
-            return False
+        node_ids = []
+        node_weights = []
+        for node_id, weight in weights_payload.items():
+            node_ids.append(int(node_id))
+            node_weights.append(float(weight))
 
-        backend_timestamp = self._parse_timestamp(snapshot.get("updated_at"))
-        if backend_timestamp:
-            self._last_backend_timestamp = backend_timestamp
-            age = (now - backend_timestamp).total_seconds()
-            if age > self.stale_threshold:
-                logger.warning(
-                    "Weights snapshot (seq=%s) is stale by %.1fs (threshold=%.1fs)",
-                    sequence,
-                    age,
-                    self.stale_threshold,
+        weights_signature = tuple(
+            sorted(
+                (int(node_id), float(weight))
+                for node_id, weight in weights_payload.items()
+            )
+        )
+        if self._last_snapshot_timestamp:
+            if timestamp <= self._last_snapshot_timestamp and (
+                self._last_weights_signature == weights_signature
+            ):
+                logger.debug(
+                    "Skipping snapshot updated_at=%s (duplicate or older than last applied)",
+                    snapshot_label,
                 )
-        else:
-            logger.warning(
-                "Weights snapshot missing or invalid timestamp: %s", snapshot
+                return False
+        elif self._last_weights_signature == weights_signature:
+            logger.debug(
+                "Skipping snapshot (%s) with identical weights payload",
+                snapshot_label,
             )
-
-        if self._last_sequence is not None and sequence <= self._last_sequence:
-            # Nothing new to apply; treat as success so we continue polling normally.
-            return False
-
-        node_ids: list[int] = []
-        node_weights: list[float] = []
-        malformed_keys = 0
-
-        for raw_node_id, weight in weights_payload.items():
-            try:
-                node_id = int(raw_node_id)
-            except (TypeError, ValueError):
-                malformed_keys += 1
-                continue
-
-            try:
-                weight_value = float(weight)
-            except (TypeError, ValueError):
-                malformed_keys += 1
-                continue
-
-            node_ids.append(node_id)
-            node_weights.append(weight_value)
-
-        if malformed_keys:
-            logger.warning(
-                "Snapshot sequence %s contained %s malformed weight entries that were skipped",
-                sequence,
-                malformed_keys,
-            )
-
-        if not node_ids:
-            logger.error("No valid weights found in snapshot sequence %s", sequence)
             return False
 
         # Periodically refresh node metadata to stay aligned with on-chain state.
@@ -227,15 +243,16 @@ class LiteValidator(Neuron):
             self.sync_nodes()
             self._last_resync_at = now
 
+        total_weight = sum(node_weights)
         logger.info(
-            "Applying weights snapshot seq=%s to chain (%s miners, total_weight=%.6f)",
-            sequence,
+            "Applying weights snapshot updated_at=%s to chain (%s miners, total_weight=%.6f)",
+            snapshot_label,
             len(node_ids),
-            sum(node_weights),
+            total_weight,
         )
         logger.debug(
-            "Weight payload for seq=%s: %s",
-            sequence,
+            "Weight payload for updated_at=%s: %s",
+            snapshot_label,
             ", ".join(
                 f"{uid}:{weight:.6f}" for uid, weight in zip(node_ids, node_weights)
             ),
@@ -253,17 +270,21 @@ class LiteValidator(Neuron):
             wait_for_finalization=False,
         )
 
-        if success:
-            self._last_sequence = sequence
-            logger.info(
-                "Successfully set weights on-chain for snapshot seq=%s (processed %s miners)",
-                sequence,
-                len(node_ids),
+        if not success:
+            logger.error(
+                "Failed to set weights on-chain for snapshot updated_at=%s",
+                snapshot_label,
             )
-            return True
+            return False
 
-        logger.error("Failed to set weights on-chain for snapshot seq=%s", sequence)
-        return False
+        self._last_snapshot_timestamp = timestamp
+        self._last_weights_signature = weights_signature
+        logger.info(
+            "Successfully set weights on-chain for snapshot updated_at=%s (processed %s miners)",
+            snapshot_label,
+            len(node_ids),
+        )
+        return True
 
     def _should_resync_nodes(self, now: datetime) -> bool:
         if self.nodes is None:
@@ -273,20 +294,3 @@ class LiteValidator(Neuron):
         return (
             now - self._last_resync_at
         ).total_seconds() >= self._node_resync_interval
-
-    @staticmethod
-    def _parse_timestamp(raw_value: Any) -> Optional[datetime]:
-        if isinstance(raw_value, datetime):
-            return (
-                raw_value
-                if raw_value.tzinfo
-                else raw_value.replace(tzinfo=timezone.utc)
-            )
-        if isinstance(raw_value, str):
-            try:
-                # fromisoformat supports offsets like "+00:00"
-                parsed = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
-                return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-            except ValueError:
-                return None
-        return None

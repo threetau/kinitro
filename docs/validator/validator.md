@@ -37,8 +37,7 @@ To configure a validator, start by copying the example configuration file:
 ```bash
 cp config/validator.toml.example validator.toml
 ```
-
-The example config now includes both the Full validator and the lightweight HTTP-based weight setter. Core knobs look like:
+The example config now includes both the Full validator and the lite HTTP-based weight setter. Core knobs look like:
 
 ```toml
 validator_mode = "full"         # switch to "lite" to run the HTTP weight setter
@@ -76,7 +75,7 @@ Key resource knobs in `evaluator.toml`:
 Set `validator_mode = "lite"` when you only need to mirror backend weight decisions on-chain. This mode:
 
 - polls `weights_url` over HTTPS for the latest snapshot,
-- reuses your Bittensor wallet/hotkey to submit weights,
+- uses your Bittensor wallet/hotkey to submit weights,
 - does **not** require the evaluator service or Postgres queue.
 
 You still need valid wallet credentials and chain connectivity, but no backend API key is required because the `/weights` endpoint is public.

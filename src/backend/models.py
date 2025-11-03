@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Dict, List, Optional
 
-from pydantic import field_validator
+from pydantic import BaseModel, field_validator
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -38,6 +38,14 @@ from core.db.models import EvaluationStatus, TimestampMixin
 # Type aliases for consistency
 SS58Address = str  # Will be constrained to 48 chars in field definition
 Uuid = str  # UUID string
+
+
+class WeightsSnapshot(BaseModel):
+    """Cached weight set broadcast to validators."""
+
+    updated_at: datetime
+    total_weight: float
+    weights: Dict[int, float]
 
 
 # Models for API requests/responses
