@@ -37,6 +37,7 @@ To configure a validator, start by copying the example configuration file:
 ```bash
 cp config/validator.toml.example validator.toml
 ```
+
 The example config now includes both the Full validator and the lite HTTP-based weight setter. Core knobs look like:
 
 ```toml
