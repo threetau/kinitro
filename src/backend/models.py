@@ -333,6 +333,7 @@ class CompetitionLeaderInfo(SQLModel):
     competition_name: str
     points: int
     current_leader_hotkey: Optional[str]
+    current_leader_submission_id: Optional[str]
     current_leader_reward: Optional[float]
     leader_updated_at: Optional[datetime]
 
@@ -345,6 +346,7 @@ class AgentLeaderboardEntry(SQLModel):
     total_points: int
     normalized_score: float
     competitions: List[str]
+    competition_submission_ids: Dict[str, str]
 
 
 class CompetitionLeaderboardResponse(SQLModel):

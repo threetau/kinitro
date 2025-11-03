@@ -657,6 +657,41 @@ async def get_competition_leaderboard(
         result = await session.execute(query)
         competitions = result.scalars().all()
 
+        leader_submission_map: Dict[str, Optional[str]] = {}
+        for competition in competitions:
+            if not competition.current_leader_hotkey:
+                continue
+
+            submission_stmt = (
+                select(BackendEvaluationJob.submission_id)
+                .select_from(CompetitionLeaderCandidate)
+                .join(
+                    BackendEvaluationResult,
+                    CompetitionLeaderCandidate.evaluation_result_id
+                    == BackendEvaluationResult.id,
+                )
+                .join(
+                    BackendEvaluationJob,
+                    BackendEvaluationResult.job_id == BackendEvaluationJob.id,
+                )
+                .where(
+                    CompetitionLeaderCandidate.competition_id == competition.id,
+                    CompetitionLeaderCandidate.status == LeaderCandidateStatus.APPROVED,
+                    CompetitionLeaderCandidate.miner_hotkey
+                    == competition.current_leader_hotkey,
+                )
+                .order_by(
+                    CompetitionLeaderCandidate.reviewed_at.desc(),
+                    CompetitionLeaderCandidate.updated_at.desc(),
+                )
+                .limit(1)
+            )
+
+            submission_result = await session.execute(submission_stmt)
+            submission_id = submission_result.scalar_one_or_none()
+            if submission_id is not None:
+                leader_submission_map[competition.id] = str(submission_id)
+
     total_points = sum(comp.points for comp in competitions)
     competition_infos = [
         CompetitionLeaderInfo(
@@ -664,6 +699,7 @@ async def get_competition_leaderboard(
             competition_name=comp.name,
             points=comp.points,
             current_leader_hotkey=comp.current_leader_hotkey,
+            current_leader_submission_id=leader_submission_map.get(comp.id),
             current_leader_reward=comp.current_leader_reward,
             leader_updated_at=comp.leader_updated_at,
         )
@@ -672,6 +708,7 @@ async def get_competition_leaderboard(
 
     per_miner_points: dict[str, int] = {}
     per_miner_competitions: dict[str, List[str]] = {}
+    per_miner_submissions: dict[str, Dict[str, str]] = {}
 
     for comp in competitions:
         leader_hotkey = comp.current_leader_hotkey
@@ -682,6 +719,9 @@ async def get_competition_leaderboard(
             per_miner_points.get(leader_hotkey, 0) + comp.points
         )
         per_miner_competitions.setdefault(leader_hotkey, []).append(comp.id)
+        submission_id = leader_submission_map.get(comp.id)
+        if submission_id:
+            per_miner_submissions.setdefault(leader_hotkey, {})[comp.id] = submission_id
 
     sorted_leaders = sorted(
         per_miner_points.items(),
@@ -698,6 +738,7 @@ async def get_competition_leaderboard(
                 total_points=points,
                 normalized_score=normalized_score,
                 competitions=sorted(per_miner_competitions.get(hotkey, [])),
+                competition_submission_ids=dict(per_miner_submissions.get(hotkey, {})),
             )
         )
 
