@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import functools
 import gc
 import threading
@@ -110,6 +111,95 @@ class Orchestrator:
 
         logger.info(f"Orchestrator initialized with config: {self.config}")
 
+    @staticmethod
+    def _normalize_camera_names(value: Any) -> tuple[str, ...]:
+        """Convert incoming camera name payloads into a tuple of strings."""
+        if value is None:
+            return tuple()
+        if isinstance(value, str):
+            return (value,)
+        if isinstance(value, (list, tuple, set)):
+            names: list[str] = []
+            for item in value:
+                if item is None:
+                    continue
+                names.append(str(item))
+            return tuple(names)
+        return tuple()
+
+    @staticmethod
+    def _split_config_data(config_value: Any) -> tuple[Optional[dict], dict]:
+        """Split a stored configuration into (spec, base_config) copies."""
+        if isinstance(config_value, dict) and isinstance(
+            config_value.get("config"), dict
+        ):
+            return copy.deepcopy(config_value), copy.deepcopy(config_value["config"])
+        if isinstance(config_value, dict):
+            return None, copy.deepcopy(config_value)
+        return None, {}
+
+    def _extract_job_spec_payloads(
+        self, eval_job_msg: EvalJobMessage
+    ) -> tuple[Optional[dict], dict]:
+        """
+        Return the benchmark spec payload (if present) and the underlying config dict.
+
+        Validators may receive jobs from older backends that only populate `config`.
+        In that case the spec payload is None and config is the provided dict.
+        """
+        spec_payload = (
+            eval_job_msg.benchmark_spec
+            if isinstance(eval_job_msg.benchmark_spec, dict)
+            else None
+        )
+        if spec_payload is not None:
+            return self._split_config_data(spec_payload)
+        return self._split_config_data(eval_job_msg.config)
+
+    def _config_payload_for_storage(self, eval_job_msg: EvalJobMessage) -> dict:
+        """Choose the representation of the job configuration to persist locally."""
+        spec_payload, base_config = self._extract_job_spec_payloads(eval_job_msg)
+        return spec_payload if spec_payload is not None else base_config
+
+    def _build_benchmark_spec_from_job(
+        self, eval_job_msg: EvalJobMessage
+    ) -> BenchmarkSpec:
+        """Construct a BenchmarkSpec using job metadata and optional spec payload."""
+        spec_payload, base_config = self._extract_job_spec_payloads(eval_job_msg)
+
+        defaults = BenchmarkSpec.__dataclass_fields__
+        default_render_mode = defaults["render_mode"].default
+        default_camera_names = defaults["camera_names"].default
+        default_camera_attribute = defaults["camera_attribute"].default
+
+        render_mode = None
+        camera_attribute = None
+        camera_names: tuple[str, ...] = tuple()
+        if spec_payload:
+            render_mode = spec_payload.get("render_mode")
+            camera_attribute = spec_payload.get("camera_attribute")
+            camera_names = self._normalize_camera_names(
+                spec_payload.get("camera_names")
+            )
+
+        if render_mode is None and isinstance(eval_job_msg.config, dict):
+            render_mode = eval_job_msg.config.get("render_mode")
+        if camera_attribute is None and isinstance(eval_job_msg.config, dict):
+            camera_attribute = eval_job_msg.config.get("camera_attribute")
+        if not camera_names and isinstance(eval_job_msg.config, dict):
+            camera_names = self._normalize_camera_names(
+                eval_job_msg.config.get("camera_names")
+            )
+
+        return BenchmarkSpec(
+            provider=eval_job_msg.env_provider,
+            benchmark_name=eval_job_msg.benchmark_name,
+            config=base_config,
+            render_mode=render_mode or default_render_mode,
+            camera_names=camera_names or default_camera_names,
+            camera_attribute=camera_attribute or default_camera_attribute,
+        )
+
     async def setup_job(self, job: Job) -> Optional[Dict]:
         """Setup job infrastructure and return job context for monitoring."""
         logger.info(f"Setting up job: {job.id}")
@@ -128,6 +218,8 @@ class Orchestrator:
                 eval_job_msg.artifact_expires_at,
             )
 
+        job_config_payload = self._config_payload_for_storage(eval_job_msg)
+
         evaluation_job = EvaluationJob(
             id=eval_job_msg.job_id,
             competition_id=eval_job_msg.competition_id,
@@ -136,7 +228,7 @@ class Orchestrator:
             hf_repo_id=eval_job_msg.hf_repo_id,
             env_provider=eval_job_msg.env_provider,
             benchmark_name=eval_job_msg.benchmark_name,
-            config=eval_job_msg.config,
+            config=job_config_payload,
             artifact_url=eval_job_msg.artifact_url,
             artifact_expires_at=eval_job_msg.artifact_expires_at,
             artifact_sha256=eval_job_msg.artifact_sha256,
@@ -243,13 +335,8 @@ class Orchestrator:
         # Wait for container to be ready
         await asyncio.sleep(WAIT_TIME)
 
-        # Create a benchmark spec for the job
-        benchmark_spec = BenchmarkSpec(
-            provider=eval_job_msg.env_provider,
-            benchmark_name=eval_job_msg.benchmark_name,
-            config=eval_job_msg.config,
-            render_mode="rgb_array",
-        )
+        # Create a benchmark spec for the job, honoring backend-provided settings
+        benchmark_spec = self._build_benchmark_spec_from_job(eval_job_msg)
 
         worker_to_rpc_queue = Queue(maxsize=QUEUE_MAXSIZE)
         rpc_to_worker_queue = Queue(maxsize=QUEUE_MAXSIZE)
@@ -351,6 +438,8 @@ class Orchestrator:
             duration_seconds = None
             started_at = None
 
+        spec_payload, base_config = self._extract_job_spec_payloads(eval_job_msg)
+
         payload: Dict[str, Any] = {
             "schema_version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -364,7 +453,7 @@ class Orchestrator:
                 "hf_repo_id": eval_job_msg.hf_repo_id,
                 "benchmark_name": eval_job_msg.benchmark_name,
                 "env_provider": eval_job_msg.env_provider,
-                "config": _sanitize_for_json(eval_job_msg.config),
+                "config": _sanitize_for_json(base_config),
                 "status": status.value
                 if isinstance(status, EvaluationStatus)
                 else status,
@@ -373,6 +462,9 @@ class Orchestrator:
             },
             "summary": _sanitize_for_json(summary),
         }
+
+        if spec_payload:
+            payload["job"]["benchmark_spec"] = _sanitize_for_json(spec_payload)
 
         if duration_seconds is not None:
             payload["job"]["duration_seconds"] = duration_seconds
@@ -630,6 +722,12 @@ class Orchestrator:
                         f"{logs_message}. Container logs attached to result payload."
                     )
 
+                spec_payload, base_config = self._extract_job_spec_payloads(
+                    eval_job_msg
+                )
+                if spec_payload:
+                    extra_data.setdefault("benchmark_spec", copy.deepcopy(spec_payload))
+
                 eval_result_msg = EvalResultMessage(
                     job_id=job_id,
                     validator_hotkey=self.keypair.ss58_address,
@@ -637,7 +735,8 @@ class Orchestrator:
                     competition_id=eval_job_msg.competition_id,
                     env_provider=eval_job_msg.env_provider,
                     benchmark_name=eval_job_msg.benchmark_name,
-                    config=eval_job_msg.config,
+                    config=base_config,
+                    benchmark_spec=spec_payload,
                     score=avg_reward,
                     success_rate=avg_success_rate,
                     avg_reward=avg_reward,
@@ -1056,6 +1155,8 @@ class Orchestrator:
                             status_err,
                         )
 
+                    spec_payload, base_config = self._split_config_data(job.config)
+
                     eval_job_msg = EvalJobMessage(
                         job_id=job.id,
                         competition_id=job.competition_id,
@@ -1064,7 +1165,8 @@ class Orchestrator:
                         hf_repo_id=job.hf_repo_id,
                         env_provider=job.env_provider,
                         benchmark_name=job.benchmark_name,
-                        config=job.config or {},
+                        config=base_config,
+                        benchmark_spec=spec_payload,
                         artifact_url=job.artifact_url,
                         artifact_expires_at=job.artifact_expires_at,
                         artifact_sha256=job.artifact_sha256,

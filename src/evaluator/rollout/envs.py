@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, TypedDict
 
 import gymnasium as gym
+import mujoco
 import numpy as np
 from gymnasium import ObservationWrapper
 from gymnasium.spaces import Box
@@ -32,6 +33,7 @@ DEFAULT_TASKS_PER_ENV = 5
 # Metaworld observation wrapper constants
 OBS_STATE_IDX_END = 4
 OBS_TASK_ONE_HOT_START_IDX = 39
+DEFAULT_RENDER_SIZE = 480
 
 
 def configure_headless_rendering():
@@ -147,9 +149,9 @@ class MetaworldObsWrapper(ObservationWrapper):
       - If the environment supports rendering to RGB arrays, captures one or
         more views and includes them as CHW uint8 tensors under keys:
         "observation.image", "observation.image2", "observation.image3", ...
-      - If a `camera_attribute` is provided and exists on the env, it will be
-        set to each name in `camera_names` to capture multiple views. If not,
-        a single render will be captured without switching cameras.
+      - If the environment exposes `camera_name`, it will be set to each name in
+        `camera_names` to capture multiple views. If not, a single render will
+        be captured without switching cameras.
       - Optionally saves images to disk for debugging/analysis.
     """
 
@@ -163,8 +165,20 @@ class MetaworldObsWrapper(ObservationWrapper):
         submission_id: str | None = None,
     ):
         super().__init__(env)
-        self._camera_attribute = camera_attribute
+        self._base_env = getattr(env, "unwrapped", env)
+        if camera_attribute not in (None, "camera_name"):
+            logger.warning(
+                "MetaworldObsWrapper only supports 'camera_name'; overriding provided "
+                "camera_attribute '%s'",
+                camera_attribute,
+            )
+        self._camera_attribute = "camera_name"
         self._camera_names = tuple(camera_names) if camera_names else tuple()
+        self._can_switch_cameras = bool(
+            len(self._camera_names) > 0
+            and (hasattr(env, "camera_name") or hasattr(self._base_env, "camera_name"))
+        )
+        self._num_views = len(self._camera_names) if self._can_switch_cameras else 1
 
         # Image saving configuration
         self._save_images = save_images
@@ -179,7 +193,7 @@ class MetaworldObsWrapper(ObservationWrapper):
                 self._image_save_dir = self._image_save_dir / str(self._submission_id)
 
             # Create directories for each camera
-            for camera_name in self._camera_names:
+            for camera_name in self._camera_names or ("default",):
                 camera_dir = self._image_save_dir / camera_name
                 camera_dir.mkdir(parents=True, exist_ok=True)
 
@@ -187,22 +201,17 @@ class MetaworldObsWrapper(ObservationWrapper):
         else:
             self._image_save_dir = None
 
-        # Decide how many views we will expose in the observation space
-        can_switch_cameras = (
-            self._camera_attribute is not None
-            and hasattr(env, self._camera_attribute)
-            and len(self._camera_names) > 0
-        )
-        num_views = len(self._camera_names) if can_switch_cameras else 1
-
         # Determine render dimensions from the base (unwrapped) env, falling back to a safe default
-        base_env = getattr(env, "unwrapped", env)
-        render_width = getattr(base_env, "width", None)
-        render_height = getattr(base_env, "height", None)
+        render_width = getattr(self._base_env, "width", None)
+        render_height = getattr(self._base_env, "height", None)
 
         # Cache for later fallback usage
-        self._render_width = int(render_width)
-        self._render_height = int(render_height)
+        self._render_width = (
+            int(render_width) if render_width is not None else DEFAULT_RENDER_SIZE
+        )
+        self._render_height = (
+            int(render_height) if render_height is not None else DEFAULT_RENDER_SIZE
+        )
 
         # Build observation space dynamically based on number of views requested
         image_box = Box(
@@ -216,7 +225,7 @@ class MetaworldObsWrapper(ObservationWrapper):
         space_dict: dict[str, Box | gym.spaces.Space] = {
             "observation.state": env.observation_space
         }
-        for idx in range(num_views):
+        for idx in range(self._num_views):
             key = "observation.image" if idx == 0 else f"observation.image{idx + 1}"
             space_dict[key] = image_box
 
@@ -245,6 +254,74 @@ class MetaworldObsWrapper(ObservationWrapper):
 
         return np.asarray(frame)
 
+    def _camera_targets(self) -> tuple[gym.Env, ...]:
+        if self._base_env is self.env:
+            return (self.env,)
+        return (self.env, self._base_env)
+
+    def _apply_camera(
+        self, camera_value: str | None, *, log_on_error: bool = True
+    ) -> bool:
+        """Attempt to set `camera_name` and keep the renderer in sync."""
+        success = False
+        for target in self._camera_targets():
+            if hasattr(target, "camera_name"):
+                try:
+                    setattr(target, "camera_name", camera_value)
+                    success = True
+                except Exception as exc:
+                    if log_on_error:
+                        logger.warning(
+                            "Failed to set camera '%s' on %s: %s",
+                            camera_value,
+                            target.__class__.__name__,
+                            exc,
+                        )
+
+            renderer = getattr(target, "mujoco_renderer", None)
+            if renderer is not None:
+                if camera_value is not None and mujoco is not None:
+                    try:
+                        camera_id = mujoco.mj_name2id(
+                            renderer.model,
+                            mujoco.mjtObj.mjOBJ_CAMERA,
+                            camera_value,
+                        )
+                        if camera_id == -1:
+                            raise ValueError(
+                                f"Camera '{camera_value}' not found in model"
+                            )
+                        renderer.camera_id = camera_id
+                        setattr(renderer, "camera_name", camera_value)
+                        success = True
+                    except Exception as exc:
+                        if log_on_error:
+                            logger.warning(
+                                "Failed to set renderer camera '%s' on %s: %s",
+                                camera_value,
+                                target.__class__.__name__,
+                                exc,
+                            )
+                elif camera_value is not None:
+                    setattr(renderer, "camera_name", camera_value)
+                    success = True
+                elif camera_value is None:
+                    setattr(renderer, "camera_name", None)
+
+        return success
+
+    def _get_camera(self) -> str | None:
+        if hasattr(self.env, "camera_name"):
+            return getattr(self.env, "camera_name", None)
+        if hasattr(self._base_env, "camera_name"):
+            return getattr(self._base_env, "camera_name", None)
+        renderer = getattr(self.env, "mujoco_renderer", None)
+        if renderer is None and self._base_env is not self.env:
+            renderer = getattr(self._base_env, "mujoco_renderer", None)
+        if renderer is not None and hasattr(renderer, "camera_name"):
+            return getattr(renderer, "camera_name", None)
+        return None
+
     def capture_and_save_images(self) -> tuple[list[np.ndarray], list[str]]:
         """Capture images from all configured camera views and optionally save them.
 
@@ -255,9 +332,43 @@ class MetaworldObsWrapper(ObservationWrapper):
         images_hwc: list[np.ndarray] = []
         camera_names_used: list[str] = []
 
-        img = self._render_rgb_array()
-        images_hwc.append(img)
-        camera_names_used.append("default")
+        if self._can_switch_cameras:
+            original_camera = self._get_camera()
+            # capture renderer camera_ids to restore later
+            renderer_restore: list[tuple[Any, Any]] = []
+            seen_renderers: set[int] = set()
+            for target in self._camera_targets():
+                renderer = getattr(target, "mujoco_renderer", None)
+                if renderer is not None and id(renderer) not in seen_renderers:
+                    seen_renderers.add(id(renderer))
+                    original_id = getattr(renderer, "camera_id", None)
+                    renderer_restore.append((renderer, original_id))
+            try:
+                for camera_name in self._camera_names:
+                    applied = self._apply_camera(camera_name)
+                    if not applied:
+                        logger.warning(
+                            "Unable to set camera '%s'; using current camera for rendering",
+                            camera_name,
+                        )
+                    img = self._render_rgb_array()
+                    images_hwc.append(img)
+                    camera_names_used.append(camera_name)
+            finally:
+                self._apply_camera(original_camera, log_on_error=False)
+                for renderer, camera_id in renderer_restore:
+                    if camera_id is not None:
+                        try:
+                            renderer.camera_id = camera_id
+                        except Exception:
+                            pass
+        else:
+            img = self._render_rgb_array()
+            images_hwc.append(img)
+            current_camera = self._get_camera()
+            camera_names_used.append(
+                str(current_camera) if current_camera else "default"
+            )
 
         # Save images to disk if enabled
         if self._save_images and self._image_save_dir:
@@ -279,18 +390,14 @@ class MetaworldObsWrapper(ObservationWrapper):
         obs = np.concatenate([state, one_hot])
         new_obs: Dict[str, Any] = {"observation.state": obs}
 
-        for camera in self._camera_names:
-            img = self._render_rgb_array()
+        images_hwc, _ = self.capture_and_save_images()
+        for idx, img in enumerate(images_hwc):
             # Convert HWC to CHW
             img_chw = np.transpose(img, (2, 0, 1))
             # TODO: we flip the image because it is upside down for some reason
             # this appears to be something to do with metaworld/mujoco rendering? look more into it
             img_chw = np.flip(img_chw, axis=1)
-            key = (
-                "observation.image"
-                if camera == self._camera_names[0]
-                else f"observation.image{self._camera_names.index(camera) + 1}"
-            )
+            key = "observation.image" if idx == 0 else f"observation.image{idx + 1}"
             new_obs[key] = img_chw
 
         return new_obs
@@ -303,6 +410,7 @@ class MetaworldObsWrapper(ObservationWrapper):
             for img, camera_name in zip(images_hwc, camera_names):
                 if self._image_save_dir:
                     camera_dir = self._image_save_dir / camera_name
+                    camera_dir.mkdir(parents=True, exist_ok=True)
                     filename = (
                         f"ep{self._episode_count:04d}_step{self._step_count:06d}.png"
                     )

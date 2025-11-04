@@ -120,6 +120,21 @@ VALIDATOR_MESSAGE_BATCH_INTERVAL = 0.5
 DEFAULT_VALIDATOR_MESSAGE_WORKERS = max(1, (os.cpu_count() or 1) * 2 + 1)
 
 
+def _extract_benchmark_spec_payload(
+    config: Any,
+) -> tuple[Optional[dict], dict]:
+    """
+    Split a stored benchmark configuration into the original spec payload (if available)
+    and the underlying execution config used by the evaluator.
+    """
+    if isinstance(config, dict):
+        inner_config = config.get("config")
+        if isinstance(inner_config, dict):
+            return copy.deepcopy(config), copy.deepcopy(inner_config)
+        return None, copy.deepcopy(config)
+    return None, {}
+
+
 class LeaderCandidateError(Exception):
     """Base exception for leader candidate operations."""
 
@@ -2258,15 +2273,28 @@ class BackendService:
                     )
                     continue
 
+                if isinstance(benchmark, dict):
+                    benchmark_spec = copy.deepcopy(benchmark)
+                else:
+                    logger.warning(
+                        "Benchmark specification for competition %s is not a dict (%r); "
+                        "wrapping in config field",
+                        competition.id,
+                        type(benchmark),
+                    )
+                    benchmark_spec = {"config": benchmark}
+
                 job = BackendEvaluationJob(
                     id=next(self.id_generator),
                     submission_id=submission.id,
                     competition_id=competition.id,
                     miner_hotkey=submission.miner_hotkey,
                     hf_repo_id=submission.hf_repo_id,
-                    env_provider=benchmark["provider"],
-                    benchmark_name=benchmark["benchmark_name"],
-                    config=benchmark.get("config", {}),
+                    env_provider=benchmark_spec.get("provider", benchmark["provider"]),
+                    benchmark_name=benchmark_spec.get(
+                        "benchmark_name", benchmark["benchmark_name"]
+                    ),
+                    config=benchmark_spec,
                     artifact_object_key=submission.artifact_object_key,
                     artifact_sha256=submission.artifact_sha256,
                     artifact_size_bytes=submission.artifact_size_bytes,
@@ -2646,6 +2674,9 @@ class BackendService:
         )
 
         for job in jobs:
+            _benchmark_spec_payload, base_config_payload = (
+                _extract_benchmark_spec_payload(job.config)
+            )
             job_event = JobCreatedEvent(
                 job_id=str(job.id),
                 competition_id=job.competition_id,
@@ -2654,7 +2685,7 @@ class BackendService:
                 hf_repo_id=job.hf_repo_id,
                 env_provider=job.env_provider,
                 benchmark_name=job.benchmark_name,
-                config=job.config if job.config else {},
+                config=base_config_payload,
                 status=EvaluationStatus.QUEUED,
                 validator_statuses={
                     hotkey: EvaluationStatus.QUEUED
@@ -2686,8 +2717,6 @@ class BackendService:
             logger.warning("No validators connected")
             return
 
-        env_config = job.config if job.config else {}
-
         artifact_url = None
         artifact_expires_at: Optional[datetime] = None
         if self.submission_storage and job.artifact_object_key:
@@ -2708,6 +2737,10 @@ class BackendService:
             )
             return
 
+        benchmark_spec_payload, base_config_payload = _extract_benchmark_spec_payload(
+            job.config
+        )
+
         job_msg = EvalJobMessage(
             job_id=job.id,
             competition_id=job.competition_id,
@@ -2716,7 +2749,8 @@ class BackendService:
             hf_repo_id=job.hf_repo_id,
             env_provider=job.env_provider,
             benchmark_name=job.benchmark_name,
-            config=env_config,
+            config=base_config_payload,
+            benchmark_spec=benchmark_spec_payload,
             artifact_url=artifact_url,
             artifact_expires_at=artifact_expires_at,
             artifact_sha256=job.artifact_sha256,

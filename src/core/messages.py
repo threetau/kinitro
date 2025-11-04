@@ -87,6 +87,7 @@ class EvalJobMessage(SQLModel):
     env_provider: str
     benchmark_name: str
     config: dict
+    benchmark_spec: Optional[dict] = None
     artifact_url: Optional[str] = None
     artifact_expires_at: Optional[datetime] = None
     artifact_sha256: Optional[str] = None
@@ -112,6 +113,7 @@ class EvalResultMessage(SQLModel):
     env_provider: str
     benchmark_name: str
     config: dict
+    benchmark_spec: Optional[dict] = None
     score: float
     success_rate: Optional[float] = None
     avg_reward: Optional[float] = None

@@ -6,6 +6,7 @@ including evaluation results, job status updates, episode data streaming, etc.
 """
 
 import asyncio
+import copy
 import json
 import uuid
 from datetime import datetime, timezone
@@ -61,6 +62,17 @@ except ImportError:
     pass
 
 logger = get_logger(__name__)
+
+
+def _base_job_config(config: Any) -> dict:
+    """Extract the evaluator-facing config from a stored benchmark spec."""
+    if isinstance(config, dict):
+        inner_config = config.get("config")
+        if isinstance(inner_config, dict):
+            return copy.deepcopy(inner_config)
+        return copy.deepcopy(config)
+    return {}
+
 
 CLIENT_SEND_QUEUE_MAXSIZE = 200
 CLIENT_SEND_TIMEOUT = 5.0
@@ -932,7 +944,7 @@ class RealtimeEventBroadcaster:
                     hf_repo_id=job.hf_repo_id,
                     env_provider=job.env_provider,
                     benchmark_name=job.benchmark_name,
-                    config=job.config if job.config else {},
+                    config=_base_job_config(job.config),
                     status=current_status,
                     validator_statuses=validator_statuses_map.get(job.id, {}),
                 )
