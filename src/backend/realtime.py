@@ -10,7 +10,7 @@ import copy
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Union
 
 from fastapi import WebSocket
 from pydantic import BaseModel
@@ -64,14 +64,17 @@ except ImportError:
 logger = get_logger(__name__)
 
 
-def _base_job_config(config: Any) -> dict:
+def _base_job_config(config: Mapping[str, Any]) -> dict[str, Any]:
     """Extract the evaluator-facing config from a stored benchmark spec."""
-    if isinstance(config, dict):
-        inner_config = config.get("config")
-        if isinstance(inner_config, dict):
-            return copy.deepcopy(inner_config)
-        return copy.deepcopy(config)
-    return {}
+    try:
+        base_config_source = config["config"]
+    except KeyError as exc:  # pragma: no cover - defensive guard
+        raise ValueError("Benchmark spec is missing a 'config' entry") from exc
+    try:
+        base_config = dict(base_config_source)
+    except TypeError as exc:  # pragma: no cover - defensive guard
+        raise ValueError("Benchmark spec 'config' entry must be a mapping") from exc
+    return copy.deepcopy(base_config)
 
 
 CLIENT_SEND_QUEUE_MAXSIZE = 200

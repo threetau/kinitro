@@ -15,7 +15,7 @@ import os
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import dotenv
 from asyncpg.exceptions import DeadlockDetectedError
@@ -121,18 +121,22 @@ DEFAULT_VALIDATOR_MESSAGE_WORKERS = max(1, (os.cpu_count() or 1) * 2 + 1)
 
 
 def _extract_benchmark_spec_payload(
-    config: Any,
-) -> tuple[Optional[dict], dict]:
+    config: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """
-    Split a stored benchmark configuration into the original spec payload (if available)
-    and the underlying execution config used by the evaluator.
+    Split a stored benchmark configuration into the full benchmark spec and the
+    underlying execution config used by the evaluator.
     """
-    if isinstance(config, dict):
-        inner_config = config.get("config")
-        if isinstance(inner_config, dict):
-            return copy.deepcopy(config), copy.deepcopy(inner_config)
-        return None, copy.deepcopy(config)
-    return None, {}
+    spec_copy = copy.deepcopy(dict(config))
+    try:
+        base_config_source = config["config"]
+    except KeyError as exc:  # pragma: no cover - defensive guard
+        raise ValueError("Benchmark spec is missing 'config' payload") from exc
+    try:
+        base_config = copy.deepcopy(dict(base_config_source))
+    except TypeError as exc:  # pragma: no cover - defensive guard
+        raise ValueError("'config' payload must be a mapping") from exc
+    return spec_copy, base_config
 
 
 class LeaderCandidateError(Exception):
