@@ -139,6 +139,37 @@ def _extract_benchmark_spec_payload(
     return spec_copy, base_config
 
 
+def _normalize_benchmark_spec_payload(
+    provider: str,
+    benchmark_name: str,
+    payload: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """
+    Ensure a benchmark specification payload includes top-level metadata and a nested config mapping.
+
+    Accepts either the new-style payload (with a `config` key) or a bare config mapping and
+    returns a copy that always matches the new-style structure.
+    """
+    if payload is None:
+        base_config: dict[str, Any] = {}
+        return {
+            "provider": provider,
+            "benchmark_name": benchmark_name,
+            "config": base_config,
+        }
+
+    payload_dict = dict(payload)
+    if "config" in payload_dict:
+        return copy.deepcopy(payload_dict)
+
+    base_config = copy.deepcopy(payload_dict)
+    return {
+        "provider": provider,
+        "benchmark_name": benchmark_name,
+        "config": base_config,
+    }
+
+
 class LeaderCandidateError(Exception):
     """Base exception for leader candidate operations."""
 
@@ -2490,14 +2521,16 @@ class BackendService:
 
             benchmarks = competition.benchmarks or []
             for benchmark in benchmarks:
-                provider = (
-                    benchmark.get("provider") if isinstance(benchmark, dict) else None
-                )
-                benchmark_name = (
-                    benchmark.get("benchmark_name")
-                    if isinstance(benchmark, dict)
-                    else None
-                )
+                if not isinstance(benchmark, Mapping):
+                    logger.error(
+                        "Submission %s rerun skipped invalid benchmark entry type: %s",
+                        submission_id,
+                        type(benchmark),
+                    )
+                    continue
+
+                provider = benchmark.get("provider")
+                benchmark_name = benchmark.get("benchmark_name")
 
                 if not provider or not benchmark_name:
                     logger.error(
@@ -2509,6 +2542,11 @@ class BackendService:
 
                 if benchmark_filter and benchmark_name not in benchmark_filter:
                     continue
+                spec_payload = _normalize_benchmark_spec_payload(
+                    provider,
+                    benchmark_name,
+                    benchmark,
+                )
 
                 job = BackendEvaluationJob(
                     id=next(self.id_generator),
@@ -2518,9 +2556,7 @@ class BackendService:
                     hf_repo_id=submission.hf_repo_id,
                     env_provider=provider,
                     benchmark_name=benchmark_name,
-                    config=copy.deepcopy(benchmark.get("config", {}))
-                    if isinstance(benchmark, dict)
-                    else {},
+                    config=spec_payload,
                     artifact_object_key=submission.artifact_object_key,
                     artifact_sha256=submission.artifact_sha256,
                     artifact_size_bytes=submission.artifact_size_bytes,
@@ -2564,6 +2600,14 @@ class BackendService:
             if not existing_job:
                 raise EvaluationJobNotFoundError(f"Job {job_id} not found")
 
+            spec_payload = _normalize_benchmark_spec_payload(
+                existing_job.env_provider,
+                existing_job.benchmark_name,
+                existing_job.config
+                if isinstance(existing_job.config, Mapping)
+                else None,
+            )
+
             new_job = BackendEvaluationJob(
                 id=next(self.id_generator),
                 submission_id=existing_job.submission_id,
@@ -2572,9 +2616,7 @@ class BackendService:
                 hf_repo_id=existing_job.hf_repo_id,
                 env_provider=existing_job.env_provider,
                 benchmark_name=existing_job.benchmark_name,
-                config=copy.deepcopy(existing_job.config)
-                if existing_job.config
-                else {},
+                config=spec_payload,
                 artifact_object_key=existing_job.artifact_object_key,
                 artifact_sha256=existing_job.artifact_sha256,
                 artifact_size_bytes=existing_job.artifact_size_bytes,
