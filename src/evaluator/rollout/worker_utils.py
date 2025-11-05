@@ -102,26 +102,11 @@ def extract_image_payloads(
 
 def coerce_success_flag(value: Any) -> bool:
     """Normalize various success flag representations to a boolean."""
-    if isinstance(value, (bool, np.bool_)):
+    if isinstance(value, (bool, int, float)):
         return bool(value)
-    if isinstance(value, (int, float, np.integer, np.floating)):
-        return value != 0
-    if isinstance(value, torch.Tensor):
-        return coerce_success_flag(value.detach().cpu().numpy())
-    if isinstance(value, np.ndarray):
-        try:
-            return bool(np.any(value))
-        except Exception:
-            return False
-    if isinstance(value, (list, tuple, set)):
-        return any(coerce_success_flag(item) for item in value)
-    if isinstance(value, dict):
-        return any(coerce_success_flag(item) for item in value.values())
-    try:
-        return bool(value)
-    except Exception:
-        logger.debug("Could not coerce success flag value %r to bool", value)
-        return False
+    if isinstance(value, np.generic):
+        return bool(value.item())
+    return bool(value)
 
 
 def extract_success_flag(info_payload: Any) -> bool:

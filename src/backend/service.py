@@ -2521,14 +2521,6 @@ class BackendService:
 
             benchmarks = competition.benchmarks or []
             for benchmark in benchmarks:
-                if not isinstance(benchmark, Mapping):
-                    logger.error(
-                        "Submission %s rerun skipped invalid benchmark entry type: %s",
-                        submission_id,
-                        type(benchmark),
-                    )
-                    continue
-
                 provider = benchmark.get("provider")
                 benchmark_name = benchmark.get("benchmark_name")
 
