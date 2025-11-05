@@ -16,6 +16,11 @@ from core.storage import S3Config
 from ..rpc.rpc_process import PGQ_TIMEOUT, RPCRequest
 from .envs import BenchmarkSpec, EnvManager, EnvResult, EnvSpec, EpisodeResult
 from .episode_logger import EpisodeLogger, LoggingConfig
+from .worker_utils import (
+    extract_image_payloads,
+    extract_success_flag,
+    normalize_for_rpc,
+)
 
 logger = get_logger(__name__)
 
@@ -372,93 +377,6 @@ class RolloutWorker:
         if episode_logger:
             episode_logger.start_episode(episode_id)
 
-        def _to_numpy(value: Any) -> np.ndarray:
-            """Best-effort conversion of tensors/lists to contiguous numpy arrays."""
-            if isinstance(value, np.ndarray):
-                arr = value
-            elif isinstance(value, torch.Tensor):
-                arr = value.detach().cpu().numpy()
-            else:
-                arr = np.asarray(value)
-
-            if arr.dtype == object:
-                raise TypeError(
-                    "Cannot convert object-dtype observation value to numpy array"
-                )
-
-            return np.ascontiguousarray(arr)
-
-        def _normalize_for_rpc(obs: Any) -> Any:
-            """Prepare observation payload (array or dict of arrays) for RPC transmission."""
-            if isinstance(obs, dict):
-                normalized: dict[str, np.ndarray] = {}
-                for key, value in obs.items():
-                    try:
-                        normalized[key] = _to_numpy(value)
-                    except Exception as exc:
-                        logger.warning(
-                            "Dropping observation key %s due to conversion failure: %s",
-                            key,
-                            exc,
-                        )
-                return normalized
-
-            return _to_numpy(obs)
-
-        def _extract_image_payloads(obs: Any) -> list[tuple[np.ndarray, str]]:
-            """Extract HWC uint8 image payloads from observation dictionaries for logging."""
-            if not isinstance(obs, dict):
-                return []
-
-            camera_names = list(getattr(env_spec, "camera_names", ()) or ("default",))
-            image_entries: list[tuple[int, Any]] = []
-            for key, value in obs.items():
-                if not isinstance(key, str) or not key.startswith("observation.image"):
-                    continue
-                suffix = key[len("observation.image") :]
-                if suffix == "":
-                    index = 0
-                else:
-                    try:
-                        index = max(int(suffix) - 1, 0)
-                    except ValueError:
-                        index = len(image_entries)
-                image_entries.append((index, value))
-
-            if not image_entries:
-                return []
-
-            image_payloads: list[tuple[np.ndarray, str]] = []
-            image_entries.sort(key=lambda item: item[0])
-            for idx, value in image_entries:
-                try:
-                    img_arr = _to_numpy(value)
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to convert observation image %s: %s", idx, exc
-                    )
-                    continue
-
-                if img_arr.ndim == 3 and img_arr.shape[0] in (1, 3):
-                    img_hwc = np.moveaxis(img_arr, 0, -1)
-                else:
-                    img_hwc = np.asarray(img_arr)
-
-                img_hwc = np.ascontiguousarray(img_hwc)
-                if img_hwc.dtype != np.uint8:
-                    img_hwc = np.clip(img_hwc, 0, 255).astype(np.uint8)
-
-                if camera_names and idx < len(camera_names):
-                    camera_name = camera_names[idx]
-                elif camera_names:
-                    camera_name = camera_names[min(idx, len(camera_names) - 1)]
-                else:
-                    camera_name = f"camera_{idx}"
-
-                image_payloads.append((img_hwc, camera_name))
-
-            return image_payloads
-
         # Reset may return (obs, info) or just obs depending on gym
         res = env.reset()
         if isinstance(res, tuple) and len(res) == 2:
@@ -471,6 +389,7 @@ class RolloutWorker:
         cum_reward = 0.0
         episode_steps = []
         episode_start = time.time()
+        episode_success = False
 
         while not done and step_count < max_steps:
             try:
@@ -483,7 +402,7 @@ class RolloutWorker:
                         else None,
                     )
 
-                obs_payload = _normalize_for_rpc(observation)
+                obs_payload = normalize_for_rpc(observation)
 
                 rpc_msg = RPCRequest.create_act(obs_payload)
                 await send_queue.put_async(rpc_msg, timeout=PGQ_TIMEOUT)
@@ -513,8 +432,10 @@ class RolloutWorker:
                     done = bool(done)
 
                 # Treat success signal as terminal even if env doesn't flag done
-                if info and info.get("success"):
+                step_success = extract_success_flag(info)
+                if step_success:
                     done = True
+                episode_success = episode_success or step_success
 
                 reward_value = float(reward)
                 cum_reward += reward_value
@@ -531,7 +452,7 @@ class RolloutWorker:
                     print(
                         f"[EP_CAM] Extracting images from observations: {type(observation)}"
                     )
-                    obs_images = _extract_image_payloads(observation)
+                    obs_images = extract_image_payloads(observation, env_spec)
                     if not obs_images:
                         print("[EP_CAM] Warning: no image observations found")
                         # Fallback to legacy capture methods if wrapper data is unavailable
@@ -586,7 +507,7 @@ class RolloutWorker:
                 break
 
         episode_duration = time.time() - episode_start
-        success = info.get("success", False) if info else False
+        success = episode_success
 
         # Only keep essential episode info to reduce memory
         episode_result = EpisodeResult(
@@ -605,6 +526,9 @@ class RolloutWorker:
 
         # End episode logging if logger is available
         if episode_logger:
+            if info is not None:
+                # log info
+                logger.debug(f"Logging final info for episode {episode_id}: {info}")
             await episode_logger.end_episode(
                 final_reward=cum_reward,
                 success=success,
