@@ -507,7 +507,14 @@ class RolloutWorker:
                 break
 
         episode_duration = time.time() - episode_start
-        success = episode_success
+        if (
+            not episode_success
+            and episode_logger
+            and episode_logger.has_logged_success()
+        ):
+            episode_success = True
+            logger.debug("Episode %d success inferred from logged steps", episode_id)
+        success = bool(episode_success)
 
         # Only keep essential episode info to reduce memory
         episode_result = EpisodeResult(

@@ -26,6 +26,8 @@ from pgqueuer.db import AsyncpgDriver
 
 from core.constants import ImageFormat
 from core.messages import EpisodeDataMessage, EpisodeStepDataMessage
+
+from .worker_utils import extract_success_flag
 from core.storage import S3Config, S3StorageClient
 
 logger = logging.getLogger(__name__)
@@ -132,6 +134,18 @@ class EpisodeLogger:
 
         logger.debug(f"Started tracking episode {episode_id}")
 
+    def _infer_success_from_steps(self) -> bool:
+        """Return True if any recorded step info reports success."""
+        for step_data in reversed(self._current_episode_steps):
+            info = step_data.get("info")
+            if info and extract_success_flag(info):
+                return True
+        return False
+
+    def has_logged_success(self) -> bool:
+        """Public helper used by callers that need to confirm success state."""
+        return self._infer_success_from_steps()
+
     async def log_step(
         self,
         step: int,
@@ -221,6 +235,9 @@ class EpisodeLogger:
             logger.warning("Attempted to end episode without active episode")
             return
 
+        # Coerce success to bool and fall back to logged step info if needed
+        final_success = bool(success) or self._infer_success_from_steps()
+
         # Check if we should log this episode based on interval
         should_log_episode = self._episode_count % self.config.episode_log_interval == 0
 
@@ -233,7 +250,7 @@ class EpisodeLogger:
                 "env_name": self.env_name,
                 "benchmark_name": self.benchmark_name,
                 "final_reward": final_reward,
-                "success": success,
+                "success": final_success,
                 "steps": len(self._current_episode_steps),
                 "start_time": self._current_episode_start,
                 "end_time": datetime.now(timezone.utc),
