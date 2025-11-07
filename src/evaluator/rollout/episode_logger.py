@@ -26,9 +26,9 @@ from pgqueuer.db import AsyncpgDriver
 
 from core.constants import ImageFormat
 from core.messages import EpisodeDataMessage, EpisodeStepDataMessage
+from core.storage import S3Config, S3StorageClient
 
 from .worker_utils import extract_success_flag
-from core.storage import S3Config, S3StorageClient
 
 logger = logging.getLogger(__name__)
 
