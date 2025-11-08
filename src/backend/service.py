@@ -26,7 +26,7 @@ from fiber.chain.fetch_nodes import _get_nodes_for_uid
 from fiber.chain.interface import get_substrate
 from fiber.chain.models import Node
 from snowflake import SnowflakeGenerator
-from sqlalchemy import and_, func, select, text
+from sqlalchemy import and_, func, literal, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import (
@@ -84,6 +84,7 @@ from core.messages import (
     EpisodeStepDataMessage,
     EvalJobMessage,
     EventType,
+    MessageType,
     SetWeightsMessage,
 )
 from core.schemas import ChainCommitmentResponse, ModelProvider
@@ -118,6 +119,16 @@ VALIDATOR_MESSAGE_QUEUE_MAXSIZE = 5000
 VALIDATOR_MESSAGE_BATCH_SIZE = 50
 VALIDATOR_MESSAGE_BATCH_INTERVAL = 0.5
 DEFAULT_VALIDATOR_MESSAGE_WORKERS = max(1, (os.cpu_count() or 1) * 2 + 1)
+
+EpisodeKey = Tuple[str, int, str, SS58Address]
+
+
+def _ensure_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value)
+    raise ValueError(f"Unsupported datetime value: {value!r}")
 
 
 def _extract_benchmark_spec_payload(
@@ -986,67 +997,9 @@ class BackendService:
             logger.error("Database not initialized; dropping validator messages")
             return
 
-        heartbeats: Dict[SS58Address, datetime] = {}
-
-        def _ensure_datetime(value: Any) -> datetime:
-            if isinstance(value, datetime):
-                return value
-            if isinstance(value, str):
-                return datetime.fromisoformat(value)
-            raise ValueError(f"Unsupported datetime value: {value!r}")
-
-        episode_payload_map: Dict[
-            Tuple[str, int, str, SS58Address], Dict[str, Any]
-        ] = {}
-        step_payload_map: Dict[
-            Tuple[str, int, str, SS58Address], List[Dict[str, Any]]
-        ] = defaultdict(list)
-
-        for item in batch:
-            message_type = item.get("type")
-            if message_type == "heartbeat":
-                timestamp = item["timestamp"]
-                hotkey = item["validator_hotkey"]
-                current = heartbeats.get(hotkey)
-                if current is None or timestamp > current:
-                    heartbeats[hotkey] = timestamp
-            elif message_type == "episode_data":
-                message: EpisodeDataMessage = item["message"]
-                validator_hotkey: SS58Address = item["validator_hotkey"]
-                key = (
-                    message.submission_id,
-                    message.episode_id,
-                    message.task_id,
-                    validator_hotkey,
-                )
-                existing = episode_payload_map.get(key)
-                if existing is not None:
-                    existing_msg: EpisodeDataMessage = existing["message"]
-                    existing_score = (
-                        _ensure_datetime(existing_msg.end_time),
-                        _ensure_datetime(existing_msg.start_time),
-                        existing_msg.steps,
-                    )
-                    new_score = (
-                        _ensure_datetime(message.end_time),
-                        _ensure_datetime(message.start_time),
-                        message.steps,
-                    )
-                    if new_score <= existing_score:
-                        continue
-                episode_payload_map[key] = item
-            elif message_type == "episode_step_data":
-                message: EpisodeStepDataMessage = item["message"]
-                validator_hotkey: SS58Address = item["validator_hotkey"]
-                key = (
-                    message.submission_id,
-                    message.episode_id,
-                    message.task_id,
-                    validator_hotkey,
-                )
-                step_payload_map[key].append(item)
-            else:
-                logger.warning("Unknown validator message type: %s", message_type)
+        heartbeats, episode_payload_map, step_payload_map = (
+            self._group_validator_messages(batch)
+        )
 
         step_payload_map = {
             key: sorted(payloads, key=lambda payload: payload["message"].step)
@@ -1058,82 +1011,7 @@ class BackendService:
             key=lambda k: (k[0], k[2], k[1], k[3]),
         )
 
-        def _episode_lock_key(
-            submission_id: str, task_id: str, episode_id: int
-        ) -> tuple[int, int]:
-            data = f"{submission_id}|{task_id}|{episode_id}".encode("utf-8")
-            digest = hashlib.blake2b(data, digest_size=8).digest()
-            part1 = int.from_bytes(digest[:4], "big", signed=True)
-            part2 = int.from_bytes(digest[4:], "big", signed=True)
-            return part1, part2
-
-        episode_table = EpisodeData.__table__
         step_table = EpisodeStepData.__table__
-
-        async def _ensure_episode(
-            message: EpisodeDataMessage,
-            validator_hotkey: SS58Address,
-            lookup: Dict[tuple[str, int, str, SS58Address], int],
-            session: AsyncSession,
-        ) -> int:
-            key = (
-                message.submission_id,
-                message.episode_id,
-                message.task_id,
-                validator_hotkey,
-            )
-            existing_id = lookup.get(key)
-            if existing_id is not None:
-                return existing_id
-
-            episode_values = {
-                "id": next(self.id_generator),
-                "job_id": message.job_id,
-                "submission_id": message.submission_id,
-                "validator_hotkey": validator_hotkey,
-                "task_id": message.task_id,
-                "episode_id": message.episode_id,
-                "env_name": message.env_name,
-                "benchmark_name": message.benchmark_name,
-                "final_reward": message.final_reward,
-                "success": message.success,
-                "steps": message.steps,
-                "start_time": _ensure_datetime(message.start_time),
-                "end_time": _ensure_datetime(message.end_time),
-                "extra_metrics": message.extra_metrics,
-            }
-
-            episode_insert = (
-                insert(episode_table)
-                .values(**episode_values)
-                .on_conflict_do_update(
-                    index_elements=[
-                        "submission_id",
-                        "task_id",
-                        "episode_id",
-                        "validator_hotkey",
-                    ],
-                    set_={
-                        "job_id": episode_values["job_id"],
-                        "validator_hotkey": episode_values["validator_hotkey"],
-                        "env_name": episode_values["env_name"],
-                        "benchmark_name": episode_values["benchmark_name"],
-                        "final_reward": episode_values["final_reward"],
-                        "success": episode_values["success"],
-                        "steps": episode_values["steps"],
-                        "start_time": episode_values["start_time"],
-                        "end_time": episode_values["end_time"],
-                        "extra_metrics": episode_values["extra_metrics"],
-                        "updated_at": func.now(),
-                    },
-                )
-                .returning(episode_table.c.id)
-            )
-
-            result = await session.execute(episode_insert)
-            episode_db_id = result.scalar_one()
-            lookup[key] = episode_db_id
-            return episode_db_id
 
         max_retries = 5
         attempt = 0
@@ -1145,24 +1023,9 @@ class BackendService:
                 status_update_keys: set[tuple[Any, SS58Address]] = set()
 
                 async with self.async_session() as session:
-                    episode_lookup: Dict[tuple[str, int, str, SS58Address], int] = {}
+                    episode_lookup: Dict[EpisodeKey, int] = {}
 
-                    if heartbeats:
-                        result = await session.execute(
-                            select(ValidatorConnection).where(
-                                ValidatorConnection.validator_hotkey.in_(
-                                    heartbeats.keys()
-                                )
-                            )
-                        )
-
-                        for validator in result.scalars():
-                            validator.last_heartbeat = heartbeats[
-                                validator.validator_hotkey
-                            ]
-                            validator.is_connected = True
-
-                        await session.commit()
+                    await self._apply_heartbeats(session, heartbeats)
 
                     for key in all_episode_keys:
                         episode_payload = episode_payload_map.get(key)
@@ -1170,15 +1033,7 @@ class BackendService:
                         if not episode_payload and not step_payloads:
                             continue
 
-                        # Keys include validator hotkey; lock only needs submission/task/episode
-                        submission_id, episode_id_value, task_id, _key_hotkey = key
-                        lock_k1, lock_k2 = _episode_lock_key(
-                            submission_id, task_id, episode_id_value
-                        )
-                        await session.execute(
-                            text("SELECT pg_advisory_xact_lock(:k1, :k2)"),
-                            {"k1": lock_k1, "k2": lock_k2},
-                        )
+                        await self._acquire_episode_lock(session, key)
 
                         current_episode_id = episode_lookup.get(key)
 
@@ -1187,8 +1042,7 @@ class BackendService:
                             validator_hotkey: SS58Address = episode_payload[
                                 "validator_hotkey"
                             ]
-
-                            current_episode_id = await _ensure_episode(
+                            current_episode_id = await self._ensure_episode_record(
                                 message,
                                 validator_hotkey,
                                 episode_lookup,
@@ -1225,7 +1079,6 @@ class BackendService:
                                     == EvaluationStatus.RUNNING,
                                 )
                             )
-
                             if not status_result.scalar_one_or_none():
                                 status_key = (message.job_id, validator_hotkey)
                                 if status_key not in status_update_keys:
@@ -1240,28 +1093,12 @@ class BackendService:
                                     status_update_keys.add(status_key)
 
                         if current_episode_id is None and step_payloads:
-                            first_payload = step_payloads[0]
-                            first_step: EpisodeStepDataMessage = first_payload[
-                                "message"
-                            ]
-                            fallback_episode = EpisodeDataMessage(
-                                job_id=first_step.job_id,
-                                submission_id=first_step.submission_id,
-                                validator_hotkey=first_payload["validator_hotkey"],
-                                task_id=first_step.task_id,
-                                episode_id=first_step.episode_id,
-                                env_name=first_step.env_name,
-                                benchmark_name=first_step.benchmark_name,
-                                final_reward=first_step.reward,
-                                success=first_step.info.get("success", False),
-                                steps=first_step.step,
-                                start_time=_ensure_datetime(first_step.step_timestamp),
-                                end_time=_ensure_datetime(first_step.step_timestamp),
-                                extra_metrics=None,
+                            fallback_episode, fallback_hotkey = (
+                                self._build_episode_from_steps(step_payloads)
                             )
-                            current_episode_id = await _ensure_episode(
+                            current_episode_id = await self._ensure_episode_record(
                                 fallback_episode,
-                                first_payload["validator_hotkey"],
+                                fallback_hotkey,
                                 episode_lookup,
                                 session,
                             )
@@ -1270,37 +1107,23 @@ class BackendService:
                             step_message: EpisodeStepDataMessage = step_payload[
                                 "message"
                             ]
-                            validator_hotkey: SS58Address = step_payload[
-                                "validator_hotkey"
-                            ]
+                            validator_hotkey = step_payload["validator_hotkey"]
 
                             episode_lookup_id = episode_lookup.get(key)
                             if episode_lookup_id is None:
-                                fallback_episode = EpisodeDataMessage(
-                                    job_id=step_message.job_id,
-                                    submission_id=step_message.submission_id,
-                                    validator_hotkey=validator_hotkey,
-                                    task_id=step_message.task_id,
-                                    episode_id=step_message.episode_id,
-                                    env_name=step_message.env_name,
-                                    benchmark_name=step_message.benchmark_name,
-                                    final_reward=step_message.reward,
-                                    success=step_message.info.get("success", False),
-                                    steps=step_message.step,
-                                    start_time=_ensure_datetime(
-                                        step_message.step_timestamp
-                                    ),
-                                    end_time=_ensure_datetime(
-                                        step_message.step_timestamp
-                                    ),
-                                    extra_metrics=None,
+                                fallback_episode, fallback_hotkey = (
+                                    self._build_episode_from_steps([step_payload])
                                 )
-                                episode_lookup_id = await _ensure_episode(
+                                episode_lookup_id = await self._ensure_episode_record(
                                     fallback_episode,
-                                    validator_hotkey,
+                                    fallback_hotkey,
                                     episode_lookup,
                                     session,
                                 )
+
+                            await self._maybe_update_episode_from_step(
+                                session, episode_lookup_id, step_message
+                            )
 
                             step_values = {
                                 "id": next(self.id_generator),
@@ -1365,7 +1188,7 @@ class BackendService:
                                 )
                             )
 
-                        await session.commit()
+                    await session.commit()
 
                 for update in status_updates:
                     await self._update_job_status(
@@ -2910,3 +2733,257 @@ class BackendService:
             )
 
         logger.info(f"Broadcasted job {job.id} to {broadcast_count} validators")
+
+    @staticmethod
+    def _episode_score(message: EpisodeDataMessage) -> tuple[datetime, datetime, int]:
+        return (
+            _ensure_datetime(message.end_time),
+            _ensure_datetime(message.start_time),
+            message.steps,
+        )
+
+    def _group_validator_messages(
+        self, batch: List[Dict[str, Any]]
+    ) -> tuple[
+        Dict[SS58Address, datetime],
+        Dict[EpisodeKey, Dict[str, Any]],
+        Dict[EpisodeKey, List[Dict[str, Any]]],
+    ]:
+        heartbeats: Dict[SS58Address, datetime] = {}
+        episodes: Dict[EpisodeKey, Dict[str, Any]] = {}
+        steps: Dict[EpisodeKey, List[Dict[str, Any]]] = defaultdict(list)
+
+        for item in batch:
+            message_type = item.get("type")
+            if message_type == MessageType.HEARTBEAT:
+                timestamp = item["timestamp"]
+                hotkey = item["validator_hotkey"]
+                current = heartbeats.get(hotkey)
+                if current is None or timestamp > current:
+                    heartbeats[hotkey] = timestamp
+                continue
+
+            if message_type == MessageType.EPISODE_DATA:
+                message: EpisodeDataMessage = item["message"]
+                validator_hotkey: SS58Address = item["validator_hotkey"]
+                key: EpisodeKey = (
+                    message.submission_id,
+                    message.episode_id,
+                    message.task_id,
+                    validator_hotkey,
+                )
+                existing = episodes.get(key)
+                if existing is None or self._episode_score(
+                    message
+                ) > self._episode_score(existing["message"]):
+                    episodes[key] = item
+                continue
+
+            if message_type == MessageType.EPISODE_STEP_DATA:
+                message = item["message"]
+                validator_hotkey = item["validator_hotkey"]
+                key = (
+                    message.submission_id,
+                    message.episode_id,
+                    message.task_id,
+                    validator_hotkey,
+                )
+                steps[key].append(item)
+                continue
+
+            logger.warning("Unknown validator message type: %s", message_type)
+
+        return heartbeats, episodes, steps
+
+    @staticmethod
+    def _episode_lock_key(
+        submission_id: str, task_id: str, episode_id: int
+    ) -> tuple[int, int]:
+        data = f"{submission_id}|{task_id}|{episode_id}".encode("utf-8")
+        digest = hashlib.blake2b(data, digest_size=8).digest()
+        part1 = int.from_bytes(digest[:4], "big", signed=True)
+        part2 = int.from_bytes(digest[4:], "big", signed=True)
+        return part1, part2
+
+    @staticmethod
+    def _extract_rollout_totals(message: EpisodeStepDataMessage) -> tuple[int, float]:
+        info = message.info or {}
+        steps_value = info.get("_rollout_total_steps", message.step)
+        reward_value = info.get("_rollout_cumulative_reward", message.reward)
+        return steps_value, reward_value
+
+    def _build_episode_from_steps(
+        self, step_payloads: List[Dict[str, Any]]
+    ) -> tuple[EpisodeDataMessage, SS58Address]:
+        if not step_payloads:
+            raise ValueError("step_payloads must not be empty")
+
+        step_payloads_sorted = sorted(
+            step_payloads, key=lambda payload: payload["message"].step
+        )
+        first_payload = step_payloads_sorted[0]
+        last_payload = step_payloads_sorted[-1]
+        first_step: EpisodeStepDataMessage = first_payload["message"]
+        last_step: EpisodeStepDataMessage = last_payload["message"]
+
+        success_from_steps = any(
+            (payload["message"].info or {}).get("success", False)
+            for payload in step_payloads_sorted
+        )
+
+        total_steps, total_reward = self._extract_rollout_totals(last_step)
+
+        message = EpisodeDataMessage(
+            job_id=last_step.job_id,
+            submission_id=last_step.submission_id,
+            validator_hotkey=last_payload["validator_hotkey"],
+            task_id=last_step.task_id,
+            episode_id=last_step.episode_id,
+            env_name=last_step.env_name,
+            benchmark_name=last_step.benchmark_name,
+            final_reward=total_reward,
+            success=success_from_steps,
+            steps=total_steps,
+            start_time=_ensure_datetime(first_step.step_timestamp),
+            end_time=_ensure_datetime(last_step.step_timestamp),
+            extra_metrics=None,
+        )
+
+        return message, last_payload["validator_hotkey"]
+
+    async def _ensure_episode_record(
+        self,
+        message: EpisodeDataMessage,
+        validator_hotkey: SS58Address,
+        lookup: Dict[EpisodeKey, int],
+        session: AsyncSession,
+    ) -> int:
+        key: EpisodeKey = (
+            message.submission_id,
+            message.episode_id,
+            message.task_id,
+            validator_hotkey,
+        )
+        existing_id = lookup.get(key)
+        if existing_id is not None:
+            return existing_id
+
+        episode_table = EpisodeData.__table__
+        episode_values = {
+            "id": next(self.id_generator),
+            "job_id": message.job_id,
+            "submission_id": message.submission_id,
+            "validator_hotkey": validator_hotkey,
+            "task_id": message.task_id,
+            "episode_id": message.episode_id,
+            "env_name": message.env_name,
+            "benchmark_name": message.benchmark_name,
+            "final_reward": message.final_reward,
+            "success": message.success,
+            "steps": message.steps,
+            "start_time": _ensure_datetime(message.start_time),
+            "end_time": _ensure_datetime(message.end_time),
+            "extra_metrics": message.extra_metrics,
+        }
+
+        episode_insert = (
+            insert(episode_table)
+            .values(**episode_values)
+            .on_conflict_do_update(
+                index_elements=[
+                    "submission_id",
+                    "task_id",
+                    "episode_id",
+                    "validator_hotkey",
+                ],
+                set_={
+                    "job_id": episode_values["job_id"],
+                    "validator_hotkey": episode_values["validator_hotkey"],
+                    "env_name": episode_values["env_name"],
+                    "benchmark_name": episode_values["benchmark_name"],
+                    "final_reward": episode_values["final_reward"],
+                    "success": episode_values["success"],
+                    "steps": episode_values["steps"],
+                    "start_time": episode_values["start_time"],
+                    "end_time": episode_values["end_time"],
+                    "extra_metrics": episode_values["extra_metrics"],
+                    "updated_at": func.now(),
+                },
+            )
+            .returning(episode_table.c.id)
+        )
+
+        result = await session.execute(episode_insert)
+        episode_db_id = result.scalar_one()
+        lookup[key] = episode_db_id
+        return episode_db_id
+
+    async def _apply_heartbeats(
+        self, session: AsyncSession, heartbeats: Dict[SS58Address, datetime]
+    ) -> None:
+        if not heartbeats:
+            return
+        result = await session.execute(
+            select(ValidatorConnection).where(
+                ValidatorConnection.validator_hotkey.in_(heartbeats.keys())
+            )
+        )
+        for validator in result.scalars():
+            validator.last_heartbeat = heartbeats[validator.validator_hotkey]
+            validator.is_connected = True
+        await session.commit()
+
+    async def _acquire_episode_lock(
+        self, session: AsyncSession, key: EpisodeKey
+    ) -> None:
+        submission_id, episode_id_value, task_id, _ = key
+        lock_k1, lock_k2 = self._episode_lock_key(
+            submission_id, task_id, episode_id_value
+        )
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(:k1, :k2)"),
+            {"k1": lock_k1, "k2": lock_k2},
+        )
+
+    async def _maybe_update_episode_from_step(
+        self,
+        session: AsyncSession,
+        episode_id: int,
+        step_message: EpisodeStepDataMessage,
+    ) -> None:
+        info = step_message.info or {}
+        has_success = bool(info.get("success"))
+        total_steps = info.get("_rollout_total_steps")
+        total_reward = info.get("_rollout_cumulative_reward")
+        if not (has_success or total_steps is not None or total_reward is not None):
+            return
+
+        episode_table = EpisodeData.__table__
+        updates: Dict[str, Any] = {"updated_at": func.now()}
+
+        if has_success:
+            updates["success"] = True
+
+        if total_steps is not None:
+            updates["steps"] = func.coalesce(
+                func.greatest(episode_table.c.steps, literal(total_steps)),
+                literal(total_steps),
+            )
+
+        if total_reward is not None:
+            updates["final_reward"] = func.coalesce(
+                func.greatest(episode_table.c.final_reward, literal(total_reward)),
+                literal(total_reward),
+            )
+
+        end_time_value = _ensure_datetime(step_message.step_timestamp)
+        updates["end_time"] = func.coalesce(
+            func.greatest(episode_table.c.end_time, literal(end_time_value)),
+            literal(end_time_value),
+        )
+
+        await session.execute(
+            episode_table.update()
+            .where(episode_table.c.id == episode_id)
+            .values(**updates)
+        )

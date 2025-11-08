@@ -481,6 +481,10 @@ class RolloutWorker:
                                     exc,
                                 )
 
+                    log_info = dict(info) if isinstance(info, dict) else {}
+                    if done:
+                        log_info["_rollout_total_steps"] = step_count
+                        log_info["_rollout_cumulative_reward"] = cum_reward
                     await episode_logger.log_step(
                         step=step_count,
                         action=action_arr,
@@ -488,7 +492,7 @@ class RolloutWorker:
                         done=done,
                         truncated=False,  # Add truncated detection if available
                         observations=obs_images if obs_images else None,
-                        info=info,
+                        info=log_info,
                     )
 
                 if step_count % LOGGING_INTERVAL == 0:
@@ -537,7 +541,7 @@ class RolloutWorker:
                 # log info
                 logger.debug(f"Logging final info for episode {episode_id}: {info}")
             await episode_logger.end_episode(
-                final_reward=cum_reward,
+                final_reward=cum_reward,  # TODO: the param name "final_reward" is misleading - it should be the cumulative reward
                 success=success,
                 extra_metrics={
                     "duration": episode_duration,
