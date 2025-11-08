@@ -182,6 +182,10 @@ class LeaderCandidateAlreadyReviewedError(LeaderCandidateError):
     """Raised when attempting to re-review a processed leader candidate."""
 
 
+class LeaderCandidateNotApprovedError(LeaderCandidateError):
+    """Raised when attempting to modify an unapproved leader candidate."""
+
+
 class SubmissionNotFoundError(Exception):
     """Raised when a submission cannot be located."""
 
@@ -1628,6 +1632,91 @@ class BackendService:
         except Exception as exc:
             logger.error(
                 "Failed to broadcast stats after leader candidate rejection: %s",
+                exc,
+            )
+
+        return candidate
+
+    async def unapprove_leader_candidate(
+        self,
+        candidate_id: int,
+        admin_api_key_id: int,
+        reason: Optional[str] = None,
+    ) -> CompetitionLeaderCandidate:
+        """Revert an approved leader candidate back to pending state."""
+
+        if not self.async_session:
+            raise RuntimeError("Database not initialized")
+
+        async with self.async_session() as session:
+            candidate = await session.get(CompetitionLeaderCandidate, candidate_id)
+            if not candidate:
+                raise LeaderCandidateNotFoundError(
+                    f"Leader candidate {candidate_id} not found"
+                )
+
+            if candidate.status != LeaderCandidateStatus.APPROVED:
+                raise LeaderCandidateNotApprovedError(
+                    f"Leader candidate {candidate_id} is not approved"
+                )
+
+            competition = await session.get(Competition, candidate.competition_id)
+            if not competition:
+                raise LeaderCandidateNotFoundError(
+                    f"Competition {candidate.competition_id} not found for candidate"
+                )
+
+            previous_reviewed_at = candidate.reviewed_at
+            was_current_leader = (
+                competition.current_leader_hotkey == candidate.miner_hotkey
+                and competition.leader_updated_at == previous_reviewed_at
+            )
+
+            candidate.status = LeaderCandidateStatus.PENDING
+            candidate.status_reason = reason
+            candidate.reviewed_by_api_key_id = None
+            candidate.reviewed_at = None
+            await session.flush()
+
+            if was_current_leader:
+                fallback_stmt = (
+                    select(CompetitionLeaderCandidate)
+                    .where(
+                        CompetitionLeaderCandidate.competition_id
+                        == candidate.competition_id,
+                        CompetitionLeaderCandidate.status
+                        == LeaderCandidateStatus.APPROVED,
+                        CompetitionLeaderCandidate.id != candidate.id,
+                    )
+                    .order_by(CompetitionLeaderCandidate.reviewed_at.desc())
+                    .limit(1)
+                )
+                fallback_result = await session.execute(fallback_stmt)
+                fallback_candidate = fallback_result.scalar_one_or_none()
+
+                if fallback_candidate:
+                    competition.current_leader_hotkey = fallback_candidate.miner_hotkey
+                    competition.current_leader_reward = fallback_candidate.avg_reward
+                    competition.leader_updated_at = fallback_candidate.reviewed_at
+                else:
+                    competition.current_leader_hotkey = None
+                    competition.current_leader_reward = None
+                    competition.leader_updated_at = None
+
+            await session.commit()
+            await session.refresh(candidate)
+            logger.info(
+                "Admin %s unapproved leader candidate %s (competition=%s)",
+                admin_api_key_id,
+                candidate_id,
+                candidate.competition_id,
+            )
+
+        try:
+            await self._broadcast_stats_update()
+        except Exception as exc:
+            logger.error(
+                "Failed to broadcast stats after leader candidate unapproval: %s",
                 exc,
             )
 

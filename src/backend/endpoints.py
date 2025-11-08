@@ -50,6 +50,7 @@ from backend.service import (
     BackendService,
     EvaluationJobNotFoundError,
     LeaderCandidateAlreadyReviewedError,
+    LeaderCandidateNotApprovedError,
     LeaderCandidateNotFoundError,
     NoBenchmarksAvailableError,
     SubmissionNotFoundError,
@@ -2124,6 +2125,45 @@ async def approve_leader_candidate(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
     except LeaderCandidateAlreadyReviewedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+
+    return CompetitionLeaderCandidateResponse.model_validate(candidate)
+
+
+@app.post(
+    "/admin/leader-candidates/{candidate_id}/unapprove",
+    response_model=CompetitionLeaderCandidateResponse,
+)
+@admin_route
+async def unapprove_leader_candidate(
+    candidate_id: int,
+    request: Request,
+    decision: Optional[LeaderCandidateReviewRequest] = Body(
+        default=None, description="Optional notes explaining the unapproval"
+    ),
+):
+    """Revert an approved leader candidate back to pending (admin only)."""
+
+    decision = decision or LeaderCandidateReviewRequest()
+    admin_user = get_admin_user(request)
+
+    try:
+        candidate = await backend_service.unapprove_leader_candidate(
+            candidate_id,
+            admin_user.id,
+            decision.reason,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except LeaderCandidateNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except LeaderCandidateNotApprovedError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
