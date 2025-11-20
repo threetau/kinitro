@@ -1,6 +1,7 @@
 import os
 import time
 from datetime import datetime, timezone
+from threading import Lock
 from typing import Any, Dict, Iterable, Optional
 
 import dotenv
@@ -10,6 +11,7 @@ from kubernetes.client.exceptions import ApiException
 from kubernetes.stream import stream
 
 from core.db.models import SnowflakeId
+from evaluator.constants import POD_LOG_TAIL_LINES
 
 dotenv.load_dotenv()
 
@@ -33,6 +35,10 @@ class Containers:
     POD_READY_TIMEOUT_SECONDS = 600
     POD_POLL_INTERVAL_SECONDS = 2.0
     POD_UNSCHEDULABLE_GRACE_SECONDS = 10
+    FAILED_POD_LOG_CACHE_TTL_SECONDS = 600
+
+    _failed_pod_log_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
+    _log_cache_lock: Lock = Lock()
 
     @staticmethod
     def build_resource_name(submission_id: SnowflakeId, job_id: SnowflakeId) -> str:
@@ -187,6 +193,20 @@ class Containers:
         job_id: SnowflakeId,
     ) -> None:
         """Capture diagnostics and tear down a failed pod."""
+        cached_runner_logs: Optional[Dict[str, Any]] = None
+        try:
+            cached_runner_logs = self._collect_pod_container_logs(
+                core_api,
+                pod_name,
+                tail_lines=POD_LOG_TAIL_LINES,
+                container_names=[RUNNER_CONTAINER_NAME],
+            )
+        except Exception as exc:  # pragma: no cover - cache fetch failure
+            print(f"Failed to pre-collect runner logs for {pod_name}: {exc}")
+
+        if cached_runner_logs:
+            cached_runner_logs["cached_before_deletion"] = True
+            self._cache_failed_pod_logs(pod_name, cached_runner_logs)
 
         self._print_pod_logs(core_api, pod_name)
         self._log_pod_events(core_api, pod_name)
@@ -530,8 +550,7 @@ class Containers:
         config.load_kube_config()
         core_api = client.CoreV1Api()
         pod_name = self.build_resource_name(submission_id, job_id)
-
-        return self._collect_pod_container_logs(
+        live_logs = self._collect_pod_container_logs(
             core_api,
             pod_name,
             namespace=namespace,
@@ -539,6 +558,56 @@ class Containers:
             # NOTE: we only upload logs from the "runner" container
             container_names=[RUNNER_CONTAINER_NAME],
         )
+
+        if self._should_use_cached_logs(live_logs):
+            cached_logs = self._pop_cached_pod_logs(pod_name)
+            if cached_logs is not None:
+                return cached_logs
+
+        return live_logs
+
+    @classmethod
+    def _cache_failed_pod_logs(cls, pod_name: str, logs: Dict[str, Any]) -> None:
+        """Store runner logs for pods that are about to be torn down."""
+
+        expiry = time.time() + cls.FAILED_POD_LOG_CACHE_TTL_SECONDS
+        with cls._log_cache_lock:
+            cls._prune_failed_log_cache_locked(time.time())
+            cls._failed_pod_log_cache[pod_name] = (expiry, logs)
+
+    @classmethod
+    def _pop_cached_pod_logs(cls, pod_name: str) -> Optional[Dict[str, Any]]:
+        """Return cached pod logs if they were collected before deletion."""
+
+        with cls._log_cache_lock:
+            cls._prune_failed_log_cache_locked(time.time())
+            cached = cls._failed_pod_log_cache.pop(pod_name, None)
+
+        if cached is None:
+            return None
+
+        _, logs = cached
+        return logs
+
+    @classmethod
+    def _prune_failed_log_cache_locked(cls, now: float) -> None:
+        expired = [
+            pod_name
+            for pod_name, (expiry, _) in cls._failed_pod_log_cache.items()
+            if expiry <= now
+        ]
+        for pod_name in expired:
+            cls._failed_pod_log_cache.pop(pod_name, None)
+
+    @staticmethod
+    def _should_use_cached_logs(log_data: Dict[str, Any]) -> bool:
+        """Determine if cached logs should be preferred over live fetch."""
+
+        if not log_data:
+            return True
+        if log_data.get("containers"):
+            return False
+        return bool(log_data.get("error") or log_data.get("warning"))
 
     def _wait_for_service_absence(
         self, core_api: client.CoreV1Api, service_name: str, namespace: str = "default"

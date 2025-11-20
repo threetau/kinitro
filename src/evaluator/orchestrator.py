@@ -21,6 +21,16 @@ from core.db.models import EvaluationStatus
 from core.log import configure_logging, get_logger
 from core.messages import EvalJobMessage, EvalResultMessage, JobStatusUpdateMessage
 from evaluator.config import EvaluatorConfig
+from evaluator.constants import (
+    EVAL_TIMEOUT,
+    MIN_CONCURRENT_JOBS,
+    POD_LOG_TAIL_LINES,
+    PROCESS_JOB_WAIT_TIME,
+    QUEUE_MAXSIZE,
+    RAY_WAIT_TIMEOUT,
+    RESOURCE_BACKOFF_SECONDS,
+    WAIT_TIME,
+)
 from evaluator.containers import Containers, PodSchedulingError
 from evaluator.log_uploader import EvaluationLogUploader
 from evaluator.rollout import BenchmarkSpec, RolloutCluster
@@ -30,16 +40,6 @@ from validator.db.db_manager import DatabaseManager
 from validator.db.models import EvaluationJob
 
 logger = get_logger(__name__)
-
-WAIT_TIME = 5
-PROCESS_JOB_WAIT_TIME = 1
-QUEUE_MAXSIZE = 100
-# TODO: this might be way too long
-EVAL_TIMEOUT = 900
-RAY_WAIT_TIMEOUT = 0.1
-MIN_CONCURRENT_JOBS = 4
-RESOURCE_BACKOFF_SECONDS = 15
-POD_LOG_TAIL_LINES = 200
 
 
 def _sanitize_for_json(value: Any) -> Any:
@@ -728,6 +728,102 @@ class Orchestrator:
         except Exception as e:
             logger.warning(f"Failed to cleanup queues: {e}")
 
+    def _log_cached_runner_output(
+        self, job_id: Any, pod_logs: Optional[Dict[str, Any]]
+    ) -> None:
+        """Log runner pod output for setup failures to aid debugging."""
+
+        if not pod_logs:
+            return
+
+        containers = pod_logs.get("containers") or {}
+        if not containers:
+            error_detail = pod_logs.get("error") or pod_logs.get("warning")
+            if error_detail:
+                logger.error(
+                    "Runner logs unavailable for job %s: %s",
+                    job_id,
+                    error_detail,
+                )
+            return
+
+        source_note = (
+            "cached before deletion"
+            if pod_logs.get("cached_before_deletion")
+            else "live fetch"
+        )
+
+        for container_name, entry in containers.items():
+            log_text = entry.get("log")
+            if log_text:
+                logger.error(
+                    "Runner logs for job %s (%s, %s):\n%s",
+                    job_id,
+                    container_name,
+                    source_note,
+                    log_text,
+                )
+            elif entry.get("error"):
+                logger.error(
+                    "Runner logs for job %s (%s, %s) unavailable: %s",
+                    job_id,
+                    container_name,
+                    source_note,
+                    entry.get("error"),
+                )
+
+    async def _publish_failure_result(
+        self,
+        *,
+        eval_job_msg: EvalJobMessage,
+        status: EvaluationStatus,
+        completed_at: datetime,
+        summary: Dict[str, Any],
+        error_message: str,
+        log_artifact: Optional[Dict[str, Any]],
+        pod_logs: Optional[Dict[str, Any]],
+    ) -> None:
+        """Send an evaluation result message for failed or timed-out jobs."""
+
+        spec_payload, base_config = self._extract_job_spec_payloads(eval_job_msg)
+        extra_data: Dict[str, Any] = {"summary": summary}
+        extra_data.setdefault("benchmark_spec", copy.deepcopy(spec_payload))
+
+        logs_message = f"Evaluation {status.value.lower()}"
+        if error_message:
+            logs_message = f"{logs_message}: {error_message}"
+
+        if log_artifact:
+            extra_data["log_artifact"] = log_artifact
+            artifact_ref = log_artifact.get("public_url") or log_artifact.get(
+                "object_key"
+            )
+            if artifact_ref:
+                logs_message = f"{logs_message}. Log bundle: {artifact_ref}"
+        elif pod_logs:
+            extra_data["pod_logs"] = pod_logs
+            logs_message = f"{logs_message}. Container logs attached to result payload."
+
+        eval_result_msg = EvalResultMessage(
+            job_id=eval_job_msg.job_id,
+            validator_hotkey=self.keypair.ss58_address,
+            miner_hotkey=eval_job_msg.miner_hotkey,
+            competition_id=eval_job_msg.competition_id,
+            env_provider=eval_job_msg.env_provider,
+            benchmark_name=eval_job_msg.benchmark_name,
+            config=base_config,
+            benchmark_spec=spec_payload,
+            score=0.0,
+            success_rate=None,
+            avg_reward=None,
+            total_episodes=None,
+            logs=logs_message,
+            error=error_message,
+            extra_data=extra_data,
+        )
+
+        await self.db.queue_evaluation_result_msg(eval_result_msg)
+
     async def monitor_job(self, job_context: Dict):
         """Monitor a running job and handle completion."""
         job_id = job_context["job_id"]
@@ -952,6 +1048,21 @@ class Orchestrator:
                     )
                     if artifact_ref:
                         error_message = f"{error_message}. Log bundle: {artifact_ref}"
+                elif pod_logs:
+                    error_message = (
+                        f"{error_message}. Container logs attached to result payload."
+                    )
+
+                await self._publish_failure_result(
+                    eval_job_msg=eval_job_msg,
+                    status=EvaluationStatus.TIMEOUT,
+                    completed_at=completed_at,
+                    summary=summary_data,
+                    error_message=timeout_detail,
+                    log_artifact=log_artifact,
+                    pod_logs=pod_logs,
+                )
+
                 self.db.update_evaluation_job(
                     job_id,
                     {
@@ -1045,6 +1156,21 @@ class Orchestrator:
                 )
                 if artifact_ref:
                     error_message = f"{error_message}. Log bundle: {artifact_ref}"
+            elif pod_logs:
+                error_message = (
+                    f"{error_message}. Container logs attached to result payload."
+                )
+
+            await self._publish_failure_result(
+                eval_job_msg=eval_job_msg,
+                status=EvaluationStatus.FAILED,
+                completed_at=completed_at,
+                summary=summary_data,
+                error_message=error_detail,
+                log_artifact=log_artifact,
+                pod_logs=pod_logs,
+            )
+
             self.db.update_evaluation_job(
                 job_id,
                 {
@@ -1144,17 +1270,87 @@ class Orchestrator:
             job_id = getattr(job, "id", "unknown")
             logger.error(f"Failed to process job {job_id}: {e}")
 
+            completed_at = datetime.now(timezone.utc)
+            eval_job_msg: Optional[EvalJobMessage] = None
+            pod_logs: Optional[Dict[str, Any]] = None
+            log_artifact: Optional[Dict[str, Any]] = None
+            error_detail = str(e)
+
+            if job.payload:
+                try:
+                    eval_job_msg = EvalJobMessage.from_bytes(job.payload)
+                except Exception as decode_err:
+                    logger.error(
+                        "Failed to decode job payload for job %s: %s",
+                        job_id,
+                        decode_err,
+                    )
+
+            if eval_job_msg is not None:
+                containers = Containers()
+                try:
+                    pod_logs = containers.collect_container_logs(
+                        eval_job_msg.submission_id,
+                        eval_job_msg.job_id,
+                        tail_lines=POD_LOG_TAIL_LINES,
+                    )
+                except Exception as log_exc:
+                    logger.warning(
+                        "Failed to collect pod logs for setup failure %s: %s",
+                        eval_job_msg.job_id,
+                        log_exc,
+                    )
+                else:
+                    self._log_cached_runner_output(eval_job_msg.job_id, pod_logs)
+
+                summary_data: Dict[str, Any] = {
+                    "exception_type": type(e).__name__,
+                    "message": error_detail,
+                    "stage": "setup_job",
+                    "completed_at": completed_at.isoformat(),
+                }
+                stub_context = {"job_id": eval_job_msg.job_id, "start_time": None}
+                log_artifact = await self._upload_job_log_bundle(
+                    job_context=stub_context,
+                    eval_job_msg=eval_job_msg,
+                    status=EvaluationStatus.FAILED,
+                    summary=summary_data,
+                    completed_at=completed_at,
+                    error=error_detail,
+                    pod_logs=pod_logs,
+                )
+
+                await self._publish_failure_result(
+                    eval_job_msg=eval_job_msg,
+                    status=EvaluationStatus.FAILED,
+                    completed_at=completed_at,
+                    summary=summary_data,
+                    error_message=error_detail,
+                    log_artifact=log_artifact,
+                    pod_logs=pod_logs,
+                )
+
             # Attempt to mark the evaluation job as failed and notify backend
             try:
-                if job.payload:
-                    eval_job_msg = EvalJobMessage.from_bytes(job.payload)
+                if eval_job_msg is not None:
                     failure_detail = f"Container setup failed: {e}"
+                    if log_artifact:
+                        artifact_ref = log_artifact.get(
+                            "public_url"
+                        ) or log_artifact.get("object_key")
+                        if artifact_ref:
+                            failure_detail = (
+                                f"{failure_detail}. Log bundle: {artifact_ref}"
+                            )
+                    elif pod_logs:
+                        failure_detail = f"{failure_detail}. Container logs attached to result payload."
+
                     self.db.update_evaluation_job(
                         eval_job_msg.job_id,
                         {
                             "status": EvaluationStatus.FAILED,
                             "error_message": failure_detail,
-                            "completed_at": datetime.now(timezone.utc),
+                            "completed_at": completed_at,
                         },
                     )
 
