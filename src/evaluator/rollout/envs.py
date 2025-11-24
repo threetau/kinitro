@@ -22,6 +22,10 @@ from gymnasium.spaces import Dict as DictSpace
 from metaworld.wrappers import OneHotWrapper
 from PIL import Image
 
+from evaluator.providers.swarm.protocol import MapTask
+from evaluator.providers.swarm.validator.task_gen import random_task
+
+from ..providers import swarm as swarm_provider
 from ..providers.metaworld import load_benchmark_definition
 
 logger = logging.getLogger(__name__)
@@ -442,6 +446,8 @@ class EnvManager:
         """Get all test environments for a given benchmark"""
         if benchmark_spec.provider == "metaworld":
             return self._get_metaworld_benchmark_envs(benchmark_spec)
+        if benchmark_spec.provider == "swarm":
+            return self._get_swarm_benchmark_envs(benchmark_spec)
         else:
             raise ValueError(
                 f"Unsupported environment provider: {benchmark_spec.provider}"
@@ -523,6 +529,76 @@ class EnvManager:
         )
         return env_specs
 
+    def _get_swarm_benchmark_envs(self, benchmark_spec: BenchmarkSpec) -> list[EnvSpec]:
+        """Generate MapTask-based environments for the Swarm PyBullet provider."""
+        tasks_per_env = int(
+            benchmark_spec.config.get("tasks_per_env", DEFAULT_TASKS_PER_ENV)
+        )
+        if tasks_per_env < 1:
+            raise ValueError("tasks_per_env must be >= 1")
+
+        task_seed = benchmark_spec.config.get("task_seed")
+        if task_seed is not None:
+            task_seed = int(task_seed)
+
+        sim_dt = float(benchmark_spec.config.get("sim_dt", swarm_provider.SIM_DT))
+        horizon = float(
+            benchmark_spec.config.get("horizon", swarm_provider.HORIZON_SEC)
+        )
+        gui = bool(benchmark_spec.config.get("gui", False))
+        env_name = benchmark_spec.config.get("env_name", "swarm-moving-drone")
+        episodes_per_task = int(
+            benchmark_spec.config.get("episodes_per_task", DEFAULT_EPISODES_PER_TASK)
+        )
+        max_episode_steps_override = benchmark_spec.config.get("max_episode_steps")
+
+        if sim_dt <= 0:
+            raise ValueError("sim_dt must be > 0 for Swarm provider")
+        if horizon <= 0:
+            raise ValueError("horizon must be > 0 for Swarm provider")
+        if max_episode_steps_override is not None:
+            if int(max_episode_steps_override) < 1:
+                raise ValueError("max_episode_steps must be >= 1 for Swarm provider")
+
+        env_specs: list[EnvSpec] = []
+        for task_idx in range(tasks_per_env):
+            seed = task_seed + task_idx if task_seed is not None else None
+            task = swarm_provider.random_task(sim_dt, horizon, seed=seed)
+
+            max_episode_steps = (
+                int(max_episode_steps_override)
+                if max_episode_steps_override is not None
+                else int(max(1, round(task.horizon / task.sim_dt)))
+            )
+
+            env_specs.append(
+                EnvSpec(
+                    env_name=env_name,
+                    benchmark_name=benchmark_spec.benchmark_name,
+                    provider="swarm",
+                    config={
+                        "task": task,
+                        "task_idx": task_idx,
+                        "seed": seed,
+                        "gui": gui,
+                    },
+                    episodes_per_task=episodes_per_task,
+                    max_episode_steps=max_episode_steps,
+                    render_mode=None,
+                    camera_attribute=None,
+                    camera_names=tuple(),
+                )
+            )
+
+        logger.info(
+            "Generated %d Swarm tasks (sim_dt=%.4f, horizon=%.2f) for %s",
+            len(env_specs),
+            sim_dt,
+            horizon,
+            benchmark_spec,
+        )
+        return env_specs
+
     def make_env(
         self,
         env_spec: EnvSpec,
@@ -532,6 +608,8 @@ class EnvManager:
         """Create an environment for a specific environment spec."""
         if env_spec.provider == "metaworld":
             env = self._make_metaworld_env(env_spec, submission_id, save_images)
+        elif env_spec.provider == "swarm":
+            env = self._make_swarm_env(env_spec)
         else:
             raise ValueError(f"Unsupported environment provider: {env_spec.provider}")
 
@@ -570,6 +648,23 @@ class EnvManager:
         )
 
         env = gym.wrappers.TimeLimit(env, max_episode_steps=env_spec.max_episode_steps)
+
+        return env
+
+    def _make_swarm_env(self, env_spec: EnvSpec) -> gym.Env:
+        """Create a Swarm PyBullet environment from the provided task config."""
+        config = env_spec.config
+        task = config.get("task")
+        if task is None:
+            task = random_task(sim_dt=swarm_provider.SIM_DT, horizon=swarm_provider.HORIZON_SEC)
+
+        gui = bool(config.get("gui", False))
+        env = swarm_provider.make_env(task, gui=gui)
+
+        if env_spec.max_episode_steps:
+            env = gym.wrappers.TimeLimit(
+                env, max_episode_steps=env_spec.max_episode_steps
+            )
 
         return env
 

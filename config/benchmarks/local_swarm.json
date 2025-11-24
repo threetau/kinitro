@@ -1,0 +1,18 @@
+{
+  "benchmarks": [
+    {
+      "provider": "swarm",
+      "benchmark_name": "swarm-local",
+      "config": {
+        "env_name": "swarm-moving-drone",
+        "episodes_per_task": 1,
+        "tasks_per_env": 2,
+        "task_seed": 42,
+        "sim_dt": 0.02,
+        "horizon": 30.0,
+        "max_episode_steps": 1500,
+        "gui": false
+      }
+    }
+  ]
+}
