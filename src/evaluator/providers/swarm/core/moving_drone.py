@@ -6,6 +6,7 @@ from typing import cast
 import gymnasium.spaces as spaces
 import numpy as np
 import pybullet as p
+import pybullet_data
 from gym_pybullet_drones.envs.BaseRLAviary import BaseRLAviary
 from gym_pybullet_drones.utils.enums import (
     ActionType,
@@ -16,6 +17,7 @@ from gym_pybullet_drones.utils.enums import (
 from numpy.typing import NDArray
 
 from ..constants import DRONE_HULL_RADIUS, GOAL_TOL, HOVER_SEC, MAX_RAY_DISTANCE
+from .env_builder import build_world
 
 # -- project-level utilities ------------------------------------------------
 from ..validator.reward import flight_reward  # 3-term scorer
@@ -278,6 +280,29 @@ class MovingDroneAviary(BaseRLAviary):
         """
         obs, info = super().reset(**kwargs)
 
+        # Rebuild world after every reset to ensure obstacles/platform are present
+        cli = getattr(self, "CLIENT", 0)
+        p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        platform_support_uid, landing_surface_uid = build_world(
+            seed=self.task.map_seed,
+            cli=cli,
+            start=self.task.start,
+            goal=self.task.goal,
+            challenge_type=self.task.challenge_type,
+        )
+        self._platform_support_uid = platform_support_uid
+        self._landing_surface_uid = landing_surface_uid
+
+        # Respawn drone at requested start pose
+        start_xyz = np.asarray(self.task.start, dtype=float)
+        start_quat = p.getQuaternionFromEuler([0.0, 0.0, 0.0])
+        p.resetBasePositionAndOrientation(
+            self.DRONE_IDS[0],
+            start_xyz,
+            start_quat,
+            physicsClientId=cli,
+        )
+
         self._time_alive = 0.0
         self._hover_sec = 0.0
         self._success = False
@@ -473,5 +498,5 @@ class MovingDroneAviary(BaseRLAviary):
             physicsClientId=client,
             renderer=p.ER_TINY_RENDERER,
         )
-        rgb = np.reshape(rgb, (height, width, 4))
-        return rgb
+        rgba = np.reshape(rgb, (height, width, 4)).astype(np.uint8)
+        return rgba
