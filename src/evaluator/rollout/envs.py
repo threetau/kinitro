@@ -442,8 +442,7 @@ class DroneObsWrapper(ObservationWrapper):
     Behavior:
       - Always returns a Dict observation with key "base" holding the original
         observation.
-      - Captures an image from the drone's camera and includes it as a CHW uint8
-        tensor under the key "observation.image".
+      - Captures an image from the drone's camera
     """
 
     def __init__(self, env: gym.Env):
@@ -451,12 +450,6 @@ class DroneObsWrapper(ObservationWrapper):
         self.observation_space = DictSpace(
             {
                 "observation.state": env.observation_space,
-                "observation.image": Box(
-                    low=0,
-                    high=255,
-                    shape=(3, 240, 320),  # Example shape, adjust as needed
-                    dtype=np.uint8,
-                ),
             }
         )
 
