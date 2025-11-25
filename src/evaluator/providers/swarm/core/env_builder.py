@@ -46,6 +46,7 @@ from ..constants import (
     TYPE_3_SAFE_ZONE,
     WORLD_RANGE,
 )
+from ..validator.task_gen import get_platform_height_for_seed
 
 logger = get_logger(__name__)
 
@@ -144,7 +145,7 @@ def build_world(
     # ------------------------------------------------------------------
     placed = 0
     placed_obstacles = []  # Track all placed obstacles: [(x, y, radius), ...]
-    MIN_OBSTACLE_DISTANCE = 0.6  # Reduced minimum distance between obstacles
+    min_obstacle_distance = 0.6  # Reduced minimum distance between obstacles
 
     while placed < n_obstacles:
         for _ in range(MAX_ATTEMPTS_PER_OBS):
@@ -190,7 +191,7 @@ def build_world(
             for prev_x, prev_y, prev_r in placed_obstacles:
                 distance = math.hypot(x - prev_x, y - prev_y)
                 # Dynamic required distance based on obstacle sizes
-                base_distance = obj_r + prev_r + MIN_OBSTACLE_DISTANCE
+                base_distance = obj_r + prev_r + min_obstacle_distance
                 # Add extra margin for large obstacles to prevent visual overlap
                 if obj_r > 2.0 or prev_r > 2.0:  # Large obstacles
                     base_distance += 0.5  # Extra spacing for large obstacles
@@ -262,7 +263,7 @@ def build_world(
             # Try with reduced requirements for the remaining obstacles
             if placed < n_obstacles * 0.7:  # If we've placed less than 70% of obstacles
                 # Reduce minimum distance temporarily for dense worlds
-                MIN_OBSTACLE_DISTANCE = max(0.8, MIN_OBSTACLE_DISTANCE - 0.1)
+                min_obstacle_distance = max(0.8, min_obstacle_distance - 0.1)
             break
 
     # ------------------------------------------------------------------
@@ -281,8 +282,6 @@ def build_world(
 
         # Calculate platform surface height (random or fixed)
         if START_PLATFORM_RANDOMIZE:
-            from ..validator.task_gen import get_platform_height_for_seed
-
             surface_z = get_platform_height_for_seed(seed, start)
         else:
             surface_z = START_PLATFORM_SURFACE_Z
@@ -427,7 +426,7 @@ def build_world(
             )
 
             # Position main green surface on top of platform
-            surface_uid = p.createMultiBody(
+            p.createMultiBody(
                 baseMass=0,
                 baseCollisionShapeIndex=-1,  # No collision for surface
                 baseVisualShapeIndex=surface_visual,
@@ -486,7 +485,7 @@ def build_world(
             )
 
             # Position the white background
-            tao_background_uid = p.createMultiBody(
+            p.createMultiBody(
                 baseMass=0,
                 baseCollisionShapeIndex=-1,  # No collision
                 baseVisualShapeIndex=tao_background_visual,
@@ -555,7 +554,7 @@ def build_world(
             )
 
             # Position main beacon pole
-            pole_uid = p.createMultiBody(
+            p.createMultiBody(
                 baseMass=0,
                 baseCollisionShapeIndex=-1,  # No collision for pole
                 baseVisualShapeIndex=pole_visual,
@@ -564,7 +563,7 @@ def build_world(
             )
 
             # Position beacon cap on top
-            cap_uid = p.createMultiBody(
+            p.createMultiBody(
                 baseMass=0,
                 baseCollisionShapeIndex=-1,  # No collision for cap
                 baseVisualShapeIndex=cap_visual,

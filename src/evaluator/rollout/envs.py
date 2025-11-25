@@ -23,7 +23,6 @@ from metaworld.wrappers import OneHotWrapper
 from PIL import Image
 
 from evaluator.providers.swarm.core.moving_drone import MovingDroneAviary
-from evaluator.providers.swarm.protocol import MapTask
 from evaluator.providers.swarm.validator.task_gen import random_task
 
 from ..providers import swarm as swarm_provider

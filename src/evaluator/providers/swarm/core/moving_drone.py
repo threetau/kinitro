@@ -17,10 +17,10 @@ from gym_pybullet_drones.utils.enums import (
 from numpy.typing import NDArray
 
 from ..constants import DRONE_HULL_RADIUS, GOAL_TOL, HOVER_SEC, MAX_RAY_DISTANCE
-from .env_builder import build_world
 
 # -- project-level utilities ------------------------------------------------
 from ..validator.reward import flight_reward  # 3-term scorer
+from .env_builder import build_world
 
 
 class MovingDroneAviary(BaseRLAviary):
@@ -320,13 +320,13 @@ class MovingDroneAviary(BaseRLAviary):
         return obs, info
 
     # -------- reward ----------------------------------------------------- #
-    def _computeReward(self) -> float:
+    def _computeReward(self) -> float:  # noqa: N802
         """
         **Incremental** reward based on the three-term `flight_reward`.
         """
         # current distance to goal
         state = self._getDroneStateVector(0)
-        dist = float(np.linalg.norm(state[0:3] - self.GOAL_POS))
+        float(np.linalg.norm(state[0:3] - self.GOAL_POS))
 
         # -- success detection: remain inside TAO badge with proper height constraints --
         # Use 2D horizontal distance + vertical constraints
@@ -369,7 +369,7 @@ class MovingDroneAviary(BaseRLAviary):
         return float(r_t)
 
     # -------- termination ------------------------------------------------ #
-    def _computeTerminated(self) -> bool:
+    def _computeTerminated(self) -> bool:  # noqa: N802
         """
         Episode ends when success condition is met OR collision detected.
         """
@@ -382,7 +382,7 @@ class MovingDroneAviary(BaseRLAviary):
         return bool(self._success)
 
     # -------- truncation (timeout / safety) ------------------------------ #
-    def _computeTruncated(self) -> bool:
+    def _computeTruncated(self) -> bool:  # noqa: N802
         """
         Early termination on excessive tilt or elapsed horizon.
         """
@@ -396,7 +396,7 @@ class MovingDroneAviary(BaseRLAviary):
         return self._time_alive >= self.EP_LEN_SEC
 
     # -------- extra logging --------------------------------------------- #
-    def _computeInfo(self):
+    def _computeInfo(self):  # noqa: N802
         state = self._getDroneStateVector(0)
         dist = float(np.linalg.norm(state[0:3] - self.GOAL_POS))
         return {
@@ -408,7 +408,7 @@ class MovingDroneAviary(BaseRLAviary):
         }
 
     # -------- observation extension -------------------------------------- #
-    def _computeObs(self) -> np.ndarray:
+    def _computeObs(self) -> np.ndarray:  # noqa: N802
         """
         Full base observation (112-D) + obstacle distances (16-D) + goal vector (3-D) -> 131-D.
 
