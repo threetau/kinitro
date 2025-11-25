@@ -131,9 +131,9 @@ EVALUATION_WINDOW = 20  # Number of recent runs to evaluate for low-performer de
 # =============================================================================
 
 CHALLENGE_TYPE_DISTRIBUTION = {
-    1: 0.40,  # Standard navigation
-    2: 0.30,  # higher obstacles challenge
-    3: 0.30,  # Easy navigation
+    # 1: 1.0,  # Standard navigation
+    2: 1.0,  # higher obstacles challenge
+    # 3: 1.0,  # Easy navigation
 }
 
 assert abs(sum(CHALLENGE_TYPE_DISTRIBUTION.values()) - 1.0) < 0.001, (

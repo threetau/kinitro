@@ -470,7 +470,7 @@ class RolloutWorker:
                                     capture_source.capture_and_save_images()
                                 )
                                 obs_images = list(zip(images_hwc, camera_names))
-                                logger.debug(
+                                print(
                                     "Captured %d fallback images from cameras: %s",
                                     len(images_hwc),
                                     camera_names,

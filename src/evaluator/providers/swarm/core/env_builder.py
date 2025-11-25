@@ -24,30 +24,30 @@ from typing import Optional, Tuple
 
 import pybullet as p
 
+from core.log import get_logger
+
 from ..constants import (
-    WORLD_RANGE,
-    HEIGHT_SCALE,
-    N_OBSTACLES,
     LANDING_PLATFORM_RADIUS,
-    PLATFORM,
-    SAFE_ZONE_RADIUS,
     MAX_ATTEMPTS_PER_OBS,
+    PLATFORM,
     START_PLATFORM,
-    START_PLATFORM_RADIUS,
     START_PLATFORM_HEIGHT,
-    START_PLATFORM_SURFACE_Z,
-    START_PLATFORM_TAKEOFF_BUFFER,
+    START_PLATFORM_RADIUS,
     START_PLATFORM_RANDOMIZE,
-    TYPE_1_N_OBSTACLES,
+    START_PLATFORM_SURFACE_Z,
     TYPE_1_HEIGHT_SCALE,
+    TYPE_1_N_OBSTACLES,
     TYPE_1_SAFE_ZONE,
-    TYPE_2_N_OBSTACLES,
     TYPE_2_HEIGHT_SCALE,
+    TYPE_2_N_OBSTACLES,
     TYPE_2_SAFE_ZONE,
-    TYPE_3_N_OBSTACLES,
     TYPE_3_HEIGHT_SCALE,
+    TYPE_3_N_OBSTACLES,
     TYPE_3_SAFE_ZONE,
+    WORLD_RANGE,
 )
+
+logger = get_logger(__name__)
 
 
 # --------------------------------------------------------------------------
@@ -111,6 +111,7 @@ def build_world(
     start  : (x,y,z)  - drone take-off location (obstacles keep clear)
     goal   : (x,y,z)  - desired target (obstacles keep clear; visual marker)
     """
+    print("Building world with seed %d", seed)
     rng = random.Random(seed)
 
     # Set challenge-specific parameters

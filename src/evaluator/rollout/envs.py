@@ -11,7 +11,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, TypedDict
+from typing import Any, Dict, List, TypedDict, cast
 
 import gymnasium as gym
 import mujoco
@@ -22,6 +22,7 @@ from gymnasium.spaces import Dict as DictSpace
 from metaworld.wrappers import OneHotWrapper
 from PIL import Image
 
+from evaluator.providers.swarm.core.moving_drone import MovingDroneAviary
 from evaluator.providers.swarm.protocol import MapTask
 from evaluator.providers.swarm.validator.task_gen import random_task
 
@@ -435,6 +436,47 @@ class MetaworldObsWrapper(ObservationWrapper):
         return super().reset(**kwargs)
 
 
+class DroneObsWrapper(ObservationWrapper):
+    """
+    Observation wrapper for drone environments to add rendered images to observations.
+
+    Behavior:
+      - Always returns a Dict observation with key "base" holding the original
+        observation.
+      - Captures an image from the drone's camera and includes it as a CHW uint8
+        tensor under the key "observation.image".
+    """
+
+    def __init__(self, env: gym.Env):
+        super().__init__(env)
+        self.observation_space = DictSpace(
+            {
+                "observation.state": env.observation_space,
+                "observation.image": Box(
+                    low=0,
+                    high=255,
+                    shape=(3, 240, 320),  # Example shape, adjust as needed
+                    dtype=np.uint8,
+                ),
+            }
+        )
+
+    def observation(self, obs) -> Dict[str, Any]:
+        new_obs: Dict[str, Any] = {"observation.state": obs}
+        return new_obs
+
+    def capture_and_save_images(self) -> tuple[list[np.ndarray], list[str]]:
+        """Capture image from the drone's camera."""
+        print("Capturing drone images for observation")
+        env: MovingDroneAviary = cast(MovingDroneAviary, self.env)
+        # BaseAviary expects the drone index (0-based), not the PyBullet body ID
+        rbg = env.get_third_person_rgb(distance=2)
+        # convert h,w,c,a to h,w,c
+        rbg = rbg[:, :, :3]
+        print("Captured drone images for observation")
+        return [rbg], ["rgb"]
+
+
 class EnvManager:
     """Manager for creating environments and discovering tasks."""
 
@@ -656,10 +698,13 @@ class EnvManager:
         config = env_spec.config
         task = config.get("task")
         if task is None:
-            task = random_task(sim_dt=swarm_provider.SIM_DT, horizon=swarm_provider.HORIZON_SEC)
+            task = random_task(
+                sim_dt=swarm_provider.SIM_DT, horizon=swarm_provider.HORIZON_SEC
+            )
 
         gui = bool(config.get("gui", False))
         env = swarm_provider.make_env(task, gui=gui)
+        env = DroneObsWrapper(env)
 
         if env_spec.max_episode_steps:
             env = gym.wrappers.TimeLimit(

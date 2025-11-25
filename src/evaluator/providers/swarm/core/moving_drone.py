@@ -416,3 +416,62 @@ class MovingDroneAviary(BaseRLAviary):
         return np.concatenate([base_obs, distances_scaled, rel], axis=1).astype(
             np.float32
         )
+
+    # -------- vision helper ----------------------------------------------- #
+    def get_third_person_rgb(
+        self,
+        distance: float = 5.0,
+        yaw_deg: float = -45.0,
+        pitch_deg: float = -30.0,
+        fov: float = 60.0,
+        aspect: float = 1.0,
+    ) -> np.ndarray:
+        """
+        Capture an RGB(A) image from a fixed third-person camera aimed at the drone.
+
+        The camera is placed `distance` meters away from the drone at the
+        specified yaw/pitch and looks at the drone center with an up-vector of +Z.
+        """
+        client = self.CLIENT
+        pos_w, _ = p.getBasePositionAndOrientation(
+            self.DRONE_IDS[0], physicsClientId=client
+        )
+        pos_w = np.asarray(pos_w, dtype=float)
+
+        # Compute camera eye position from spherical offsets
+        yaw = np.deg2rad(yaw_deg)
+        pitch = np.deg2rad(pitch_deg)
+        cam_dir = np.array(
+            [
+                np.cos(pitch) * np.cos(yaw),
+                np.cos(pitch) * np.sin(yaw),
+                np.sin(pitch),
+            ],
+            dtype=float,
+        )
+        eye = pos_w - cam_dir * distance
+
+        view = p.computeViewMatrix(
+            cameraEyePosition=eye.tolist(),
+            cameraTargetPosition=pos_w.tolist(),
+            cameraUpVector=[0, 0, 1],
+            physicsClientId=client,
+        )
+        res = getattr(self, "IMG_RES", None)
+        if res is None:
+            res = np.array([320, 240], dtype=int)
+        width, height = int(res[0]), int(res[1])
+        proj = p.computeProjectionMatrixFOV(
+            fov=fov, aspect=aspect, nearVal=self.L, farVal=1000.0
+        )
+        _, _, rgb, _, _ = p.getCameraImage(
+            width=width,
+            height=height,
+            viewMatrix=view,
+            projectionMatrix=proj,
+            flags=p.ER_NO_SEGMENTATION_MASK,
+            physicsClientId=client,
+            renderer=p.ER_TINY_RENDERER,
+        )
+        rgb = np.reshape(rgb, (height, width, 4))
+        return rgb

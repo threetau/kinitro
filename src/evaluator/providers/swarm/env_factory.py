@@ -16,13 +16,33 @@ from typing import Union
 import numpy as np
 import pybullet as p
 import pybullet_data
-from gym_pybullet_drones.utils.enums import ObservationType, ActionType
+from gym_pybullet_drones.utils.enums import ActionType, ObservationType
+
+from core.log import get_logger
 
 # --- project-level imports ----------------------------------------------------
 from .constants import SPEED_LIMIT
 from .core.env_builder import build_world
 from .core.moving_drone import MovingDroneAviary
 from .protocol import MapTask
+
+logger = get_logger(__name__)
+
+
+def override_vision_attributes(env: MovingDroneAviary) -> None:
+    env.IMG_RES = np.array([256, 256])
+    env.IMG_FRAME_PER_SEC = 24
+    env.IMG_CAPTURE_FREQ = int(env.PYB_FREQ / env.IMG_FRAME_PER_SEC)
+    env.rgb = np.zeros(((env.NUM_DRONES, env.IMG_RES[1], env.IMG_RES[0], 4)))
+    env.dep = np.ones(((env.NUM_DRONES, env.IMG_RES[1], env.IMG_RES[0])))
+    env.seg = np.zeros(((env.NUM_DRONES, env.IMG_RES[1], env.IMG_RES[0])))
+    if env.IMG_CAPTURE_FREQ % env.PYB_STEPS_PER_CTRL != 0:
+        logger.error(
+            "[ERROR] in BaseAviary.__init__(), PyBullet and control frequencies incompatible with the desired video capture frame rate ({:f}Hz)".format(
+                env.IMG_FRAME_PER_SEC
+            )
+        )
+        exit()
 
 
 # ------------------------------------------------------------------------------
@@ -65,6 +85,8 @@ def make_env(
     # Override parent class speed limit (0.25 m/s -> 3.0 m/s)
     env.SPEED_LIMIT = SPEED_LIMIT
     env.ACT_TYPE = ActionType.VEL
+    # override vision attributes
+    override_vision_attributes(env)
 
     # 2 - generic PyBullet plumbing ------------------------------------------
     cli = env.getPyBulletClient()
