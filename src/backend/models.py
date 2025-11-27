@@ -335,6 +335,7 @@ class CompetitionLeaderInfo(SQLModel):
     current_leader_hotkey: Optional[str]
     current_leader_submission_id: Optional[str]
     current_leader_reward: Optional[float]
+    current_leader_success_rate: Optional[float]
     leader_updated_at: Optional[datetime]
 
 
