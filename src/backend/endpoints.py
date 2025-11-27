@@ -310,6 +310,37 @@ async def _get_submission_evaluation_statuses(
     return aggregated_statuses
 
 
+async def _get_leader_success_rates(
+    session: AsyncSession, competitions: Sequence[Competition]
+) -> Dict[str, float]:
+    """Map competitions to the success rate of their current leader."""
+    success_rates: Dict[str, float] = {}
+
+    for competition in competitions:
+        if not competition.current_leader_hotkey:
+            continue
+
+        result = await session.execute(
+            select(CompetitionLeaderCandidate.success_rate)
+            .where(
+                CompetitionLeaderCandidate.competition_id == competition.id,
+                CompetitionLeaderCandidate.status == LeaderCandidateStatus.APPROVED,
+                CompetitionLeaderCandidate.miner_hotkey
+                == competition.current_leader_hotkey,
+            )
+            .order_by(
+                CompetitionLeaderCandidate.reviewed_at.desc(),
+                CompetitionLeaderCandidate.updated_at.desc(),
+            )
+            .limit(1)
+        )
+        success_rate = result.scalar_one_or_none()
+        if success_rate is not None:
+            success_rates[competition.id] = float(success_rate)
+
+    return success_rates
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage backend service lifecycle."""
@@ -633,7 +664,15 @@ async def list_competitions(
         result = await session.execute(query)
         competitions = result.scalars().all()
 
-        return [CompetitionResponse.model_validate(c) for c in competitions]
+        success_rate_map = await _get_leader_success_rates(session, competitions)
+
+        responses: List[CompetitionResponse] = []
+        for competition in competitions:
+            response = CompetitionResponse.model_validate(competition)
+            response.current_leader_success_rate = success_rate_map.get(competition.id)
+            responses.append(response)
+
+        return responses
 
 
 @app.get(
@@ -661,12 +700,16 @@ async def get_competition_leaderboard(
         competitions = result.scalars().all()
 
         leader_submission_map: Dict[str, Optional[str]] = {}
+        leader_success_rate_map: Dict[str, Optional[float]] = {}
         for competition in competitions:
             if not competition.current_leader_hotkey:
                 continue
 
             submission_stmt = (
-                select(BackendEvaluationJob.submission_id)
+                select(
+                    BackendEvaluationJob.submission_id,
+                    CompetitionLeaderCandidate.success_rate,
+                )
                 .select_from(CompetitionLeaderCandidate)
                 .join(
                     BackendEvaluationResult,
@@ -691,9 +734,15 @@ async def get_competition_leaderboard(
             )
 
             submission_result = await session.execute(submission_stmt)
-            submission_id = submission_result.scalar_one_or_none()
+            leader_row = submission_result.first()
+            if leader_row is None:
+                continue
+
+            submission_id, success_rate = leader_row
             if submission_id is not None:
                 leader_submission_map[competition.id] = str(submission_id)
+            if success_rate is not None:
+                leader_success_rate_map[competition.id] = float(success_rate)
 
     total_points = sum(comp.points for comp in competitions)
     competition_infos = [
@@ -704,6 +753,7 @@ async def get_competition_leaderboard(
             current_leader_hotkey=comp.current_leader_hotkey,
             current_leader_submission_id=leader_submission_map.get(comp.id),
             current_leader_reward=comp.current_leader_reward,
+            current_leader_success_rate=leader_success_rate_map.get(comp.id),
             leader_updated_at=comp.leader_updated_at,
         )
         for comp in competitions
@@ -951,7 +1001,11 @@ async def get_competition(competition_id: str):
                 status_code=status.HTTP_404_NOT_FOUND, detail="Competition not found"
             )
 
-        return CompetitionResponse.model_validate(competition)
+        success_rate_map = await _get_leader_success_rates(session, [competition])
+        response = CompetitionResponse.model_validate(competition)
+        response.current_leader_success_rate = success_rate_map.get(competition.id)
+
+        return response
 
 
 @app.patch("/competitions/{competition_id}/activate")
