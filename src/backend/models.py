@@ -103,6 +103,7 @@ class CompetitionResponse(SQLModel):
     submission_uploads_per_window: Optional[int]
     current_leader_hotkey: Optional[SS58Address]
     current_leader_reward: Optional[float]
+    current_leader_success_rate: Optional[float] = None
     leader_updated_at: Optional[datetime]
     active: bool
     start_time: Optional[datetime]
