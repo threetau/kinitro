@@ -252,6 +252,7 @@ class EvaluationResultResponse(SQLModel):
     success_rate: Optional[float]
     avg_reward: Optional[float]
     total_episodes: Optional[int]
+    env_specs: Optional[List[Dict[str, Any]]] = None
     error: Optional[str]
     result_time: datetime
 
@@ -791,6 +792,9 @@ class BackendEvaluationResult(TimestampMixin, SQLModel, table=True):
     extra_data: Optional[dict] = Field(
         default=None, sa_column=Column(JSON, nullable=True)
     )  # Additional metrics/data
+    env_specs: Optional[List[Dict[str, Any]]] = Field(
+        default=None, sa_column=Column(JSON, nullable=True)
+    )  # Serialized environment specs used for this result
 
     # Timing
     result_time: datetime = Field(

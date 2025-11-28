@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, TypedDict, cast
@@ -498,6 +499,9 @@ class EnvManager:
             raise ValueError("tasks_per_env must be >= 1")
 
         task_seed = benchmark_spec.config.get("task_seed")
+        if task_seed is None:
+            task_seed = random.randint(0, 2**31 - 1)
+            benchmark_spec.config["task_seed"] = task_seed
         env_name_override = benchmark_spec.config.get("env_name")
 
         benchmark_data = load_benchmark_definition(
@@ -543,6 +547,7 @@ class EnvManager:
                         "env_cls": class_lookup[env_name],
                         "env_id": env_id,
                         "class_order": class_order,
+                        "task_seed": task_seed,
                     },
                     episodes_per_task=benchmark_spec.config.get(
                         "episodes_per_task", DEFAULT_EPISODES_PER_TASK
@@ -574,6 +579,9 @@ class EnvManager:
         task_seed = benchmark_spec.config.get("task_seed")
         if task_seed is not None:
             task_seed = int(task_seed)
+        else:
+            task_seed = random.randint(0, 2**31 - 1)
+            benchmark_spec.config["task_seed"] = task_seed
 
         sim_dt = float(benchmark_spec.config.get("sim_dt", swarm_provider.SIM_DT))
         horizon = float(
@@ -613,7 +621,7 @@ class EnvManager:
                     config={
                         "task": task,
                         "task_idx": task_idx,
-                        "seed": seed,
+                        "task_seed": seed,
                         "gui": gui,
                     },
                     episodes_per_task=episodes_per_task,
@@ -689,9 +697,12 @@ class EnvManager:
         """Create a Swarm PyBullet environment from the provided task config."""
         config = env_spec.config
         task = config.get("task")
+        seed = config.get("task_seed")
         if task is None:
             task = random_task(
-                sim_dt=swarm_provider.SIM_DT, horizon=swarm_provider.HORIZON_SEC
+                sim_dt=swarm_provider.SIM_DT,
+                horizon=swarm_provider.HORIZON_SEC,
+                seed=seed,
             )
 
         gui = bool(config.get("gui", False))

@@ -6,7 +6,7 @@ evaluation jobs, results, and local state management.
 """
 
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import BigInteger, ForeignKey
 from sqlalchemy import DateTime as SADateTime
@@ -117,6 +117,9 @@ class EvaluationResult(TimestampMixin, SQLModel, table=True):
     extra_data: Optional[dict] = Field(
         default=None, sa_column=Column(JSON, nullable=True)
     )  # Additional benchmark-specific data
+    env_specs: Optional[List[Dict[str, Any]]] = Field(
+        default=None, sa_column=Column(JSON, nullable=True)
+    )
 
     # Submission status
     submitted_to_backend: bool = Field(default=False, nullable=False)

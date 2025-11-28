@@ -118,6 +118,7 @@ class EvalResultMessage(SQLModel):
     success_rate: Optional[float] = None
     avg_reward: Optional[float] = None
     total_episodes: Optional[int] = None
+    env_specs: Optional[List[Dict[str, Any]]] = None
     logs: Optional[str] = None
     error: Optional[str] = None
     extra_data: Optional[dict] = None

@@ -2567,6 +2567,7 @@ async def validator_websocket(websocket: WebSocket):
                             logs=result_msg.logs,
                             error=result_msg.error,
                             extra_data=result_msg.extra_data,
+                            env_specs=result_msg.env_specs,
                         )
 
                         session.add(eval_result)
