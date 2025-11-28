@@ -370,7 +370,7 @@ class RolloutWorker:
         send_queue: Queue,
         recv_queue: Queue,
         episode_logger: Optional[EpisodeLogger] = None,
-    ):
+    ) -> EpisodeResult:
         logger.info("Starting episode %d for env %s", episode_id, env_spec)
 
         # Start episode logging if logger is available
@@ -557,21 +557,6 @@ class RolloutWorker:
             episode_result.success,
         )
         return episode_result
-
-    async def run_episodes(self, env_specs: List[EnvSpec]) -> List[EnvResult]:
-        self.eval_start = time.time()
-        env_results = []
-        for i, env_spec in enumerate(env_specs):
-            try:
-                env_result = await self.run_env(env_spec)
-                env_results.append(env_result)
-                logger.info("Environment %s completed", env_spec)
-            except Exception:
-                logger.exception("Failed env %s", env_spec)
-                continue
-        self.eval_end = time.time()
-        self._log_evaluation_summary(env_results)
-        return env_results
 
     def _log_evaluation_summary(self, env_results: List[EnvResult]):
         if not env_results:

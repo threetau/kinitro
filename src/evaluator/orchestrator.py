@@ -33,8 +33,8 @@ from evaluator.constants import (
 )
 from evaluator.containers import Containers, PodSchedulingError
 from evaluator.log_uploader import EvaluationLogUploader
-from evaluator.rollout import BenchmarkSpec, RolloutCluster
-from evaluator.rollout.envs import EnvResult
+from evaluator.rollout import BenchmarkSpec, EnvManager, RolloutCluster
+from evaluator.rollout.envs import EnvResult, EnvSpec
 from evaluator.rpc.rpc_process import RPCProcess
 from validator.db.db_manager import DatabaseManager
 from validator.db.models import EvaluationJob
@@ -178,6 +178,61 @@ class Orchestrator:
             camera_names=camera_names or default_camera_names,
             camera_attribute=camera_attribute or default_camera_attribute,
         )
+
+    def _serialize_env_spec(self, env_spec: EnvSpec) -> Dict[str, Any]:
+        """Convert an EnvSpec into a JSON-safe payload for storage."""
+        return {
+            "env_name": env_spec.env_name,
+            "benchmark_name": env_spec.benchmark_name,
+            "provider": env_spec.provider,
+            "config": _sanitize_for_json(getattr(env_spec, "config", {})),
+            "episodes_per_task": env_spec.episodes_per_task,
+            "max_episode_steps": env_spec.max_episode_steps,
+            "render_mode": env_spec.render_mode,
+            "camera_attribute": env_spec.camera_attribute,
+            "camera_names": list(env_spec.camera_names),
+        }
+
+    def _build_env_specs_payload(
+        self,
+        *,
+        eval_job_msg: EvalJobMessage,
+        env_results: Optional[List[EnvResult]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Capture the environment specs used (or intended) for a job."""
+        env_specs_payload: List[Dict[str, Any]] = []
+
+        if env_results:
+            for env_result in env_results:
+                try:
+                    env_specs_payload.append(
+                        self._serialize_env_spec(env_result.env_spec)
+                    )
+                except Exception as exc:  # pragma: no cover - defensive guard
+                    logger.warning(
+                        "Failed to serialize env spec for job %s: %s",
+                        eval_job_msg.job_id,
+                        exc,
+                    )
+
+        if env_specs_payload:
+            return env_specs_payload
+
+        try:
+            benchmark_spec = self._build_benchmark_spec_from_job(eval_job_msg)
+            env_manager = EnvManager()
+            derived_env_specs = env_manager.get_benchmark_envs(benchmark_spec)
+            env_specs_payload = [
+                self._serialize_env_spec(env_spec) for env_spec in derived_env_specs
+            ]
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.warning(
+                "Unable to derive env specs for job %s: %s",
+                eval_job_msg.job_id,
+                exc,
+            )
+
+        return env_specs_payload
 
     async def setup_job(self, job: Job) -> Optional[Dict]:
         """Setup job infrastructure and return job context for monitoring."""
@@ -786,6 +841,9 @@ class Orchestrator:
         """Send an evaluation result message for failed or timed-out jobs."""
 
         spec_payload, base_config = self._extract_job_spec_payloads(eval_job_msg)
+        env_specs_payload = self._build_env_specs_payload(
+            eval_job_msg=eval_job_msg, env_results=None
+        )
         extra_data: Dict[str, Any] = {"summary": summary}
         extra_data.setdefault("benchmark_spec", copy.deepcopy(spec_payload))
 
@@ -817,6 +875,7 @@ class Orchestrator:
             success_rate=None,
             avg_reward=None,
             total_episodes=None,
+            env_specs=env_specs_payload or None,
             logs=logs_message,
             error=error_message,
             extra_data=extra_data,
@@ -939,6 +998,9 @@ class Orchestrator:
                     eval_job_msg
                 )
                 extra_data.setdefault("benchmark_spec", copy.deepcopy(spec_payload))
+                env_specs_payload = self._build_env_specs_payload(
+                    eval_job_msg=eval_job_msg, env_results=results
+                )
 
                 eval_result_msg = EvalResultMessage(
                     job_id=job_id,
@@ -953,6 +1015,7 @@ class Orchestrator:
                     success_rate=avg_success_rate,
                     avg_reward=avg_reward,
                     total_episodes=total_episodes,
+                    env_specs=env_specs_payload or None,
                     logs=logs_message,
                     error=None,
                     extra_data=extra_data,
