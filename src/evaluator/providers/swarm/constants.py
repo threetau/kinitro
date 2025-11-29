@@ -173,16 +173,6 @@ WORLD_PROFILE_MAP = {
         height_scale=TYPE_2_HEIGHT_SCALE,
         safe_zone=TYPE_2_SAFE_ZONE,
     ),
-    3: dict(  # explicit int hook for lighter worlds if ever used
-        n_obstacles=TYPE_3_N_OBSTACLES,
-        height_scale=TYPE_3_HEIGHT_SCALE,
-        safe_zone=TYPE_3_SAFE_ZONE,
-    ),
-    "default": dict(
-        n_obstacles=TYPE_1_N_OBSTACLES,
-        height_scale=TYPE_1_HEIGHT_SCALE,
-        safe_zone=TYPE_1_SAFE_ZONE,
-    ),
 }
 
 # =============================================================================

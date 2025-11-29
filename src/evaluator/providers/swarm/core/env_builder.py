@@ -92,7 +92,7 @@ def build_world(
     *,
     start: Optional[Tuple[float, float, float]] = None,
     goal: Optional[Tuple[float, float, float]] = None,
-    challenge_type: int = 1,
+    challenge_type: TaskType = TaskType.NAVIGATION,
 ) -> Tuple[Optional[int], Optional[int]]:
     """
     Create procedural obstacles (with safe-zone constraints) and-if *goal*
@@ -108,13 +108,7 @@ def build_world(
     print("Building world with seed %d", seed)
     rng = random.Random(seed)
 
-    # Resolve world profile from challenge_type
-    try:
-        challenge_key = TaskType(challenge_type)
-    except ValueError:
-        challenge_key = challenge_type
-
-    profile = WORLD_PROFILE_MAP.get(challenge_key) or WORLD_PROFILE_MAP.get("default")
+    profile = WORLD_PROFILE_MAP.get(challenge_type)
     n_obstacles = profile["n_obstacles"]
     height_scale = profile["height_scale"]
     safe_zone = profile["safe_zone"]
