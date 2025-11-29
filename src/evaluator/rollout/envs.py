@@ -593,6 +593,8 @@ class EnvManager:
             benchmark_spec.config.get("episodes_per_task", DEFAULT_EPISODES_PER_TASK)
         )
         max_episode_steps_override = benchmark_spec.config.get("max_episode_steps")
+        payload_mode = bool(benchmark_spec.config.get("payload_mode", False))
+        challenge_type = benchmark_spec.config.get("challenge_type")
 
         if sim_dt <= 0:
             raise ValueError("sim_dt must be > 0 for Swarm provider")
@@ -605,7 +607,13 @@ class EnvManager:
         env_specs: list[EnvSpec] = []
         for task_idx in range(tasks_per_env):
             seed = task_seed + task_idx if task_seed is not None else None
-            task = swarm_provider.random_task(sim_dt, horizon, seed=seed)
+            task = swarm_provider.random_task(
+                sim_dt,
+                horizon,
+                seed=seed,
+                payload=payload_mode,
+                challenge_type=challenge_type,
+            )
 
             max_episode_steps = (
                 int(max_episode_steps_override)
@@ -623,6 +631,8 @@ class EnvManager:
                         "task_idx": task_idx,
                         "task_seed": seed,
                         "gui": gui,
+                        "payload_mode": payload_mode,
+                        "challenge_type": challenge_type,
                     },
                     episodes_per_task=episodes_per_task,
                     max_episode_steps=max_episode_steps,
@@ -698,11 +708,14 @@ class EnvManager:
         config = env_spec.config
         task = config.get("task")
         seed = config.get("task_seed")
+        challenge_type = config.get("challenge_type")
         if task is None:
             task = random_task(
                 sim_dt=swarm_provider.SIM_DT,
                 horizon=swarm_provider.HORIZON_SEC,
                 seed=seed,
+                payload=bool(config.get("payload_mode", False)),
+                challenge_type=challenge_type,
             )
 
         gui = bool(config.get("gui", False))

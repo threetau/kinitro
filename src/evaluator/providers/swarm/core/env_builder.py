@@ -35,16 +35,9 @@ from ..constants import (
     START_PLATFORM_RADIUS,
     START_PLATFORM_RANDOMIZE,
     START_PLATFORM_SURFACE_Z,
-    TYPE_1_HEIGHT_SCALE,
-    TYPE_1_N_OBSTACLES,
-    TYPE_1_SAFE_ZONE,
-    TYPE_2_HEIGHT_SCALE,
-    TYPE_2_N_OBSTACLES,
-    TYPE_2_SAFE_ZONE,
-    TYPE_3_HEIGHT_SCALE,
-    TYPE_3_N_OBSTACLES,
-    TYPE_3_SAFE_ZONE,
+    WORLD_PROFILE_MAP,
     WORLD_RANGE,
+    TaskType,
 )
 from ..validator.task_gen import get_platform_height_for_seed
 
@@ -99,7 +92,7 @@ def build_world(
     *,
     start: Optional[Tuple[float, float, float]] = None,
     goal: Optional[Tuple[float, float, float]] = None,
-    challenge_type: int = 1,
+    challenge_type: TaskType = TaskType.NAVIGATION,
 ) -> Tuple[Optional[int], Optional[int]]:
     """
     Create procedural obstacles (with safe-zone constraints) and-if *goal*
@@ -115,24 +108,10 @@ def build_world(
     print("Building world with seed %d", seed)
     rng = random.Random(seed)
 
-    # Set challenge-specific parameters
-    if challenge_type == 1:
-        n_obstacles = TYPE_1_N_OBSTACLES
-        height_scale = TYPE_1_HEIGHT_SCALE
-        safe_zone = TYPE_1_SAFE_ZONE
-    elif challenge_type == 2:
-        n_obstacles = TYPE_2_N_OBSTACLES
-        height_scale = TYPE_2_HEIGHT_SCALE
-        safe_zone = TYPE_2_SAFE_ZONE
-    elif challenge_type == 3:
-        n_obstacles = TYPE_3_N_OBSTACLES
-        height_scale = TYPE_3_HEIGHT_SCALE
-        safe_zone = TYPE_3_SAFE_ZONE
-    else:
-        # Default to type 1
-        n_obstacles = TYPE_1_N_OBSTACLES
-        height_scale = TYPE_1_HEIGHT_SCALE
-        safe_zone = TYPE_1_SAFE_ZONE
+    profile = WORLD_PROFILE_MAP.get(challenge_type)
+    n_obstacles = profile["n_obstacles"]
+    height_scale = profile["height_scale"]
+    safe_zone = profile["safe_zone"]
 
     if start is not None:
         sx, sy, sz = start

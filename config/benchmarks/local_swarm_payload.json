@@ -1,0 +1,20 @@
+{
+  "benchmarks": [
+    {
+      "provider": "swarm",
+      "benchmark_name": "swarm-payload-local",
+      "config": {
+        "env_name": "swarm-moving-drone",
+        "episodes_per_task": 1,
+        "tasks_per_env": 2,
+        "task_seed": 123,
+        "sim_dt": 0.02,
+        "horizon": 25.0,
+        "max_episode_steps": 1200,
+        "gui": false,
+        "payload_mode": true,
+        "challenge_type": 2
+      }
+    }
+  ]
+}

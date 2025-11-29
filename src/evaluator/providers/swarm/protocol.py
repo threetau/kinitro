@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Tuple
+from typing import Optional, Tuple
+
+from .constants import TaskType
 
 try:  # Optional dependency; only needed when pack/unpack is used
     import msgpack  # type: ignore
@@ -20,7 +22,15 @@ class MapTask:
     goal: Tuple[float, float, float]
     sim_dt: float
     horizon: float
-    challenge_type: int
+    challenge_type: TaskType
+    payload_mass_factor: Optional[float] = None
+    payload_com_offset: Optional[Tuple[float, float, float]] = None
+    thrust_scale: Optional[float] = None
+    drag_scale: Optional[float] = None
+    wind_xy: Optional[Tuple[float, float]] = None
+    action_latency: Optional[float] = None
+    payload_enabled: Optional[bool] = None
+    domain_randomization: Optional[bool] = None
     version: str = "1"
 
     def pack(self) -> bytes:
