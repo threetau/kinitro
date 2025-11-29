@@ -5,6 +5,7 @@
 # configuration values, limits, and parameters used throughout the system.
 # =============================================================================
 
+from enum import IntEnum
 from pathlib import Path
 
 # =============================================================================
@@ -25,6 +26,14 @@ SEED_WINDOW_MINUTES = 10  # Time window duration for seed synchronization (minut
 # =============================================================================
 # SIMULATION & PHYSICS
 # =============================================================================
+
+
+# Task types
+class TaskType(IntEnum):
+    NAVIGATION = 1
+    PAYLOAD = 2
+    # Additional types can be added; int 3 is reserved for a lighter layout
+
 
 # Core simulation parameters
 SIM_DT = 1 / 50  # Physics simulation timestep (50 Hz)
@@ -94,6 +103,14 @@ START_H_MIN, START_H_MAX = 0.05, 10  # Random start height range (meters)
 SAFE_ZONE_RADIUS = 2.0  # Minimum clearance around obstacles (meters)
 MAX_ATTEMPTS_PER_OBS = 100  # Maximum retry attempts when placing obstacles
 
+# Payload and domain randomization ranges
+PAYLOAD_MASS_FACTOR_RANGE = (1.5, 3.0)  # Multiplier on base mass
+PAYLOAD_COM_OFFSET_RANGE = (0.05, 0.05, 0.02)  # Max offset in meters (x, y, z)
+THRUST_SCALE_RANGE = (0.85, 1.05)
+DRAG_SCALE_RANGE = (0.8, 1.3)
+WIND_XY_RANGE = (-2.0, 2.0)  # m/s lateral wind components
+ACTION_LAG_SEC_RANGE = (0.0, 0.05)  # control lag to simulate latency
+
 # =============================================================================
 # SCORING & REWARDS
 # =============================================================================
@@ -126,24 +143,12 @@ MIN_AVG_SCORE_THRESHOLD = (
 )
 MIN_EVALUATION_RUNS = 20  # Check interval and minimum runs before filtering
 EVALUATION_WINDOW = 20  # Number of recent runs to evaluate for low-performer detection
-# =============================================================================
-# CHALLENGE TYPE DISTRIBUTION
-# =============================================================================
-
-CHALLENGE_TYPE_DISTRIBUTION = {
-    # 1: 1.0,  # Standard navigation
-    2: 1.0,  # higher obstacles challenge
-    # 3: 1.0,  # Easy navigation
-}
-
-assert abs(sum(CHALLENGE_TYPE_DISTRIBUTION.values()) - 1.0) < 0.001, (
-    "Challenge probabilities must sum to 1.0"
-)
 
 # =============================================================================
 # CHALLENGE TYPE PARAMETERS
 # =============================================================================
 
+DEFAULT_CHALLENGE_TYPE = TaskType.NAVIGATION
 TYPE_1_N_OBSTACLES = 100
 TYPE_1_HEIGHT_SCALE = 2
 TYPE_1_SAFE_ZONE = 2.0
@@ -155,6 +160,30 @@ TYPE_2_SAFE_ZONE = 2.0
 TYPE_3_N_OBSTACLES = 75
 TYPE_3_HEIGHT_SCALE = 1
 TYPE_3_SAFE_ZONE = 2.0
+
+# Map task/challenge types to world profiles
+WORLD_PROFILE_MAP = {
+    TaskType.NAVIGATION: dict(
+        n_obstacles=TYPE_2_N_OBSTACLES,
+        height_scale=TYPE_2_HEIGHT_SCALE,
+        safe_zone=TYPE_2_SAFE_ZONE,
+    ),
+    TaskType.PAYLOAD: dict(
+        n_obstacles=TYPE_2_N_OBSTACLES,
+        height_scale=TYPE_2_HEIGHT_SCALE,
+        safe_zone=TYPE_2_SAFE_ZONE,
+    ),
+    3: dict(  # explicit int hook for lighter worlds if ever used
+        n_obstacles=TYPE_3_N_OBSTACLES,
+        height_scale=TYPE_3_HEIGHT_SCALE,
+        safe_zone=TYPE_3_SAFE_ZONE,
+    ),
+    "default": dict(
+        n_obstacles=TYPE_1_N_OBSTACLES,
+        height_scale=TYPE_1_HEIGHT_SCALE,
+        safe_zone=TYPE_1_SAFE_ZONE,
+    ),
+}
 
 # =============================================================================
 # PER-TYPE NORMALIZATION SYSTEM

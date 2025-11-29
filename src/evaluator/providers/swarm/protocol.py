@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Tuple
 
+from .constants import TaskType
+
 try:  # Optional dependency; only needed when pack/unpack is used
     import msgpack  # type: ignore
 except Exception:  # pragma: no cover - msgpack is optional
@@ -20,7 +22,15 @@ class MapTask:
     goal: Tuple[float, float, float]
     sim_dt: float
     horizon: float
-    challenge_type: int
+    challenge_type: int | TaskType
+    payload_mass_factor: float | None = None
+    payload_com_offset: Tuple[float, float, float] | None = None
+    thrust_scale: float | None = None
+    drag_scale: float | None = None
+    wind_xy: Tuple[float, float] | None = None
+    action_latency: float | None = None
+    payload_enabled: bool | None = None
+    domain_randomization: bool | None = None
     version: str = "1"
 
     def pack(self) -> bytes:

@@ -6,9 +6,13 @@ import random
 from typing import Optional, Tuple
 
 from ..constants import (
-    CHALLENGE_TYPE_DISTRIBUTION,
+    ACTION_LAG_SEC_RANGE,
+    DEFAULT_CHALLENGE_TYPE,
+    DRAG_SCALE_RANGE,
     H_MAX,
     H_MIN,
+    PAYLOAD_COM_OFFSET_RANGE,
+    PAYLOAD_MASS_FACTOR_RANGE,
     R_MAX,
     R_MIN,
     RANDOM_START,
@@ -20,7 +24,10 @@ from ..constants import (
     START_PLATFORM_RANDOMIZE,
     START_PLATFORM_SURFACE_Z,
     START_PLATFORM_TAKEOFF_BUFFER,
+    THRUST_SCALE_RANGE,
+    WIND_XY_RANGE,
     WORLD_RANGE,
+    TaskType,
 )
 from ..protocol import MapTask
 
@@ -120,7 +127,15 @@ def _goal_from_start(
     return x, y, z
 
 
-def random_task(sim_dt: float, horizon: float, seed: Optional[int] = None) -> MapTask:
+def random_task(
+    sim_dt: float,
+    horizon: float,
+    seed: Optional[int] = None,
+    *,
+    payload: bool = False,
+    challenge_type: Optional[int] = None,
+    domain_randomization: bool = False,
+) -> MapTask:
     if seed is None:
         # If no seed is provided, generate a random one
         seed = random.randrange(2**32)
@@ -137,10 +152,37 @@ def random_task(sim_dt: float, horizon: float, seed: Optional[int] = None) -> Ma
         start = (0.0, 0.0, start_z)
         goal = _goal(rng)
 
-    # Select challenge type AFTER generating start/goal to avoid affecting random sequence
-    challenge_types = list(CHALLENGE_TYPE_DISTRIBUTION.keys())
-    probabilities = list(CHALLENGE_TYPE_DISTRIBUTION.values())
-    chosen_type = rng.choices(challenge_types, weights=probabilities, k=1)[0]
+    # Choose challenge type (explicit or default)
+    chosen_type = (
+        int(challenge_type)
+        if challenge_type is not None
+        else int(DEFAULT_CHALLENGE_TYPE)
+    )
+    if payload:
+        chosen_type = int(TaskType.PAYLOAD)
+
+    # Payload/domain randomization
+    if payload:
+        payload_mass_factor = rng.uniform(*PAYLOAD_MASS_FACTOR_RANGE)
+        payload_com_offset = (
+            rng.uniform(-PAYLOAD_COM_OFFSET_RANGE[0], PAYLOAD_COM_OFFSET_RANGE[0]),
+            rng.uniform(-PAYLOAD_COM_OFFSET_RANGE[1], PAYLOAD_COM_OFFSET_RANGE[1]),
+            -abs(rng.uniform(0.0, PAYLOAD_COM_OFFSET_RANGE[2])),
+        )
+        thrust_scale = rng.uniform(*THRUST_SCALE_RANGE)
+        drag_scale = rng.uniform(*DRAG_SCALE_RANGE)
+        wind_xy = (
+            rng.uniform(*WIND_XY_RANGE),
+            rng.uniform(*WIND_XY_RANGE),
+        )
+        action_latency = rng.uniform(*ACTION_LAG_SEC_RANGE)
+    else:
+        payload_mass_factor = 1.0
+        payload_com_offset = (0.0, 0.0, 0.0)
+        thrust_scale = 1.0
+        drag_scale = 1.0
+        wind_xy = (0.0, 0.0)
+        action_latency = 0.0
 
     return MapTask(
         map_seed=seed,
@@ -149,5 +191,13 @@ def random_task(sim_dt: float, horizon: float, seed: Optional[int] = None) -> Ma
         sim_dt=sim_dt,
         horizon=horizon,
         challenge_type=chosen_type,
+        payload_mass_factor=payload_mass_factor,
+        payload_com_offset=payload_com_offset,
+        thrust_scale=thrust_scale,
+        drag_scale=drag_scale,
+        wind_xy=wind_xy,
+        action_latency=action_latency,
+        payload_enabled=payload,
+        domain_randomization=domain_randomization,
         version="1",
     )

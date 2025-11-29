@@ -16,7 +16,19 @@ from gym_pybullet_drones.utils.enums import (
 )
 from numpy.typing import NDArray
 
-from ..constants import DRONE_HULL_RADIUS, GOAL_TOL, HOVER_SEC, MAX_RAY_DISTANCE
+from ..constants import (
+    ACTION_LAG_SEC_RANGE,
+    DRAG_SCALE_RANGE,
+    DRONE_HULL_RADIUS,
+    DRONE_MASS,
+    GOAL_TOL,
+    HOVER_SEC,
+    MAX_RAY_DISTANCE,
+    PAYLOAD_COM_OFFSET_RANGE,
+    PAYLOAD_MASS_FACTOR_RANGE,
+    THRUST_SCALE_RANGE,
+    WIND_XY_RANGE,
+)
 
 # -- project-level utilities ------------------------------------------------
 from ..validator.reward import flight_reward  # 3-term scorer
@@ -67,6 +79,36 @@ class MovingDroneAviary(BaseRLAviary):
         self._collision = False
         self._t_to_goal = None
         self._prev_score = 0.0
+        self.payload_enabled = bool(getattr(task, "payload_enabled", False))
+        self.domain_randomization = bool(
+            getattr(task, "domain_randomization", self.payload_enabled)
+        )
+
+        # Payload/randomization parameters (set from task)
+        if self.payload_enabled:
+            self.payload_mass_factor = float(
+                getattr(task, "payload_mass_factor", 1.0) or 1.0
+            )
+            self.payload_com_offset = np.asarray(
+                getattr(task, "payload_com_offset", (0.0, 0.0, 0.0)), dtype=float
+            )
+            self.thrust_scale = float(getattr(task, "thrust_scale", 1.0) or 1.0)
+            self.drag_scale = float(getattr(task, "drag_scale", 1.0) or 1.0)
+            wind_xy = getattr(task, "wind_xy", (0.0, 0.0)) or (0.0, 0.0)
+            self.wind_force = np.array([wind_xy[0], wind_xy[1], 0.0], dtype=float)
+            self.action_latency = float(getattr(task, "action_latency", 0.0) or 0.0)
+        else:
+            self.payload_mass_factor = 1.0
+            self.payload_com_offset = np.array([0.0, 0.0, 0.0], dtype=float)
+            self.thrust_scale = 1.0
+            self.drag_scale = 1.0
+            self.wind_force = np.array([0.0, 0.0, 0.0], dtype=float)
+            self.action_latency = 0.0
+
+        # Track payload bodies for cleanup
+        self._payload_body_id: int | None = None
+        self._payload_constraint_id: int | None = None
+        self._prev_action = None
 
         # --- define 16 ray directions for obstacle detection ---
         self._init_ray_directions()
@@ -100,11 +142,43 @@ class MovingDroneAviary(BaseRLAviary):
         goal_low = -np.ones((old_low.shape[0], 3), dtype=np.float32) * np.inf
         goal_high = +np.ones((old_high.shape[0], 3), dtype=np.float32) * np.inf
 
-        self.observation_space = spaces.Box(
-            low=np.concatenate([old_low, dist_low, goal_low], axis=1),
-            high=np.concatenate([old_high, dist_high, goal_high], axis=1),
-            dtype=np.float32,
-        )
+        if self.payload_enabled or self.domain_randomization:
+            extra_low = np.array(
+                [
+                    PAYLOAD_MASS_FACTOR_RANGE[0],
+                    -PAYLOAD_COM_OFFSET_RANGE[0],
+                    -PAYLOAD_COM_OFFSET_RANGE[1],
+                    -PAYLOAD_COM_OFFSET_RANGE[2],
+                    THRUST_SCALE_RANGE[0],
+                    DRAG_SCALE_RANGE[0],
+                    WIND_XY_RANGE[0],
+                    WIND_XY_RANGE[0],
+                    ACTION_LAG_SEC_RANGE[0],
+                ],
+                dtype=np.float32,
+            ).reshape(1, -1)
+            extra_high = np.array(
+                [
+                    PAYLOAD_MASS_FACTOR_RANGE[1],
+                    PAYLOAD_COM_OFFSET_RANGE[0],
+                    PAYLOAD_COM_OFFSET_RANGE[1],
+                    PAYLOAD_COM_OFFSET_RANGE[2],
+                    THRUST_SCALE_RANGE[1],
+                    DRAG_SCALE_RANGE[1],
+                    WIND_XY_RANGE[1],
+                    WIND_XY_RANGE[1],
+                    ACTION_LAG_SEC_RANGE[1],
+                ],
+                dtype=np.float32,
+            ).reshape(1, -1)
+
+            low = np.concatenate([old_low, dist_low, goal_low, extra_low], axis=1)
+            high = np.concatenate([old_high, dist_high, goal_high, extra_high], axis=1)
+        else:
+            low = np.concatenate([old_low, dist_low, goal_low], axis=1)
+            high = np.concatenate([old_high, dist_high, goal_high], axis=1)
+
+        self.observation_space = spaces.Box(low=low, high=high, dtype=np.float32)
 
     # --------------------------------------------------------------------- #
     # 2. low-level helpers
@@ -215,6 +289,100 @@ class MovingDroneAviary(BaseRLAviary):
 
         return np.array(distances, dtype=np.float32)
 
+    # ---------------------- payload / wind helpers ---------------------- #
+    def _clear_payload(self) -> None:
+        """Remove attached payload if present."""
+        cid = self._payload_constraint_id
+        if cid is not None:
+            try:
+                # Skip removal if constraint is already gone
+                p.getConstraintInfo(cid)
+                p.removeConstraint(cid)
+            except Exception as exc:
+                print(f"[WARN] payload clear: failed to remove constraint {cid}: {exc}")
+        self._payload_constraint_id = None
+
+        bid = self._payload_body_id
+        if bid is not None:
+            try:
+                p.getBodyInfo(bid)
+                p.removeBody(bid)
+            except Exception as exc:
+                print(f"[WARN] payload clear: failed to remove body {bid}: {exc}")
+        self._payload_body_id = None
+
+    def _attach_payload(self) -> None:
+        """Attach a simple payload mass via a fixed constraint to shift COM."""
+        self._clear_payload()
+        if self.payload_mass_factor <= 1.0:
+            return
+
+        base_mass = float(getattr(self, "M", DRONE_MASS))
+        payload_mass = max(0.0, self.payload_mass_factor - 1.0) * base_mass
+        if payload_mass <= 0:
+            return
+
+        # Create a small sphere payload and place it below the drone to avoid collisions
+        col = p.createCollisionShape(
+            p.GEOM_SPHERE, radius=0.05, physicsClientId=self.CLIENT
+        )
+        drone_pos, _ = p.getBasePositionAndOrientation(
+            self.DRONE_IDS[0], physicsClientId=self.CLIENT
+        )
+        payload_offset = np.asarray(self.payload_com_offset, dtype=float)
+        if abs(payload_offset[2]) < 0.05:
+            payload_offset[2] = -0.1
+        payload_pos = np.asarray(drone_pos, dtype=float) + payload_offset
+        payload_body = p.createMultiBody(
+            baseMass=payload_mass,
+            baseCollisionShapeIndex=col,
+            baseVisualShapeIndex=-1,
+            basePosition=payload_pos.tolist(),
+            physicsClientId=self.CLIENT,
+        )
+
+        self._payload_body_id = payload_body
+        # Fixed constraint to drone with offset
+        self._payload_constraint_id = p.createConstraint(
+            parentBodyUniqueId=self.DRONE_IDS[0],
+            parentLinkIndex=-1,
+            childBodyUniqueId=payload_body,
+            childLinkIndex=-1,
+            jointType=p.JOINT_FIXED,
+            jointAxis=[0, 0, 0],
+            parentFramePosition=payload_offset.tolist(),
+            childFramePosition=[0, 0, 0],
+            physicsClientId=self.CLIENT,
+        )
+        # Disable collisions between payload and drone to avoid instant contact failures
+        try:
+            p.setCollisionFilterPair(
+                bodyUniqueIdA=self.DRONE_IDS[0],
+                bodyUniqueIdB=payload_body,
+                linkIndexA=-1,
+                linkIndexB=-1,
+                enableCollision=0,
+                physicsClientId=self.CLIENT,
+            )
+        except Exception:
+            pass
+
+    def _apply_wind_force(self) -> None:
+        """Apply a constant lateral wind force to the drone base."""
+        if np.allclose(self.wind_force, 0.0):
+            return
+        try:
+            p.applyExternalForce(
+                objectUniqueId=self.DRONE_IDS[0],
+                linkIndex=-1,
+                forceObj=self.wind_force.tolist(),
+                posObj=[0, 0, 0],
+                flags=p.WORLD_FRAME,
+                physicsClientId=self.CLIENT,
+            )
+        except Exception:
+            pass
+
     def _euler_to_rotation_matrix(
         self, roll: float, pitch: float, yaw: float
     ) -> np.ndarray:
@@ -302,6 +470,28 @@ class MovingDroneAviary(BaseRLAviary):
             start_quat,
             physicsClientId=cli,
         )
+        # Reset velocity
+        p.resetBaseVelocity(
+            self.DRONE_IDS[0], [0, 0, 0], [0, 0, 0], physicsClientId=cli
+        )
+
+        # Apply drag scaling if enabled
+        if self.payload_enabled and self.drag_scale != 1.0:
+            try:
+                p.changeDynamics(
+                    self.DRONE_IDS[0],
+                    -1,
+                    linearDamping=0.01 * self.drag_scale,
+                    angularDamping=0.01 * self.drag_scale,
+                    physicsClientId=cli,
+                )
+            except Exception:
+                pass
+
+        # Attach payload if enabled
+        if self.payload_enabled:
+            self._attach_payload()
+        self._prev_action = None
 
         self._time_alive = 0.0
         self._hover_sec = 0.0
@@ -324,6 +514,10 @@ class MovingDroneAviary(BaseRLAviary):
         """
         **Incremental** reward based on the three-term `flight_reward`.
         """
+        # Apply wind each step before computing reward (for next physics step)
+        if self.payload_enabled:
+            self._apply_wind_force()
+
         # current distance to goal
         state = self._getDroneStateVector(0)
         float(np.linalg.norm(state[0:3] - self.GOAL_POS))
@@ -367,6 +561,26 @@ class MovingDroneAviary(BaseRLAviary):
         r_t = score - self._prev_score
         self._prev_score = score
         return float(r_t)
+
+    # -------- action preprocessing --------------------------------------- #
+    def _preprocessAction(self, action):  # noqa: N802
+        """Inject simple action lag and thrust scaling before base handling."""
+        processed = super()._preprocessAction(action)
+
+        if not (self.payload_enabled or self.domain_randomization):
+            return processed
+
+        if self._prev_action is None:
+            self._prev_action = np.array(processed, copy=True)
+
+        if self.action_latency > 0:
+            smoothing = np.clip(self.action_latency / max(self._sim_dt, 1e-3), 0.0, 0.9)
+            processed = (1 - smoothing) * processed + smoothing * self._prev_action
+
+        # Thrust scaling for velocity commands (approximate)
+        processed = processed * self.thrust_scale
+        self._prev_action = np.array(processed, copy=True)
+        return processed
 
     # -------- termination ------------------------------------------------ #
     def _computeTerminated(self) -> bool:  # noqa: N802
@@ -438,9 +652,25 @@ class MovingDroneAviary(BaseRLAviary):
         # Goal vector relative to current position (scaled by ray distance)
         rel = ((self.GOAL_POS - pos_w) / self.max_ray_distance).reshape(1, 3)
 
-        return np.concatenate([base_obs, distances_scaled, rel], axis=1).astype(
-            np.float32
-        )
+        parts = [base_obs, distances_scaled, rel]
+        if self.payload_enabled or self.domain_randomization:
+            extras = np.array(
+                [
+                    self.payload_mass_factor,
+                    self.payload_com_offset[0],
+                    self.payload_com_offset[1],
+                    self.payload_com_offset[2],
+                    self.thrust_scale,
+                    self.drag_scale,
+                    self.wind_force[0],
+                    self.wind_force[1],
+                    self.action_latency,
+                ],
+                dtype=np.float32,
+            ).reshape(1, -1)
+            parts.append(extras)
+
+        return np.concatenate(parts, axis=1).astype(np.float32)
 
     # -------- vision helper ----------------------------------------------- #
     def get_third_person_rgb(
