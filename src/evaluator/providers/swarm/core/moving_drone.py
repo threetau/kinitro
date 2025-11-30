@@ -95,7 +95,11 @@ class MovingDroneAviary(BaseRLAviary):
             self.thrust_scale = float(getattr(task, "thrust_scale", 1.0) or 1.0)
             self.drag_scale = float(getattr(task, "drag_scale", 1.0) or 1.0)
             wind_xy = getattr(task, "wind_xy", (0.0, 0.0)) or (0.0, 0.0)
-            self.wind_force = np.array([wind_xy[0], wind_xy[1], 0.0], dtype=float)
+            # Treat wind_xy as a desired acceleration (m/s^2) and convert to force.
+            base_mass = float(getattr(self, "M", DRONE_MASS))
+            self.wind_force = (
+                np.array([wind_xy[0], wind_xy[1], 0.0], dtype=float) * base_mass
+            )
             self.action_latency = float(getattr(task, "action_latency", 0.0) or 0.0)
         else:
             self.payload_mass_factor = 1.0
@@ -515,8 +519,9 @@ class MovingDroneAviary(BaseRLAviary):
         **Incremental** reward based on the three-term `flight_reward`.
         """
         # Apply wind each step before computing reward (for next physics step)
-        if self.payload_enabled:
-            self._apply_wind_force()
+        # TODO: disabled for now - needs more work.
+        # if self.payload_enabled:
+        #     self._apply_wind_force()
 
         # current distance to goal
         state = self._getDroneStateVector(0)
