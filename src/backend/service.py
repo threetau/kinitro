@@ -1620,6 +1620,7 @@ class BackendService:
         Scoring logic:
         - Miners must meet minimum success rate threshold per competition to be considered
         - Miners must pass minimum avg reward threshold per competition
+        - Highest-success-rate eligible challenger (tie-breaker: avg_reward) is queued for admin review regardless of current leader reward
         - Current leader retains position until admin approval
         - Each miner can only win ONE competition (first-win policy if appearing in multiple)
         - Final scores are normalized based on competition points
@@ -1667,9 +1668,12 @@ class BackendService:
                 ]
 
                 eligible_results.sort(
-                    key=lambda res: res.avg_reward
-                    if res.avg_reward is not None
-                    else float("-inf"),
+                    key=lambda res: (
+                        res.success_rate
+                        if res.success_rate is not None
+                        else float("-inf"),
+                        res.avg_reward if res.avg_reward is not None else float("-inf"),
+                    ),
                     reverse=True,
                 )
 
