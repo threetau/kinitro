@@ -1620,8 +1620,8 @@ class BackendService:
         Scoring logic:
         - Miners must meet minimum success rate threshold per competition to be considered
         - Miners must pass minimum avg reward threshold per competition
-        - New miners must exceed current leader by win margin percentage to become leader
-        - Current leader retains position if no challenger exceeds margin
+        - Eligible challengers above the current leader's success rate (ordered by success_rate, then avg_reward) are queued for admin review
+        - Current leader retains position until admin approval
         - Each miner can only win ONE competition (first-win policy if appearing in multiple)
         - Final scores are normalized based on competition points
 
@@ -1660,7 +1660,7 @@ class BackendService:
                     )
                     continue
 
-                # Find eligible challengers and identify the strongest contender
+                # Find eligible challengers and order them by success rate / avg reward
                 eligible_results: List[BackendEvaluationResult] = [
                     result
                     for result in eval_results
@@ -1668,9 +1668,12 @@ class BackendService:
                 ]
 
                 eligible_results.sort(
-                    key=lambda res: res.avg_reward
-                    if res.avg_reward is not None
-                    else float("-inf"),
+                    key=lambda res: (
+                        res.success_rate
+                        if res.success_rate is not None
+                        else float("-inf"),
+                        res.avg_reward if res.avg_reward is not None else float("-inf"),
+                    ),
                     reverse=True,
                 )
 
@@ -1710,51 +1713,71 @@ class BackendService:
                                 competition.id,
                                 top_result.miner_hotkey,
                             )
-                    elif top_result.miner_hotkey == current_leader:
-                        if (
-                            top_result.avg_reward is not None
-                            and top_result.avg_reward
-                            != competition.current_leader_reward
-                        ):
-                            competition.current_leader_reward = top_result.avg_reward
-                            competition.leader_updated_at = datetime.now(timezone.utc)
-                            logger.info(
-                                "Competition %s: Updated leader %s reward to %.3f",
-                                competition.id,
-                                current_leader,
-                                top_result.avg_reward,
-                            )
                     else:
-                        required_reward = (competition.current_leader_reward or 0) * (
-                            1 + competition.win_margin_pct
+                        leader_success_rate = max(
+                            (
+                                res.success_rate
+                                for res in eligible_results
+                                if res.miner_hotkey == current_leader
+                                and res.success_rate is not None
+                            ),
+                            default=None,
                         )
-                        if candidate_reward > required_reward:
+                        baseline_leader_success_rate = (
+                            leader_success_rate
+                            if leader_success_rate is not None
+                            else -1.0
+                        )
+
+                        if top_result.miner_hotkey == current_leader:
+                            if (
+                                top_result.avg_reward is not None
+                                and top_result.avg_reward
+                                != competition.current_leader_reward
+                            ):
+                                competition.current_leader_reward = (
+                                    top_result.avg_reward
+                                )
+                                competition.leader_updated_at = datetime.now(
+                                    timezone.utc
+                                )
+                                logger.info(
+                                    "Competition %s: Updated leader %s reward to %.3f",
+                                    competition.id,
+                                    current_leader,
+                                    top_result.avg_reward,
+                                )
+
+                        challengers = [
+                            res
+                            for res in eligible_results
+                            if res.miner_hotkey != current_leader
+                            and res.success_rate is not None
+                            and res.success_rate > baseline_leader_success_rate
+                        ]
+
+                        for challenger in challengers:
                             created_candidate = await self._queue_leader_candidate(
-                                session, competition, top_result
+                                session, competition, challenger
                             )
                             if created_candidate:
                                 logger.info(
-                                    "Competition %s: Challenger %s (avg_reward=%.3f) exceeds required %.3f; pending admin approval",
+                                    "Competition %s: Challenger %s queued for admin review (success_rate=%.3f, avg_reward=%.3f, current leader=%s success_rate=%s)",
                                     competition.id,
-                                    top_result.miner_hotkey,
-                                    candidate_reward,
-                                    required_reward,
+                                    challenger.miner_hotkey,
+                                    challenger.success_rate or 0.0,
+                                    challenger.avg_reward or 0.0,
+                                    current_leader,
+                                    f"{leader_success_rate:.3f}"
+                                    if leader_success_rate is not None
+                                    else "unknown",
                                 )
                             else:
                                 logger.debug(
                                     "Competition %s: Challenger %s already recorded as candidate",
                                     competition.id,
-                                    top_result.miner_hotkey,
+                                    challenger.miner_hotkey,
                                 )
-                        else:
-                            logger.info(
-                                "Competition %s: Current leader %s retains position. Challenger %s avg_reward=%.3f, required=%.3f",
-                                competition.id,
-                                current_leader,
-                                top_result.miner_hotkey,
-                                candidate_reward,
-                                required_reward,
-                            )
 
                 # Award points only to the currently approved leader
                 award_hotkey = competition.current_leader_hotkey
