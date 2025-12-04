@@ -1620,8 +1620,7 @@ class BackendService:
         Scoring logic:
         - Miners must meet minimum success rate threshold per competition to be considered
         - Miners must pass minimum avg reward threshold per competition
-        - New miners must exceed current leader by win margin percentage to become leader
-        - Current leader retains position if no challenger exceeds margin
+        - Current leader retains position until admin approval
         - Each miner can only win ONE competition (first-win policy if appearing in multiple)
         - Final scores are normalized based on competition points
 
@@ -1725,35 +1724,25 @@ class BackendService:
                                 top_result.avg_reward,
                             )
                     else:
-                        required_reward = (competition.current_leader_reward or 0) * (
-                            1 + competition.win_margin_pct
+                        created_candidate = await self._queue_leader_candidate(
+                            session, competition, top_result
                         )
-                        if candidate_reward > required_reward:
-                            created_candidate = await self._queue_leader_candidate(
-                                session, competition, top_result
-                            )
-                            if created_candidate:
-                                logger.info(
-                                    "Competition %s: Challenger %s (avg_reward=%.3f) exceeds required %.3f; pending admin approval",
-                                    competition.id,
-                                    top_result.miner_hotkey,
-                                    candidate_reward,
-                                    required_reward,
-                                )
-                            else:
-                                logger.debug(
-                                    "Competition %s: Challenger %s already recorded as candidate",
-                                    competition.id,
-                                    top_result.miner_hotkey,
-                                )
-                        else:
+                        if created_candidate:
                             logger.info(
-                                "Competition %s: Current leader %s retains position. Challenger %s avg_reward=%.3f, required=%.3f",
+                                "Competition %s: Challenger %s queued for admin review (avg_reward=%.3f, current leader=%s avg_reward=%.3f)",
                                 competition.id,
-                                current_leader,
                                 top_result.miner_hotkey,
                                 candidate_reward,
-                                required_reward,
+                                current_leader,
+                                competition.current_leader_reward
+                                if competition.current_leader_reward is not None
+                                else 0.0,
+                            )
+                        else:
+                            logger.debug(
+                                "Competition %s: Challenger %s already recorded as candidate",
+                                competition.id,
+                                top_result.miner_hotkey,
                             )
 
                 # Award points only to the currently approved leader
