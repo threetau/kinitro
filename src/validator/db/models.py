@@ -28,7 +28,7 @@ class EvaluationJob(TimestampMixin, SQLModel, table=True):
     submission_id: int = Field(sa_column=Column(BigInteger, nullable=False, index=True))
     competition_id: str = Field(max_length=128, nullable=False, index=True)
     miner_hotkey: str = Field(max_length=48, nullable=False, index=True)
-    hf_repo_id: str = Field(max_length=256, nullable=False)
+    repo_id: str = Field(max_length=256, nullable=False)
     env_provider: str = Field(max_length=128, nullable=False)
     benchmark_name: str = Field(max_length=128, nullable=False)
     config: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
