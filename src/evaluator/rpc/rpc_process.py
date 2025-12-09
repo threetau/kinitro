@@ -9,7 +9,10 @@ import torch
 from ray.util.queue import Queue
 from snowflake import SnowflakeGenerator
 
+from core.log import get_logger
 from evaluator.rpc.client import AgentClient
+
+logger = get_logger(__name__)
 
 # RPC timeout constant
 DEFAULT_RPC_TIMEOUT = 5.0
@@ -176,13 +179,13 @@ class RPCProcess:
     """Handles RPC message processing and server interaction"""
 
     def __init__(self, host: str, port: int, send_queue: Queue, recv_queue: Queue):
-        print(f"Initializing RPCProcess for {host}:{port}")
+        logger.debug("Initializing RPCProcess for %s:%d", host, port)
         self.agent = AgentClient(host, port)
         self.send_queue = send_queue
         self.recv_queue = recv_queue
         self.host = host
         self.port = port
-        print(f"Starting RPCProcess for {host}:{port}")
+        logger.info("Starting RPCProcess for %s:%d", host, port)
         asyncio.run(capnp.run(self.process()))
 
     async def handle_request(self, request: RPCRequest) -> RPCResponse:
@@ -220,7 +223,7 @@ class RPCProcess:
             return RPCResponse.from_processing_error(request.request_id, error_msg)
 
     async def process(self):
-        print(f"Starting RPC process for {self.host}:{self.port}")
+        logger.debug("Starting RPC process for %s:%d", self.host, self.port)
         try:
             await self.agent.connect()
             # Test connection with structured messages
@@ -228,12 +231,14 @@ class RPCProcess:
             startup_response = await self.handle_request(startup_request)
 
             if startup_response.success:
-                print(
-                    f"RPC process for {self.host}:{self.port} connected successfully, server says: {startup_response.result}"
+                logger.info(
+                    "RPC process for %s:%d connected successfully, server says: %s",
+                    self.host, self.port, startup_response.result
                 )
             else:
-                print(
-                    f"RPC process for {self.host}:{self.port} connection test failed: {startup_response.error_message}"
+                logger.error(
+                    "RPC process for %s:%d connection test failed: %s",
+                    self.host, self.port, startup_response.error_message
                 )
                 return
 
@@ -248,8 +253,9 @@ class RPCProcess:
                     request: RPCRequest = await self.recv_queue.get_async(
                         timeout=PGQ_TIMEOUT
                     )
-                    print(
-                        f"RPC[{self.host}:{self.port}] received: method={request.method.value}, id={request.request_id[:8]}"
+                    logger.debug(
+                        "RPC[%s:%d] received: method=%s, id=%s",
+                        self.host, self.port, request.method.value, request.request_id[:8]
                     )
 
                     # Process the request by calling the RPC server
@@ -262,19 +268,21 @@ class RPCProcess:
                             if response.result is not None
                             else "None"
                         )
-                        print(
-                            f"RPC[{self.host}:{self.port}] success: id={request.request_id[:8]}, result={result_preview}"
+                        logger.debug(
+                            "RPC[%s:%d] success: id=%s, result=%s",
+                            self.host, self.port, request.request_id[:8], result_preview
                         )
                     else:
-                        print(
-                            f"RPC[{self.host}:{self.port}] error: id={request.request_id[:8]}, error={response.error_message}"
+                        logger.warning(
+                            "RPC[%s:%d] error: id=%s, error=%s",
+                            self.host, self.port, request.request_id[:8], response.error_message
                         )
 
                     # Send response back to Ray Worker
                     await self.send_queue.put_async(response, timeout=PGQ_TIMEOUT)
 
                 except Exception as e:
-                    print(f"Error processing request in RPC process: {e}")
+                    logger.error("Error processing request in RPC process: %s", e)
                     # Send error response if we have request context
                     if "request" in locals():
                         error_response = RPCResponse.from_processing_error(
@@ -286,6 +294,6 @@ class RPCProcess:
                     break
 
         except Exception as e:
-            print(f"Fatal error in RPC process for {self.host}:{self.port}: {e}")
+            logger.critical("Fatal error in RPC process for %s:%d: %s", self.host, self.port, e)
         finally:
             await self.agent.close()

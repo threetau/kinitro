@@ -105,7 +105,7 @@ def build_world(
     start  : (x,y,z)  - drone take-off location (obstacles keep clear)
     goal   : (x,y,z)  - desired target (obstacles keep clear; visual marker)
     """
-    print("Building world with seed %d", seed)
+    logger.debug("Building world with seed %d", seed)
     rng = random.Random(seed)
 
     profile = WORLD_PROFILE_MAP.get(challenge_type)

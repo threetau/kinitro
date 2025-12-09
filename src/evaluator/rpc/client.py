@@ -8,7 +8,6 @@ Handles promise vs coroutine returns, timeouts, and traversal limit.
 """
 
 import asyncio
-import logging
 import os
 from datetime import timedelta
 from typing import Any
@@ -17,11 +16,13 @@ import capnp
 import numpy as np
 import torch
 
+from core.log import get_logger
+
 # Load the schema
 schema_file = os.path.join(os.path.dirname(__file__), "agent.capnp")
 agent_capnp = capnp.load(schema_file)
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AgentClient:
@@ -42,9 +43,9 @@ class AgentClient:
         base_retry_delay: timedelta = timedelta(seconds=1),
     ):
         """Connect asynchronously using AsyncIoStream and create a TwoPartyClient with a raised traversal limit."""
-        print(f"Connecting to {self.address}:{self.port}")
+        logger.debug("Connecting to %s:%d", self.address, self.port)
         if self.agent is not None:
-            print(f"Already connected to {self.address}:{self.port}")
+            logger.debug("Already connected to %s:%d", self.address, self.port)
             return
 
         last_exc: Exception | None = None
@@ -59,10 +60,10 @@ class AgentClient:
 
                 # Create TwoPartyClient with increased traversal limit (workaround for large messages)
                 self.client = capnp.TwoPartyClient(self.stream)
-                print(f"TwoPartyClient established to {self.address}:{self.port}")
+                logger.debug("TwoPartyClient established to %s:%d", self.address, self.port)
 
                 self.agent = self.client.bootstrap().cast_as(agent_capnp.Agent)
-                print("Bootstrapped Agent capability")
+                logger.debug("Bootstrapped Agent capability")
                 return
             except Exception as exc:
                 last_exc = exc
