@@ -1621,6 +1621,7 @@ class BackendService:
         - Miners must meet minimum success rate threshold per competition to be considered
         - Miners must pass minimum avg reward threshold per competition
         - Eligible challengers above the approved leader's success rate (ordered by success_rate, then avg_reward) are queued for admin review
+          - If the current leader improves or matches their approved success rate with a new result, that result is also queued
         - Current leader retains position until admin approval
         - Each miner can only win ONE competition (first-win policy if appearing in multiple)
         - Final scores are normalized based on competition points
@@ -1715,7 +1716,10 @@ class BackendService:
                             )
                     else:
                         leader_success_rate_stmt = (
-                            select(CompetitionLeaderCandidate.success_rate)
+                            select(
+                                CompetitionLeaderCandidate.success_rate,
+                                CompetitionLeaderCandidate.evaluation_result_id,
+                            )
                             .where(
                                 CompetitionLeaderCandidate.competition_id
                                 == competition.id,
@@ -1733,8 +1737,16 @@ class BackendService:
                         leader_success_rate_result = await session.execute(
                             leader_success_rate_stmt
                         )
+                        leader_success_rate_row = leader_success_rate_result.first()
                         leader_success_rate = (
-                            leader_success_rate_result.scalar_one_or_none()
+                            leader_success_rate_row[0]
+                            if leader_success_rate_row
+                            else None
+                        )
+                        leader_success_eval_id = (
+                            leader_success_rate_row[1]
+                            if leader_success_rate_row
+                            else None
                         )
                         baseline_leader_success_rate = (
                             leader_success_rate
@@ -1761,14 +1773,32 @@ class BackendService:
                                     top_result.avg_reward,
                                 )
 
-                        challengers = [
-                            res
-                            for res in eligible_results
-                            if res.success_rate is not None
-                            and res.success_rate > baseline_leader_success_rate
-                        ]
+                        challengers: list[BackendEvaluationResult] = []
+                        for res in eligible_results:
+                            if (
+                                res.success_rate is not None
+                                and res.success_rate > baseline_leader_success_rate
+                            ):
+                                challengers.append(res)
 
-                        for challenger in challengers:
+                        if (
+                            top_result.miner_hotkey == current_leader
+                            and top_result.success_rate is not None
+                            and top_result.success_rate >= baseline_leader_success_rate
+                            and top_result.id != leader_success_eval_id
+                        ):
+                            challengers.append(top_result)
+
+                        # Deduplicate challengers by evaluation_result_id while preserving order
+                        seen_eval_ids: set[int] = set()
+                        unique_challengers: list[BackendEvaluationResult] = []
+                        for res in challengers:
+                            if res.id in seen_eval_ids:
+                                continue
+                            seen_eval_ids.add(res.id)
+                            unique_challengers.append(res)
+
+                        for challenger in unique_challengers:
                             created_candidate = await self._queue_leader_candidate(
                                 session, competition, challenger
                             )
