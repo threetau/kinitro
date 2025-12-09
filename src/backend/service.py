@@ -1620,7 +1620,7 @@ class BackendService:
         Scoring logic:
         - Miners must meet minimum success rate threshold per competition to be considered
         - Miners must pass minimum avg reward threshold per competition
-        - Eligible challengers above the current leader's success rate (ordered by success_rate, then avg_reward) are queued for admin review
+        - Eligible challengers above the approved leader's success rate (ordered by success_rate, then avg_reward) are queued for admin review
         - Current leader retains position until admin approval
         - Each miner can only win ONE competition (first-win policy if appearing in multiple)
         - Final scores are normalized based on competition points
@@ -1714,14 +1714,27 @@ class BackendService:
                                 top_result.miner_hotkey,
                             )
                     else:
-                        leader_success_rate = max(
-                            (
-                                res.success_rate
-                                for res in eligible_results
-                                if res.miner_hotkey == current_leader
-                                and res.success_rate is not None
-                            ),
-                            default=None,
+                        leader_success_rate_stmt = (
+                            select(CompetitionLeaderCandidate.success_rate)
+                            .where(
+                                CompetitionLeaderCandidate.competition_id
+                                == competition.id,
+                                CompetitionLeaderCandidate.miner_hotkey
+                                == current_leader,
+                                CompetitionLeaderCandidate.status
+                                == LeaderCandidateStatus.APPROVED,
+                            )
+                            .order_by(
+                                CompetitionLeaderCandidate.reviewed_at.desc(),
+                                CompetitionLeaderCandidate.updated_at.desc(),
+                            )
+                            .limit(1)
+                        )
+                        leader_success_rate_result = await session.execute(
+                            leader_success_rate_stmt
+                        )
+                        leader_success_rate = (
+                            leader_success_rate_result.scalar_one_or_none()
                         )
                         baseline_leader_success_rate = (
                             leader_success_rate
@@ -1751,8 +1764,7 @@ class BackendService:
                         challengers = [
                             res
                             for res in eligible_results
-                            if res.miner_hotkey != current_leader
-                            and res.success_rate is not None
+                            if res.success_rate is not None
                             and res.success_rate > baseline_leader_success_rate
                         ]
 
