@@ -8,7 +8,7 @@ evaluation jobs, results, and local state management.
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import BigInteger, ForeignKey
+from sqlalchemy import BigInteger, ForeignKey, Integer
 from sqlalchemy import DateTime as SADateTime
 from sqlalchemy import String as SAString
 from sqlalchemy import Text as SAText
@@ -32,6 +32,9 @@ class EvaluationJob(TimestampMixin, SQLModel, table=True):
     env_provider: str = Field(max_length=128, nullable=False)
     benchmark_name: str = Field(max_length=128, nullable=False)
     config: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    timeout_seconds: Optional[int] = Field(
+        default=None, sa_column=Column(Integer, nullable=True)
+    )
     artifact_url: Optional[str] = Field(
         default=None, max_length=512, sa_column=Column(SAString(512), nullable=True)
     )

@@ -263,6 +263,17 @@ class BackendService:
         self.weight_broadcast_interval = config.settings.get(
             "weight_broadcast_interval", WEIGHT_BROADCAST_INTERVAL
         )
+        timeout_setting = config.settings.get(
+            "job_timeout_seconds",
+            config.settings.get("job_timeout", EVAL_JOB_TIMEOUT),
+        )
+        self.default_job_timeout_seconds = self._resolve_job_timeout_seconds(
+            timeout_setting
+        )
+        logger.info(
+            "Default evaluation job timeout set to %s seconds",
+            self.default_job_timeout_seconds,
+        )
 
         self.submission_upload_url_ttl = int(
             config.settings.get(
@@ -376,6 +387,44 @@ class BackendService:
                 continue
 
         return False
+
+    def _resolve_job_timeout_seconds(self, configured_value: Any) -> int:
+        """Convert configured timeout to a positive integer with a sane default."""
+        default_timeout = EVAL_JOB_TIMEOUT
+        try:
+            timeout_seconds = int(configured_value)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid job timeout value %r; using default %s seconds",
+                configured_value,
+                default_timeout,
+            )
+            return default_timeout
+
+        if timeout_seconds <= 0:
+            logger.warning(
+                "Configured job timeout %s is non-positive; using default %s seconds",
+                timeout_seconds,
+                default_timeout,
+            )
+            return default_timeout
+
+        return timeout_seconds
+
+    def _job_timeout_seconds(self, competition: Optional[Competition]) -> int:
+        """Return the timeout for a competition, falling back to the default."""
+        if competition and competition.job_timeout_seconds:
+            try:
+                value = int(competition.job_timeout_seconds)
+                if value > 0:
+                    return value
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Invalid job_timeout_seconds for competition %s: %r",
+                    getattr(competition, "id", "unknown"),
+                    getattr(competition, "job_timeout_seconds", None),
+                )
+        return self.default_job_timeout_seconds
 
     def _resolve_validator_worker_count(self, configured_value: Any) -> int:
         """Determine validator worker pool size from config or CPU count."""
@@ -772,24 +821,45 @@ class BackendService:
             try:
                 if self.async_session:
                     async with self.async_session() as session:
-                        # Define timeout threshold (jobs older than EVAL_JOB_TIMEOUT seconds without completion)
                         current_time = datetime.now(timezone.utc)
-                        stale_threshold = current_time - timedelta(
-                            seconds=EVAL_JOB_TIMEOUT
+                        # Prefilter jobs older than the minimum configured timeout; exact check happens per job below.
+                        min_timeout_result = await session.execute(
+                            select(func.min(Competition.job_timeout_seconds))
                         )
-                        # Remove timezone info to match database column type
-                        stale_threshold = stale_threshold.replace(tzinfo=None)
+                        min_timeout = min_timeout_result.scalar()
+                        candidates = [
+                            t
+                            for t in (
+                                min_timeout,
+                                self.default_job_timeout_seconds,
+                            )
+                            if t and t > 0
+                        ]
+                        min_timeout_seconds = min(candidates) if candidates else 1
+                        prefilter_threshold = current_time - timedelta(
+                            seconds=min_timeout_seconds
+                        )
+                        prefilter_threshold = prefilter_threshold.replace(tzinfo=None)
 
-                        # Find jobs that have been running for too long
                         result = await session.execute(
                             select(BackendEvaluationJob).where(
-                                BackendEvaluationJob.created_at < stale_threshold
+                                BackendEvaluationJob.created_at < prefilter_threshold
                             )
                         )
 
-                        stale_jobs = result.scalars().all()
+                        candidate_jobs = result.scalars().all()
 
-                        for job in stale_jobs:
+                        for job in candidate_jobs:
+                            job_timeout = self._resolve_job_timeout_seconds(
+                                job.timeout_seconds or self.default_job_timeout_seconds
+                            )
+                            stale_threshold = current_time - timedelta(
+                                seconds=job_timeout
+                            )
+
+                            if job.created_at and job.created_at >= stale_threshold:
+                                continue
+
                             # Check if this job has any recent status updates
                             status_result = await session.execute(
                                 select(BackendEvaluationJobStatus)
@@ -2375,6 +2445,7 @@ class BackendService:
                         "benchmark_name", benchmark["benchmark_name"]
                     ),
                     config=benchmark_spec,
+                    timeout_seconds=self._job_timeout_seconds(competition),
                     artifact_object_key=submission.artifact_object_key,
                     artifact_sha256=submission.artifact_sha256,
                     artifact_size_bytes=submission.artifact_size_bytes,
@@ -2594,6 +2665,7 @@ class BackendService:
                     env_provider=provider,
                     benchmark_name=benchmark_name,
                     config=spec_payload,
+                    timeout_seconds=self._job_timeout_seconds(competition),
                     artifact_object_key=submission.artifact_object_key,
                     artifact_sha256=submission.artifact_sha256,
                     artifact_size_bytes=submission.artifact_size_bytes,
@@ -2654,6 +2726,7 @@ class BackendService:
                 env_provider=existing_job.env_provider,
                 benchmark_name=existing_job.benchmark_name,
                 config=spec_payload,
+                timeout_seconds=existing_job.timeout_seconds,
                 artifact_object_key=existing_job.artifact_object_key,
                 artifact_sha256=existing_job.artifact_sha256,
                 artifact_size_bytes=existing_job.artifact_size_bytes,
@@ -2824,6 +2897,8 @@ class BackendService:
             job.config
         )
 
+        timeout_seconds = job.timeout_seconds or self.default_job_timeout_seconds
+
         job_msg = EvalJobMessage(
             job_id=job.id,
             competition_id=job.competition_id,
@@ -2838,6 +2913,7 @@ class BackendService:
             artifact_expires_at=artifact_expires_at,
             artifact_sha256=job.artifact_sha256,
             artifact_size_bytes=job.artifact_size_bytes,
+            timeout_seconds=timeout_seconds,
         )
 
         message = job_msg.model_dump_json()

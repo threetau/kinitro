@@ -87,6 +87,7 @@ class EvalJobMessage(SQLModel):
     env_provider: str
     benchmark_name: str
     config: dict
+    timeout_seconds: Optional[int] = None
     benchmark_spec: Optional[dict] = None
     artifact_url: Optional[str] = None
     artifact_expires_at: Optional[datetime] = None
