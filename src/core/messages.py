@@ -107,6 +107,7 @@ class EvalResultMessage(SQLModel):
     """Message for sending evaluation results from validators to backend."""
 
     message_type: MessageType = MessageType.EVAL_RESULT
+    status: EvaluationStatus = EvaluationStatus.COMPLETED
     job_id: SnowflakeId
     validator_hotkey: str
     miner_hotkey: str

@@ -903,6 +903,7 @@ class Orchestrator:
 
         eval_result_msg = EvalResultMessage(
             job_id=eval_job_msg.job_id,
+            status=status,
             validator_hotkey=self.keypair.ss58_address,
             miner_hotkey=eval_job_msg.miner_hotkey,
             competition_id=eval_job_msg.competition_id,
@@ -1043,6 +1044,7 @@ class Orchestrator:
 
                 eval_result_msg = EvalResultMessage(
                     job_id=job_id,
+                    status=EvaluationStatus.COMPLETED,
                     validator_hotkey=self.keypair.ss58_address,
                     miner_hotkey=eval_job_msg.miner_hotkey,
                     competition_id=eval_job_msg.competition_id,
@@ -1094,7 +1096,7 @@ class Orchestrator:
                         f"Failed to clean up resources for submission {submission_id}: {e}"
                     )
 
-            return True  # Job completed
+                return True  # Job completed
 
             # Check for timeout
             elapsed = (
@@ -1179,6 +1181,20 @@ class Orchestrator:
                         "completed_at": completed_at,
                     },
                 )
+                try:
+                    status_msg = JobStatusUpdateMessage(
+                        job_id=eval_job_msg.job_id,
+                        validator_hotkey=self.keypair.ss58_address,
+                        status=EvaluationStatus.TIMEOUT,
+                        detail=error_message,
+                    )
+                    await self.db.queue_job_status_update_msg(status_msg)
+                except Exception as status_err:
+                    logger.warning(
+                        "Failed to queue timeout status update for job %s: %s",
+                        eval_job_msg.job_id,
+                        status_err,
+                    )
 
                 # Clean up Ray worker and container resources on timeout
                 try:
