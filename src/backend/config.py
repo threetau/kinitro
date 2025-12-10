@@ -1,3 +1,4 @@
+from backend.constants import EVAL_JOB_TIMEOUT
 from core.config import Config, ConfigOpts
 from core.constants import NeuronType
 
@@ -55,6 +56,16 @@ class BackendConfig(Config):
             type=int,
             help="Seconds between chain sync operations",
             default=self.settings.get("chain_sync_interval", 30),
+        )
+
+        self._parser.add_argument(
+            "--job-timeout-seconds",
+            type=int,
+            help="Maximum runtime for evaluation jobs (seconds)",
+            default=self.settings.get(
+                "job_timeout_seconds",
+                self.settings.get("job_timeout", EVAL_JOB_TIMEOUT),
+            ),
         )
 
         self._parser.add_argument(

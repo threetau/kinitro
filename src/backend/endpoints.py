@@ -2587,20 +2587,27 @@ async def validator_websocket(websocket: WebSocket):
                         await session.commit()
 
                         # Update job status based on result
-                        if result_msg.error:
-                            await backend_service._update_job_status(
-                                result_msg.job_id,
-                                validator_hotkey,
-                                EvaluationStatus.FAILED,
-                                f"Evaluation failed: {result_msg.error}",
+                        result_status = getattr(result_msg, "status", None)
+                        if result_status is None:
+                            result_status = (
+                                EvaluationStatus.FAILED
+                                if result_msg.error
+                                else EvaluationStatus.COMPLETED
+                            )
+
+                        if result_status == EvaluationStatus.COMPLETED:
+                            detail = (
+                                f"Evaluation completed with score {result_msg.score}"
                             )
                         else:
-                            await backend_service._update_job_status(
-                                result_msg.job_id,
-                                validator_hotkey,
-                                EvaluationStatus.COMPLETED,
-                                f"Evaluation completed with score {result_msg.score}",
-                            )
+                            detail = result_msg.error or result_status.value
+
+                        await backend_service._update_job_status(
+                            result_msg.job_id,
+                            validator_hotkey,
+                            result_status,
+                            detail,
+                        )
 
                         logger.info(
                             f"Stored result from {validator_hotkey} for job {result_msg.job_id}"

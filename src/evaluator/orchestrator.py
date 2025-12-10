@@ -87,7 +87,13 @@ class Orchestrator:
                 MIN_CONCURRENT_JOBS,
             )
         self.max_concurrent_jobs = max(MIN_CONCURRENT_JOBS, config.max_concurrent_jobs)
-        self.job_timeout = config.settings.get("job_timeout", EVAL_TIMEOUT)
+        self.default_job_timeout = self._resolve_job_timeout(
+            config.settings.get("job_timeout"), EVAL_TIMEOUT
+        )
+        logger.info(
+            "Default job timeout fallback set to %s seconds (backend may override)",
+            self.default_job_timeout,
+        )
         self.concurrent_slots = asyncio.Semaphore(self.max_concurrent_jobs)
 
         # Initialize Ray with explicit configuration
@@ -126,6 +132,19 @@ class Orchestrator:
                 names.append(str(item))
             return tuple(names)
         return tuple()
+
+    @staticmethod
+    def _resolve_job_timeout(value: Any, fallback: int) -> int:
+        """Return a positive integer timeout, falling back when unset/invalid."""
+        try:
+            timeout_seconds = int(value)
+        except (TypeError, ValueError):
+            return fallback
+
+        if timeout_seconds <= 0:
+            return fallback
+
+        return timeout_seconds
 
     def _split_config_data(
         self, config_value: Dict[str, Any]
@@ -252,6 +271,10 @@ class Orchestrator:
                 eval_job_msg.artifact_expires_at,
             )
 
+        job_timeout_seconds = self._resolve_job_timeout(
+            getattr(eval_job_msg, "timeout_seconds", None), self.default_job_timeout
+        )
+
         job_config_payload = self._config_payload_for_storage(eval_job_msg)
 
         evaluation_job = EvaluationJob(
@@ -263,6 +286,7 @@ class Orchestrator:
             env_provider=eval_job_msg.env_provider,
             benchmark_name=eval_job_msg.benchmark_name,
             config=job_config_payload,
+            timeout_seconds=job_timeout_seconds,
             artifact_url=eval_job_msg.artifact_url,
             artifact_expires_at=eval_job_msg.artifact_expires_at,
             artifact_sha256=eval_job_msg.artifact_sha256,
@@ -278,6 +302,20 @@ class Orchestrator:
                 "Existing evaluation job record found for %s; skipping creation",
                 eval_job_msg.job_id,
             )
+            try:
+                self.db.update_evaluation_job(
+                    eval_job_msg.job_id,
+                    {
+                        "config": job_config_payload,
+                        "timeout_seconds": job_timeout_seconds,
+                    },
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to refresh stored timeout for job %s: %s",
+                    eval_job_msg.job_id,
+                    e,
+                )
         else:
             try:
                 self.db.create_evaluation_job(evaluation_job)
@@ -476,6 +514,7 @@ class Orchestrator:
             "worker_to_rpc_queue": worker_to_rpc_queue,
             "rpc_to_worker_queue": rpc_to_worker_queue,
             "start_time": datetime.now(timezone.utc),
+            "timeout_seconds": job_timeout_seconds,
         }
 
         logger.info(
@@ -864,6 +903,7 @@ class Orchestrator:
 
         eval_result_msg = EvalResultMessage(
             job_id=eval_job_msg.job_id,
+            status=status,
             validator_hotkey=self.keypair.ss58_address,
             miner_hotkey=eval_job_msg.miner_hotkey,
             competition_id=eval_job_msg.competition_id,
@@ -1004,6 +1044,7 @@ class Orchestrator:
 
                 eval_result_msg = EvalResultMessage(
                     job_id=job_id,
+                    status=EvaluationStatus.COMPLETED,
                     validator_hotkey=self.keypair.ss58_address,
                     miner_hotkey=eval_job_msg.miner_hotkey,
                     competition_id=eval_job_msg.competition_id,
@@ -1061,14 +1102,20 @@ class Orchestrator:
             elapsed = (
                 datetime.now(timezone.utc) - job_context["start_time"]
             ).total_seconds()
-            if elapsed > self.job_timeout:
+            timeout_seconds = job_context.get(
+                "timeout_seconds", self.default_job_timeout
+            )
+            if elapsed > timeout_seconds:
                 logger.error(f"Job {job_id} timed out after {elapsed} seconds")
                 ray.cancel(evaluation_future)
                 completed_at = datetime.now(timezone.utc)
-                timeout_detail = f"Job timed out after {elapsed:.1f} seconds"
+                timeout_detail = (
+                    f"Job timed out after {elapsed:.1f} seconds "
+                    f"(limit {timeout_seconds}s)"
+                )
                 summary_data: Dict[str, Any] = {
                     "elapsed_seconds": elapsed,
-                    "timeout_seconds": self.job_timeout,
+                    "timeout_seconds": timeout_seconds,
                     "completed_at": completed_at.isoformat(),
                 }
                 start_time = job_context.get("start_time")
@@ -1134,6 +1181,20 @@ class Orchestrator:
                         "completed_at": completed_at,
                     },
                 )
+                try:
+                    status_msg = JobStatusUpdateMessage(
+                        job_id=eval_job_msg.job_id,
+                        validator_hotkey=self.keypair.ss58_address,
+                        status=EvaluationStatus.TIMEOUT,
+                        detail=error_message,
+                    )
+                    await self.db.queue_job_status_update_msg(status_msg)
+                except Exception as status_err:
+                    logger.warning(
+                        "Failed to queue timeout status update for job %s: %s",
+                        eval_job_msg.job_id,
+                        status_err,
+                    )
 
                 # Clean up Ray worker and container resources on timeout
                 try:
@@ -1530,7 +1591,19 @@ class Orchestrator:
                             status_err,
                         )
 
-                    spec_payload, base_config = self._split_config_data(job.config)
+                    job_config_payload = (
+                        copy.deepcopy(job.config)
+                        if isinstance(job.config, dict)
+                        else {}
+                    )
+                    timeout_seconds = self._resolve_job_timeout(
+                        getattr(job, "timeout_seconds", None),
+                        self.default_job_timeout,
+                    )
+
+                    spec_payload, base_config = self._split_config_data(
+                        job_config_payload
+                    )
 
                     eval_job_msg = EvalJobMessage(
                         job_id=job.id,
@@ -1546,6 +1619,7 @@ class Orchestrator:
                         artifact_expires_at=job.artifact_expires_at,
                         artifact_sha256=job.artifact_sha256,
                         artifact_size_bytes=job.artifact_size_bytes,
+                        timeout_seconds=timeout_seconds,
                     )
 
                     await self._enqueue_job_for_processing(eval_job_msg)
@@ -1588,6 +1662,11 @@ class Orchestrator:
                 for job_list in [failed_jobs, timeout_jobs, completed_jobs]:
                     for job in job_list:
                         if job.completed_at:
+                            job_timeout_seconds = self._resolve_job_timeout(
+                                getattr(job, "timeout_seconds", None),
+                                self.default_job_timeout,
+                            )
+
                             # Ensure both datetimes have timezone info for comparison
                             current_time = datetime.now(timezone.utc)
                             completed_time = job.completed_at
@@ -1598,7 +1677,7 @@ class Orchestrator:
 
                             if (
                                 current_time - completed_time
-                            ).total_seconds() > self.job_timeout:
+                            ).total_seconds() > job_timeout_seconds:
                                 try:
                                     if job.submission_id:
                                         containers.cleanup_container(

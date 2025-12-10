@@ -87,6 +87,7 @@ class EvalJobMessage(SQLModel):
     env_provider: str
     benchmark_name: str
     config: dict
+    timeout_seconds: Optional[int] = None
     benchmark_spec: Optional[dict] = None
     artifact_url: Optional[str] = None
     artifact_expires_at: Optional[datetime] = None
@@ -106,6 +107,7 @@ class EvalResultMessage(SQLModel):
     """Message for sending evaluation results from validators to backend."""
 
     message_type: MessageType = MessageType.EVAL_RESULT
+    status: EvaluationStatus = EvaluationStatus.COMPLETED
     job_id: SnowflakeId
     validator_hotkey: str
     miner_hotkey: str

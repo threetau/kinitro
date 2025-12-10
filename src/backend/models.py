@@ -32,6 +32,7 @@ from backend.constants import (
     DEFAULT_MIN_SUCCESS_RATE,
     DEFAULT_SUBMISSION_HOLDOUT_SECONDS,
     DEFAULT_WIN_MARGIN_PCT,
+    EVAL_JOB_TIMEOUT,
 )
 from core.db.models import EvaluationStatus, TimestampMixin
 
@@ -76,6 +77,7 @@ class CompetitionCreateRequest(SQLModel):
     min_avg_reward: float = Field(default=DEFAULT_MIN_AVG_REWARD)
     win_margin_pct: float = Field(default=DEFAULT_WIN_MARGIN_PCT)
     min_success_rate: float = Field(default=DEFAULT_MIN_SUCCESS_RATE)
+    job_timeout_seconds: int = Field(default=EVAL_JOB_TIMEOUT, ge=1)
     submission_holdout_seconds: int = Field(
         default=DEFAULT_SUBMISSION_HOLDOUT_SECONDS, ge=0
     )
@@ -97,6 +99,7 @@ class CompetitionResponse(SQLModel):
     min_avg_reward: float
     win_margin_pct: float
     min_success_rate: float
+    job_timeout_seconds: int
     submission_holdout_seconds: int
     submission_max_size_bytes: Optional[int]
     submission_upload_window_seconds: Optional[int]
@@ -228,6 +231,7 @@ class JobResponse(SQLModel):
     env_provider: str
     benchmark_name: str
     config: dict
+    timeout_seconds: Optional[int]
     created_at: datetime
 
     class Config:
@@ -478,6 +482,11 @@ class Competition(TimestampMixin, SQLModel, table=True):
         nullable=False,
         sa_column_kwargs={"server_default": str(DEFAULT_MIN_SUCCESS_RATE)},
     )
+    job_timeout_seconds: int = Field(
+        default=EVAL_JOB_TIMEOUT,
+        nullable=False,
+        sa_column_kwargs={"server_default": str(EVAL_JOB_TIMEOUT)},
+    )
     submission_holdout_seconds: int = Field(
         default=DEFAULT_SUBMISSION_HOLDOUT_SECONDS,
         nullable=False,
@@ -696,6 +705,9 @@ class BackendEvaluationJob(TimestampMixin, SQLModel, table=True):
     env_provider: str = Field(max_length=64, nullable=False)
     benchmark_name: str = Field(max_length=128, nullable=False)
     config: dict = Field(sa_column=Column(JSON, nullable=False))
+    timeout_seconds: Optional[int] = Field(
+        default=None, sa_column=Column(Integer, nullable=True)
+    )
 
     artifact_object_key: Optional[str] = Field(
         default=None, sa_column=Column(SAString(512), nullable=True)
