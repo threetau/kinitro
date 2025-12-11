@@ -452,7 +452,7 @@ class WebSocketValidator(Neuron):
 
     async def _send_eval_result(self, result: EvalResultMessage):
         """Send evaluation result to the backend."""
-        await self._send_message(result.model_dump())
+        await self._send_message(result.model_dump(mode="json"))
 
     async def _send_job_status_update(self, status_update: JobStatusUpdateMessage):
         """Send job status update to the backend."""
