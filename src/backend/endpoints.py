@@ -1580,7 +1580,7 @@ async def list_job_status(
 # Result endpoints
 @app.get("/results", response_model=List[EvaluationResultResponse])
 async def list_results(
-    job_id: Optional[str] = Query(None, description="Filter by job ID"),
+    job_id: Optional[int] = Query(None, description="Filter by job ID"),
     competition_id: Optional[str] = Query(None, description="Filter by competition ID"),
     miner_hotkey: Optional[str] = Query(None, description="Filter by miner hotkey"),
     validator_hotkey: Optional[str] = Query(
