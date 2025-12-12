@@ -165,8 +165,8 @@ def random_task(
     if payload:
         payload_mass_factor = rng.uniform(*PAYLOAD_MASS_FACTOR_RANGE)
         payload_com_offset = (
-            rng.uniform(-PAYLOAD_COM_OFFSET_RANGE[0], PAYLOAD_COM_OFFSET_RANGE[0]),
-            rng.uniform(-PAYLOAD_COM_OFFSET_RANGE[1], PAYLOAD_COM_OFFSET_RANGE[1]),
+            0.0,
+            0.0,
             -abs(rng.uniform(0.0, PAYLOAD_COM_OFFSET_RANGE[2])),
         )
         thrust_scale = rng.uniform(*THRUST_SCALE_RANGE)

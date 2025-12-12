@@ -104,10 +104,10 @@ SAFE_ZONE_RADIUS = 2.0  # Minimum clearance around obstacles (meters)
 MAX_ATTEMPTS_PER_OBS = 100  # Maximum retry attempts when placing obstacles
 
 # Payload and domain randomization ranges
-PAYLOAD_MASS_FACTOR_RANGE = (1.05, 1.6)  # Multiplier on base mass
-PAYLOAD_COM_OFFSET_RANGE = (0.05, 0.05, 0.02)  # Max offset in meters (x, y, z)
-THRUST_SCALE_RANGE = (0.85, 1.05)
-DRAG_SCALE_RANGE = (0.8, 1.3)
+PAYLOAD_MASS_FACTOR_RANGE = (1.05, 1.35)  # Multiplier on base mass
+PAYLOAD_COM_OFFSET_RANGE = (0.0, 0.0, 0.02)  # Only vertical offset is randomized
+THRUST_SCALE_RANGE = (0.9, 1.05)
+DRAG_SCALE_RANGE = (0.85, 1.2)
 WIND_XY_RANGE = (-0.05, 0.05)  # m/s lateral wind components (was +/-0.2)
 ACTION_LAG_SEC_RANGE = (0.0, 0.05)  # control lag to simulate latency
 
