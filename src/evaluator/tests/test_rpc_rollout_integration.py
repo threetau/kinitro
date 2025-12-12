@@ -5,7 +5,6 @@ Tests the complete pipeline: Agent -> RPC Server -> RPC Client -> Worker -> Envi
 """
 
 import asyncio
-import logging
 import multiprocessing
 import time
 import traceback
@@ -18,11 +17,9 @@ from kinitro_eval.rpc.client import AgentClient
 from kinitro_eval.rpc.server import start_server
 from test_scripts.random_agent import RandomActionAgent
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+from core.log import get_logger
+
+logger = get_logger(__name__)
 
 
 def run_agent_server(port=8001):

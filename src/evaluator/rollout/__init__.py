@@ -194,15 +194,16 @@ class RolloutWorker:
         while True:
             try:
                 resp = await recv_queue.get_async(timeout=PGQ_TIMEOUT)
-                print(
-                    f"[Worker {self.rollout_worker_id}] RPC test ping response={resp}"
+                logger.debug(
+                    "[Worker %s] RPC test ping response=%s",
+                    self.rollout_worker_id, resp
                 )
                 return resp
             except asyncio.CancelledError:
-                print(f"[Worker {self.rollout_worker_id}] RPC test cancelled")
+                logger.debug("[Worker %s] RPC test cancelled", self.rollout_worker_id)
                 break
             except Exception as e:
-                print(f"[Worker {self.rollout_worker_id}] Error getting response: {e}")
+                logger.warning("[Worker %s] Error getting response: %s", self.rollout_worker_id, e)
                 break
 
     async def run_all_benchmark_tasks(
@@ -449,12 +450,13 @@ class RolloutWorker:
                 # Log step data if logger is available
                 if episode_logger:
                     # Extract observations (images) from the wrapper output when available
-                    print(
-                        f"[EP_CAM] Extracting images from observations: {type(observation)}"
+                    logger.debug(
+                        "[EP_CAM] Extracting images from observations: %s",
+                        type(observation)
                     )
                     obs_images = extract_image_payloads(observation, env_spec)
                     if not obs_images:
-                        print("[EP_CAM] Warning: no image observations found")
+                        logger.debug("[EP_CAM] Warning: no image observations found")
                         # Fallback to legacy capture methods if wrapper data is unavailable
                         capture_source = None
                         if hasattr(env, "capture_and_save_images"):
@@ -470,7 +472,7 @@ class RolloutWorker:
                                     capture_source.capture_and_save_images()
                                 )
                                 obs_images = list(zip(images_hwc, camera_names))
-                                print(
+                                logger.debug(
                                     "Captured %d fallback images from cameras: %s",
                                     len(images_hwc),
                                     camera_names,

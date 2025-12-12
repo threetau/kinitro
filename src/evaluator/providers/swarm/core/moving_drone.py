@@ -16,6 +16,8 @@ from gym_pybullet_drones.utils.enums import (
 )
 from numpy.typing import NDArray
 
+from core.log import get_logger
+
 from ..constants import (
     ACTION_LAG_SEC_RANGE,
     DRAG_SCALE_RANGE,
@@ -33,6 +35,8 @@ from ..constants import (
 # -- project-level utilities ------------------------------------------------
 from ..validator.reward import flight_reward  # 3-term scorer
 from .env_builder import build_world
+
+logger = get_logger(__name__)
 
 
 class MovingDroneAviary(BaseRLAviary):
@@ -303,7 +307,7 @@ class MovingDroneAviary(BaseRLAviary):
                 p.getConstraintInfo(cid)
                 p.removeConstraint(cid)
             except Exception as exc:
-                print(f"[WARN] payload clear: failed to remove constraint {cid}: {exc}")
+                logger.warning("payload clear: failed to remove constraint %s: %s", cid, exc)
         self._payload_constraint_id = None
 
         bid = self._payload_body_id
@@ -312,7 +316,7 @@ class MovingDroneAviary(BaseRLAviary):
                 p.getBodyInfo(bid)
                 p.removeBody(bid)
             except Exception as exc:
-                print(f"[WARN] payload clear: failed to remove body {bid}: {exc}")
+                logger.warning("payload clear: failed to remove body %s: %s", bid, exc)
         self._payload_body_id = None
 
     def _attach_payload(self) -> None:

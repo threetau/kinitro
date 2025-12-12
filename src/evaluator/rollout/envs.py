@@ -7,7 +7,6 @@ instantiate environments and discover all tasks for provider-agnostic evaluation
 
 from __future__ import annotations
 
-import logging
 import os
 import random
 from dataclasses import dataclass, field
@@ -23,13 +22,14 @@ from gymnasium.spaces import Dict as DictSpace
 from metaworld.wrappers import OneHotWrapper
 from PIL import Image
 
+from core.log import get_logger
 from evaluator.providers.swarm.core.moving_drone import MovingDroneAviary
 from evaluator.providers.swarm.validator.task_gen import random_task
 
 from ..providers import swarm as swarm_provider
 from ..providers.metaworld import load_benchmark_definition
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 DEFAULT_MAX_EPISODE_STEPS = 10
 DEFAULT_EPISODES_PER_TASK = 3
@@ -460,13 +460,13 @@ class DroneObsWrapper(ObservationWrapper):
 
     def capture_and_save_images(self) -> tuple[list[np.ndarray], list[str]]:
         """Capture image from the drone's camera."""
-        print("Capturing drone images for observation")
+        logger.debug("Capturing drone images for observation")
         env: MovingDroneAviary = cast(MovingDroneAviary, self.env)
         # BaseAviary expects the drone index (0-based), not the PyBullet body ID
         rbg = env.get_third_person_rgb(distance=2)
         # convert h,w,c,a to h,w,c
         rbg = rbg[:, :, :3]
-        print("Captured drone images for observation")
+        logger.debug("Captured drone images for observation")
         return [rbg], ["rgb"]
 
 

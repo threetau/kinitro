@@ -8,6 +8,10 @@ import numpy as np
 import torch
 from kinitro_eval.agent_interface import AgentInterface
 
+from core.log import get_logger
+
+logger = get_logger(__name__)
+
 
 class RandomActionAgent(AgentInterface):
     """Agent that sends random actions for testing purposes."""
@@ -43,7 +47,7 @@ class RandomActionAgent(AgentInterface):
 
         super().__init__(observation_space, action_space, seed, **kwargs)
 
-        print(f"RandomActionAgent initialized with seed {self.seed}")
+        logger.info("RandomActionAgent initialized with seed %s", self.seed)
 
     def act(self, obs: dict, **kwargs) -> torch.Tensor:
         """Return random actions in the action space range."""

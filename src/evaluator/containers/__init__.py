@@ -11,7 +11,10 @@ from kubernetes.client.exceptions import ApiException
 from kubernetes.stream import stream
 
 from core.db.models import SnowflakeId
+from core.log import get_logger
 from evaluator.constants import POD_LOG_TAIL_LINES
+
+logger = get_logger(__name__)
 
 dotenv.load_dotenv()
 
@@ -70,14 +73,14 @@ class Containers:
                 namespace="default", field_selector=field_selector
             )
             if events.items:
-                print(f"Events for pod {pod_name}:")
+                logger.debug("Events for pod %s:", pod_name)
                 for event in events.items:
                     timestamp = getattr(event, "last_timestamp", None)
-                    print(f"  {timestamp}: {event.reason} - {event.message}")
+                    logger.debug("  %s: %s - %s", timestamp, event.reason, event.message)
             else:
-                print(f"No events found for pod {pod_name}")
+                logger.debug("No events found for pod %s", pod_name)
         except Exception as e:
-            print(f"Error retrieving pod events for {pod_name}: {e}")
+            logger.warning("Error retrieving pod events for %s: %s", pod_name, e)
 
     @staticmethod
     def _collect_pod_container_logs(
@@ -163,27 +166,25 @@ class Containers:
                 core_api, pod_name, tail_lines=100
             )
         except Exception as exc:
-            print(f"Error retrieving container logs for {pod_name}: {exc}")
+            logger.warning("Error retrieving container logs for %s: %s", pod_name, exc)
             return
 
         if logs.get("error"):
-            print(
-                f"Failed to retrieve pod logs for {pod_name}: {logs['error']}",
-            )
+            logger.warning("Failed to retrieve pod logs for %s: %s", pod_name, logs['error'])
             return
 
         containers = logs.get("containers", {})
         if not containers:
-            print(f"No container logs available for {pod_name}")
+            logger.debug("No container logs available for %s", pod_name)
             return
 
         for container_name, entry in containers.items():
-            print(f"Logs for {pod_name}/{container_name}:")
+            logger.debug("Logs for %s/%s:", pod_name, container_name)
             log_text = entry.get("log")
             if log_text:
-                print(log_text)
+                logger.debug(log_text)
             else:
-                print(f"No logs available ({entry.get('error', 'unknown error')})")
+                logger.debug("No logs available (%s)", entry.get('error', 'unknown error'))
 
     def _handle_failed_pod(
         self,
@@ -202,7 +203,7 @@ class Containers:
                 container_names=[RUNNER_CONTAINER_NAME],
             )
         except Exception as exc:  # pragma: no cover - cache fetch failure
-            print(f"Failed to pre-collect runner logs for {pod_name}: {exc}")
+            logger.warning("Failed to pre-collect runner logs for %s: %s", pod_name, exc)
 
         if cached_runner_logs:
             cached_runner_logs["cached_before_deletion"] = True
@@ -214,7 +215,7 @@ class Containers:
         try:
             self.cleanup_container(submission_id, job_id, wait=False)
         except Exception as exc:
-            print(f"Error cleaning up failed pod {pod_name}: {exc}")
+            logger.error("Error cleaning up failed pod %s: %s", pod_name, exc)
 
     def create_container(
         self,
@@ -225,8 +226,8 @@ class Containers:
         archive_sha256: str | None = None,
         port: int = 8000,
     ) -> str:
-        print(f"Creating container for submission {submission_id} (job {job_id})")
-        print(f"Fetching artifact from {archive_url}")
+        logger.info("Creating container for submission %s (job %s)", submission_id, job_id)
+        logger.debug("Fetching artifact from %s", archive_url)
         config.load_kube_config()
         k8v1api = client.CoreV1Api()
 
@@ -252,8 +253,8 @@ class Containers:
 
         # Override to use local miner agent image if OVERRIDE_IMAGE env var is set
         if os.getenv("OVERRIDE_IMAGE"):
-            print(f"Overriding image to {os.getenv('OVERRIDE_IMAGE')}")
-            print(f"Pod template:\n {pod_template}")
+            logger.info("Overriding image to %s", os.getenv('OVERRIDE_IMAGE'))
+            logger.debug("Pod template:\n %s", pod_template)
             for container in pod_template["spec"]["containers"]:
                 if container["name"] == "runner":
                     container["image"] = "miner-agent"
@@ -276,7 +277,7 @@ class Containers:
                 self._set_env(container, "SUBMISSION_ARCHIVE_SHA256", archive_sha256)
 
         # Create the pod from the template
-        print(f"Creating pod from template for {container_name}")
+        logger.debug("Creating pod from template for %s", container_name)
         # Extract only the metadata and spec from the template, excluding apiVersion and kind
         pod_config = {
             "metadata": pod_template["metadata"],
@@ -289,7 +290,7 @@ class Containers:
 
         try:
             # Create the pod in the default namespace
-            print("Submitting pod to Kubernetes...")
+            logger.debug("Submitting pod to Kubernetes...")
             for attempt in range(self.CONTAINER_RETRY_COUNT):
                 try:
                     k8v1api.create_namespaced_pod(namespace="default", body=pod)
@@ -301,13 +302,14 @@ class Containers:
                         and "AlreadyExists" in api_exc.reason
                         and attempt == 0
                     ):
-                        print(
-                            f"Pod {container_name} already exists; waiting for prior instance to terminate"
+                        logger.info(
+                            "Pod %s already exists; waiting for prior instance to terminate",
+                            container_name
                         )
                         self._wait_for_pod_absence(k8v1api, container_name)
                         continue
                     raise
-            print(f"Pod {container_name} created, waiting for it to start...")
+            logger.info("Pod %s created, waiting for it to start...", container_name)
 
             # Wait for the pod to be running before attempting to connect
             start_time = time.time()
@@ -320,15 +322,15 @@ class Containers:
                     pod_info = k8v1api.read_namespaced_pod(container_name, "default")
                     phase = pod_info.status.phase  # type: ignore
                     if phase != last_phase:
-                        print(f"Pod {container_name} status changed: {phase}")
+                        logger.debug("Pod %s status changed: %s", container_name, phase)
                         last_phase = phase
 
                     if phase == "Running":
-                        print(f"Pod {container_name} is now running!")
+                        logger.info("Pod %s is now running!", container_name)
                         pod_ready = True
                         break
                     elif phase in ("Failed", "Succeeded"):
-                        print(f"Pod {container_name} reached terminal state: {phase}")
+                        logger.warning("Pod %s reached terminal state: %s", container_name, phase)
                         self._log_pod_events(k8v1api, container_name)
                         raise RuntimeError(
                             f"Pod {container_name} terminated unexpectedly with phase {phase}"
@@ -350,8 +352,9 @@ class Containers:
                         if unsched_messages:
                             condensed = "; ".join(sorted(set(unsched_messages)))
                             if condensed != last_unsched_message:
-                                print(
-                                    f"Pod {container_name} pending scheduling: {condensed}"
+                                logger.debug(
+                                    "Pod %s pending scheduling: %s",
+                                    container_name, condensed
                                 )
                                 last_unsched_message = condensed
                                 unsched_since = time.time()
@@ -379,8 +382,9 @@ class Containers:
                 except Exception as exc:
                     if isinstance(exc, RuntimeError):
                         raise
-                    print(
-                        f"Waiting for pod to start (elapsed {int(time.time() - start_time)}s): {exc}"
+                    logger.debug(
+                        "Waiting for pod to start (elapsed %ds): %s",
+                        int(time.time() - start_time), exc
                     )
                     time.sleep(self.POD_POLL_INTERVAL_SECONDS)
 
@@ -405,7 +409,7 @@ class Containers:
             command=["echo", "Container is running"],
         )
 
-        print(f"Container response: {resp}")
+        logger.debug("Container response: %s", resp)
 
         # After pod is running, create a Service to expose it on the specified port
         service_name = container_name  # Use same name for service
@@ -427,30 +431,31 @@ class Containers:
                 namespace="default",
                 body={"metadata": {"labels": {"app": container_name}}},
             )
-            print(f"Patched pod {container_name} with label app={container_name}")
+            logger.debug("Patched pod %s with label app=%s", container_name, container_name)
         except Exception as e:
-            print(f"Error patching pod with label: {e}")
+            logger.error("Error patching pod with label: %s", e)
 
         # Create the service
         try:
             k8v1api.create_namespaced_service(
                 namespace="default", body=service_manifest
             )
-            print(f"Service {service_name} created to expose pod on port {port}")
+            logger.info("Service %s created to expose pod on port %d", service_name, port)
         except ApiException as api_exc:
             if api_exc.status == 409 and "AlreadyExists" in api_exc.reason:
-                print(
-                    f"Service {service_name} already exists; waiting for prior service to be removed"
+                logger.info(
+                    "Service %s already exists; waiting for prior service to be removed",
+                    service_name
                 )
                 self._wait_for_service_absence(k8v1api, service_name)
                 k8v1api.create_namespaced_service(
                     namespace="default", body=service_manifest
                 )
-                print(f"Service {service_name} recreated after cleanup")
+                logger.info("Service %s recreated after cleanup", service_name)
             else:
-                print(f"Error creating service: {api_exc}")
+                logger.error("Error creating service: %s", api_exc)
         except Exception as e:
-            print(f"Error creating service: {e}")
+            logger.error("Error creating service: %s", e)
 
         return container_name
 
@@ -464,9 +469,9 @@ class Containers:
         container_name = self.build_resource_name(submission_id, job_id)
         try:
             v1.delete_namespaced_pod(name=container_name, namespace="default")
-            print(f"Pod {container_name} deleted successfully")
+            logger.info("Pod %s deleted successfully", container_name)
         except Exception as e:
-            print(f"Error deleting pod {container_name}: {e}")
+            logger.error("Error deleting pod %s: %s", container_name, e)
 
     def cleanup_container(
         self,
@@ -490,18 +495,18 @@ class Containers:
         # Delete the service first
         try:
             v1.delete_namespaced_service(name=service_name, namespace="default")
-            print(f"Service {service_name} deleted successfully")
+            logger.info("Service %s deleted successfully", service_name)
         except client.exceptions.ApiException as e:
             if e.status != 404:  # Ignore if service doesn't exist
-                print(f"Error deleting service {service_name}: {e}")
+                logger.error("Error deleting service %s: %s", service_name, e)
 
         # Delete the pod
         try:
             v1.delete_namespaced_pod(name=container_name, namespace="default")
-            print(f"Pod {container_name} deleted successfully")
+            logger.info("Pod %s deleted successfully", container_name)
         except client.exceptions.ApiException as e:
             if e.status != 404:  # Ignore if pod doesn't exist
-                print(f"Error deleting pod {container_name}: {e}")
+                logger.error("Error deleting pod %s: %s", container_name, e)
 
         if wait:
             self._wait_for_service_absence(v1, service_name)
@@ -515,11 +520,12 @@ class Containers:
             try:
                 pod = core_api.read_namespaced_pod(name=pod_name, namespace=namespace)
                 if pod.metadata and pod.metadata.deletion_timestamp:
-                    print(
-                        f"Pod {pod_name} still terminating; waiting for cleanup to finish"
+                    logger.debug(
+                        "Pod %s still terminating; waiting for cleanup to finish",
+                        pod_name
                     )
                 else:
-                    print(f"Pod {pod_name} still present; deleting existing instance")
+                    logger.debug("Pod %s still present; deleting existing instance", pod_name)
                     try:
                         core_api.delete_namespaced_pod(
                             name=pod_name, namespace=namespace
@@ -627,8 +633,9 @@ class Containers:
                 except ApiException as delete_exc:
                     if delete_exc.status != 404:
                         raise
-                print(
-                    f"Service {service_name} still present; waiting for deletion to complete"
+                logger.debug(
+                    "Service %s still present; waiting for deletion to complete",
+                    service_name
                 )
                 time.sleep(self.DELETE_RETRY_INTERVAL)
             except ApiException as api_exc:

@@ -5,7 +5,10 @@ import asyncpg
 from pgqueuer import AsyncpgDriver, Queries
 from snowflake import SnowflakeGenerator
 
+from core.log import get_logger
 from validator.db.models import EvaluationJob, EvaluationStatus
+
+logger = get_logger(__name__)
 
 
 async def main():
@@ -37,9 +40,9 @@ async def main():
     driver = AsyncpgDriver(conn)
     q = Queries(driver)
     job_bytes = job.to_bytes()
-    print(f"Enqueuing job: {job!r}")
+    logger.info("Enqueuing job: %r", job)
     await q.enqueue(["add_job"], [job_bytes], [0])
-    print("Job enqueued successfully.")
+    logger.info("Job enqueued successfully.")
 
 
 if __name__ == "__main__":

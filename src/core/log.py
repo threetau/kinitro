@@ -237,6 +237,8 @@ def get_logger(
 
     logger = logging.getLogger(name)
     logger.setLevel(log_level.level)
+    # Prevent propagation to root logger to avoid duplicate logs or missing output
+    logger.propagate = False
 
     # Clear existing handlers to prevent duplicate logs
     if logger.hasHandlers():
