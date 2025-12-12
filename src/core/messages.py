@@ -83,7 +83,7 @@ class EvalJobMessage(SQLModel):
     competition_id: str
     submission_id: int
     miner_hotkey: str
-    hf_repo_id: str
+    repo_id: str
     env_provider: str
     benchmark_name: str
     config: dict

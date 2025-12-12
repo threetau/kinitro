@@ -76,7 +76,7 @@ class JobCreatedEvent(JobEventMixin, SubmissionEventMixin, BaseEvent):
 
     competition_id: str
     miner_hotkey: str
-    hf_repo_id: str
+    repo_id: str
     env_provider: str
     benchmark_name: str
     config: Dict[str, Any]
@@ -231,7 +231,7 @@ class SubmissionReceivedEvent(SubmissionEventMixin, BaseEvent):
 
     competition_id: str
     miner_hotkey: str
-    hf_repo_id: str
+    repo_id: str
     block_number: int
     created_at: datetime
 

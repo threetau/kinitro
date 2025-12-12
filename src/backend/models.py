@@ -190,7 +190,7 @@ class MinerSubmissionResponse(SQLModel):
     id: str
     miner_hotkey: str
     competition_id: str
-    hf_repo_id: str
+    repo_id: str
     version: str
     commitment_block: int
     submission_time: datetime
@@ -227,7 +227,7 @@ class JobResponse(SQLModel):
     submission_id: str
     competition_id: str
     miner_hotkey: str
-    hf_repo_id: str
+    repo_id: str
     env_provider: str
     benchmark_name: str
     config: dict
@@ -372,7 +372,7 @@ class SubmissionLeaderboardEntry(SQLModel):
     submission_id: str
     competition_id: str
     miner_hotkey: str
-    hf_repo_id: Optional[str]
+    repo_id: Optional[str]
     version: Optional[str]
     avg_reward: Optional[float]
     success_rate: Optional[float]
@@ -620,7 +620,7 @@ class MinerSubmission(TimestampMixin, SQLModel, table=True):
     )
 
     # Submission details from chain commitment
-    hf_repo_id: str = Field(max_length=256, nullable=False)
+    repo_id: str = Field(max_length=256, nullable=False)
     version: str = Field(max_length=32, nullable=False)
     commitment_block: int = Field(
         sa_column=Column(BigInteger, nullable=False, index=True)
@@ -701,7 +701,7 @@ class BackendEvaluationJob(TimestampMixin, SQLModel, table=True):
 
     # Job details
     miner_hotkey: str = Field(max_length=48, nullable=False, index=True)
-    hf_repo_id: str = Field(max_length=256, nullable=False)
+    repo_id: str = Field(max_length=256, nullable=False)
     env_provider: str = Field(max_length=64, nullable=False)
     benchmark_name: str = Field(max_length=128, nullable=False)
     config: dict = Field(sa_column=Column(JSON, nullable=False))
