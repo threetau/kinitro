@@ -8,12 +8,32 @@ Kinitro incentivizes the emergence of agents that can conquer various tasks acro
 Miners publish agents to compete, validators peform rollouts and evaluate the agents, and reward miners
 based on the results. All this happens in real-time and can easily be viewed by anyone through our [dashboard](https://kinitro.ai/dashboard).
 
+## Repository Setup
+
+1. **Clone the repository**
+
+   ```bash
+   git clone https://github.com/threetau/kinitro
+   cd kinitro
+   ```
+
+2. **Create a virtual environment and install dependencies**
+
+   ```bash
+   uv venv .venv
+   source .venv/bin/activate
+   uv sync --dev
+   uv pip install -e .
+   ```
+
+After setting up the repository locally, the next steps will depend on what role you play in the Kinitro ecosystem.
+
 ## Platform Roles
 
 - **Miners** upload agent artifacts to our backend and submit a signed commitment to the Bittensor chain. Use the [miner guide](./miner.md) to configure packaging, uploading, and on-chain commits.
 - **Validators** maintain a websocket connection to the backend, persist jobs in pgqueuer, and relay results and episode logs. Follow the [validator guide](./validator/validator.md) for environment setup and operations.
 - **Evaluator operators** run the Ray orchestrator that spins up submission containers, executes benchmarks, and logs telemetry. See the [evaluator architecture notes](./architecture/evaluator.md) for details.
-- **Backend operators** deploy the FastAPI service that monitors the chain, schedules jobs, emits realtime updates, and approve pending leader candidates before new rewards go live. The [project README](../README.md) covers setup and runtime commands.
+- **Backend operators** deploy the FastAPI service that monitors the chain, schedules jobs, emits realtime updates, and approve pending leader candidates before new rewards go live.
 
 ## Learn the Architecture
 
