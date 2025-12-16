@@ -1748,11 +1748,7 @@ class BackendService:
                     reverse=True,
                 )
 
-                top_result: Optional[BackendEvaluationResult] = (
-                    eligible_results[0] if eligible_results else None
-                )
-
-                if not top_result:
+                if not eligible_results:
                     if competition.current_leader_hotkey:
                         logger.info(
                             "Competition %s: Current leader %s retains position (no eligible challengers)",
@@ -1763,133 +1759,131 @@ class BackendService:
                         logger.info(
                             "Competition %s: No eligible miners found", competition.id
                         )
-                else:
-                    current_leader = competition.current_leader_hotkey
-                    candidate_reward = top_result.avg_reward or 0.0
+                    continue
 
-                    if current_leader is None:
+                current_leader = competition.current_leader_hotkey
+
+                if current_leader is None:
+                    queued_any = False
+                    for res in eligible_results:
                         created_candidate = await self._queue_leader_candidate(
-                            session, competition, top_result
+                            session, competition, res
+                        )
+                        if created_candidate:
+                            queued_any = True
+                            logger.info(
+                                "Competition %s: Queued leader candidate %s (success_rate=%.3f, avg_reward=%.3f)",
+                                competition.id,
+                                res.miner_hotkey,
+                                res.success_rate or 0.0,
+                                res.avg_reward or 0.0,
+                            )
+                    if not queued_any:
+                        logger.debug(
+                            "Competition %s: All eligible results already queued as candidates",
+                            competition.id,
+                        )
+                else:
+                    leader_success_rate_stmt = (
+                        select(
+                            CompetitionLeaderCandidate.success_rate,
+                            CompetitionLeaderCandidate.evaluation_result_id,
+                        )
+                        .where(
+                            CompetitionLeaderCandidate.competition_id == competition.id,
+                            CompetitionLeaderCandidate.miner_hotkey == current_leader,
+                            CompetitionLeaderCandidate.status
+                            == LeaderCandidateStatus.APPROVED,
+                        )
+                        .order_by(
+                            CompetitionLeaderCandidate.reviewed_at.desc(),
+                            CompetitionLeaderCandidate.updated_at.desc(),
+                        )
+                        .limit(1)
+                    )
+                    leader_success_rate_result = await session.execute(
+                        leader_success_rate_stmt
+                    )
+                    leader_success_rate_row = leader_success_rate_result.first()
+                    leader_success_rate = (
+                        leader_success_rate_row[0] if leader_success_rate_row else None
+                    )
+                    leader_success_eval_id = (
+                        leader_success_rate_row[1] if leader_success_rate_row else None
+                    )
+                    baseline_leader_success_rate = (
+                        leader_success_rate if leader_success_rate is not None else -1.0
+                    )
+
+                    leader_best = next(
+                        (
+                            res
+                            for res in eligible_results
+                            if res.miner_hotkey == current_leader
+                        ),
+                        None,
+                    )
+                    if (
+                        leader_best
+                        and leader_best.avg_reward is not None
+                        and leader_best.avg_reward != competition.current_leader_reward
+                    ):
+                        competition.current_leader_reward = leader_best.avg_reward
+                        competition.leader_updated_at = datetime.now(timezone.utc)
+                        logger.info(
+                            "Competition %s: Updated leader %s reward to %.3f",
+                            competition.id,
+                            current_leader,
+                            leader_best.avg_reward,
+                        )
+
+                    challengers: list[BackendEvaluationResult] = []
+                    for res in eligible_results:
+                        if (
+                            res.success_rate is not None
+                            and res.success_rate > baseline_leader_success_rate
+                        ):
+                            challengers.append(res)
+
+                    if (
+                        leader_best
+                        and leader_best.success_rate is not None
+                        and leader_best.success_rate >= baseline_leader_success_rate
+                        and leader_best.id != leader_success_eval_id
+                    ):
+                        challengers.append(leader_best)
+
+                    # Deduplicate challengers by evaluation_result_id while preserving order
+                    seen_eval_ids: set[int] = set()
+                    unique_challengers: list[BackendEvaluationResult] = []
+                    for res in challengers:
+                        if res.id in seen_eval_ids:
+                            continue
+                        seen_eval_ids.add(res.id)
+                        unique_challengers.append(res)
+
+                    for challenger in unique_challengers:
+                        created_candidate = await self._queue_leader_candidate(
+                            session, competition, challenger
                         )
                         if created_candidate:
                             logger.info(
-                                "Competition %s: Added first leader candidate %s (avg_reward=%.3f)",
+                                "Competition %s: Challenger %s queued for admin review (success_rate=%.3f, avg_reward=%.3f, current leader=%s success_rate=%s)",
                                 competition.id,
-                                top_result.miner_hotkey,
-                                candidate_reward,
+                                challenger.miner_hotkey,
+                                challenger.success_rate or 0.0,
+                                challenger.avg_reward or 0.0,
+                                current_leader,
+                                f"{leader_success_rate:.3f}"
+                                if leader_success_rate is not None
+                                else "unknown",
                             )
                         else:
                             logger.debug(
-                                "Competition %s: Leader candidate %s already pending",
+                                "Competition %s: Challenger %s already recorded as candidate",
                                 competition.id,
-                                top_result.miner_hotkey,
+                                challenger.miner_hotkey,
                             )
-                    else:
-                        leader_success_rate_stmt = (
-                            select(
-                                CompetitionLeaderCandidate.success_rate,
-                                CompetitionLeaderCandidate.evaluation_result_id,
-                            )
-                            .where(
-                                CompetitionLeaderCandidate.competition_id
-                                == competition.id,
-                                CompetitionLeaderCandidate.miner_hotkey
-                                == current_leader,
-                                CompetitionLeaderCandidate.status
-                                == LeaderCandidateStatus.APPROVED,
-                            )
-                            .order_by(
-                                CompetitionLeaderCandidate.reviewed_at.desc(),
-                                CompetitionLeaderCandidate.updated_at.desc(),
-                            )
-                            .limit(1)
-                        )
-                        leader_success_rate_result = await session.execute(
-                            leader_success_rate_stmt
-                        )
-                        leader_success_rate_row = leader_success_rate_result.first()
-                        leader_success_rate = (
-                            leader_success_rate_row[0]
-                            if leader_success_rate_row
-                            else None
-                        )
-                        leader_success_eval_id = (
-                            leader_success_rate_row[1]
-                            if leader_success_rate_row
-                            else None
-                        )
-                        baseline_leader_success_rate = (
-                            leader_success_rate
-                            if leader_success_rate is not None
-                            else -1.0
-                        )
-
-                        if top_result.miner_hotkey == current_leader:
-                            if (
-                                top_result.avg_reward is not None
-                                and top_result.avg_reward
-                                != competition.current_leader_reward
-                            ):
-                                competition.current_leader_reward = (
-                                    top_result.avg_reward
-                                )
-                                competition.leader_updated_at = datetime.now(
-                                    timezone.utc
-                                )
-                                logger.info(
-                                    "Competition %s: Updated leader %s reward to %.3f",
-                                    competition.id,
-                                    current_leader,
-                                    top_result.avg_reward,
-                                )
-
-                        challengers: list[BackendEvaluationResult] = []
-                        for res in eligible_results:
-                            if (
-                                res.success_rate is not None
-                                and res.success_rate > baseline_leader_success_rate
-                            ):
-                                challengers.append(res)
-
-                        if (
-                            top_result.miner_hotkey == current_leader
-                            and top_result.success_rate is not None
-                            and top_result.success_rate >= baseline_leader_success_rate
-                            and top_result.id != leader_success_eval_id
-                        ):
-                            challengers.append(top_result)
-
-                        # Deduplicate challengers by evaluation_result_id while preserving order
-                        seen_eval_ids: set[int] = set()
-                        unique_challengers: list[BackendEvaluationResult] = []
-                        for res in challengers:
-                            if res.id in seen_eval_ids:
-                                continue
-                            seen_eval_ids.add(res.id)
-                            unique_challengers.append(res)
-
-                        for challenger in unique_challengers:
-                            created_candidate = await self._queue_leader_candidate(
-                                session, competition, challenger
-                            )
-                            if created_candidate:
-                                logger.info(
-                                    "Competition %s: Challenger %s queued for admin review (success_rate=%.3f, avg_reward=%.3f, current leader=%s success_rate=%s)",
-                                    competition.id,
-                                    challenger.miner_hotkey,
-                                    challenger.success_rate or 0.0,
-                                    challenger.avg_reward or 0.0,
-                                    current_leader,
-                                    f"{leader_success_rate:.3f}"
-                                    if leader_success_rate is not None
-                                    else "unknown",
-                                )
-                            else:
-                                logger.debug(
-                                    "Competition %s: Challenger %s already recorded as candidate",
-                                    competition.id,
-                                    challenger.miner_hotkey,
-                                )
 
                 # Award points only to the currently approved leader
                 award_hotkey = competition.current_leader_hotkey
