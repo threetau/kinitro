@@ -18,7 +18,7 @@ async def main():
         status=EvaluationStatus.QUEUED,
         submission_id=sub_id,  # type: ignore
         miner_hotkey="5CyY97KCfwRC5UZN58A1cLpZnMgSZAKWtqaaggUfzYiJ6B8d",
-        hf_repo_id="rishiad/default_submission",
+        repo_id="rishiad/default_submission",
         env_provider="metaworld",
         env_name="MT10",
         id=job_id,  # type: ignore

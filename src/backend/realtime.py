@@ -944,7 +944,7 @@ class RealtimeEventBroadcaster:
                     competition_id=job.competition_id,
                     submission_id=job.submission_id,
                     miner_hotkey=job.miner_hotkey,
-                    hf_repo_id=job.hf_repo_id,
+                    repo_id=job.repo_id,
                     env_provider=job.env_provider,
                     benchmark_name=job.benchmark_name,
                     config=_base_job_config(job.config),
@@ -1179,7 +1179,7 @@ class RealtimeEventBroadcaster:
                     submission_id=submission.id,
                     competition_id=submission.competition_id,
                     miner_hotkey=submission.miner_hotkey,
-                    hf_repo_id=submission.hf_repo_id,
+                    repo_id=submission.repo_id,
                     block_number=submission.block_number,
                     created_at=submission.created_at or datetime.now(timezone.utc),
                 )

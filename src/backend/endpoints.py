@@ -872,7 +872,7 @@ async def get_submission_leaderboard(
                 BackendEvaluationJob.competition_id.label("competition_id"),
                 BackendEvaluationResult.miner_hotkey.label("miner_hotkey"),
                 MinerSubmission.version.label("version"),
-                MinerSubmission.hf_repo_id.label("hf_repo_id"),
+                MinerSubmission.repo_id.label("repo_id"),
                 func.avg(BackendEvaluationResult.avg_reward).label("avg_reward"),
                 func.avg(BackendEvaluationResult.success_rate).label("success_rate"),
                 func.avg(BackendEvaluationResult.score).label("score"),
@@ -895,7 +895,7 @@ async def get_submission_leaderboard(
                 BackendEvaluationJob.competition_id,
                 BackendEvaluationResult.miner_hotkey,
                 MinerSubmission.version,
-                MinerSubmission.hf_repo_id,
+                MinerSubmission.repo_id,
             )
         )
 
@@ -961,7 +961,7 @@ async def get_submission_leaderboard(
                 submission_id=str(row.submission_id),
                 competition_id=row.competition_id,
                 miner_hotkey=row.miner_hotkey,
-                hf_repo_id=row.hf_repo_id,
+                repo_id=row.repo_id,
                 version=row.version,
                 avg_reward=avg_reward_val,
                 success_rate=success_rate_val,
