@@ -25,7 +25,7 @@ dependencies = [
     "colorama>=0.4.6",
     "dynaconf>=3.2.11",
     "fastapi>=0.104.0",
-    "fiber @ git+https://github.com/threetau/fiber.git@488277ddfcd80650e238f96f41ca38ec76c600d9#egg=fiber[chain]",
+    "fiber @ git+https://github.com/threetau/fiber.git@11c542fbfe3e77f91cd898cf3004eb0dadf85de0#egg=fiber[chain]",
     "greenlet>=3.2.4",
     "gym-pybullet-drones @ git+https://github.com/threetau/gym-pybullet-drones.git@kinitro",
     "gymnasium==1.2.0",

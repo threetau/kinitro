@@ -613,7 +613,7 @@ wheels = [
 [[package]]
 name = "fiber"
 version = "2.5.0"
-source = { git = "https://github.com/threetau/fiber.git?rev=488277ddfcd80650e238f96f41ca38ec76c600d9#488277ddfcd80650e238f96f41ca38ec76c600d9" }
+source = { git = "https://github.com/threetau/fiber.git?rev=11c542fbfe3e77f91cd898cf3004eb0dadf85de0#11c542fbfe3e77f91cd898cf3004eb0dadf85de0" }
 dependencies = [
     { name = "async-substrate-interface" },
     { name = "bittensor-commit-reveal" },
@@ -1000,7 +1000,7 @@ requires-dist = [
     { name = "colorama", specifier = ">=0.4.6" },
     { name = "dynaconf", specifier = ">=3.2.11" },
     { name = "fastapi", specifier = ">=0.104.0" },
-    { name = "fiber", git = "https://github.com/threetau/fiber.git?rev=488277ddfcd80650e238f96f41ca38ec76c600d9" },
+    { name = "fiber", git = "https://github.com/threetau/fiber.git?rev=11c542fbfe3e77f91cd898cf3004eb0dadf85de0" },
     { name = "greenlet", specifier = ">=3.2.4" },
     { name = "gym-pybullet-drones", git = "https://github.com/threetau/gym-pybullet-drones.git?rev=kinitro" },
     { name = "gymnasium", specifier = "==1.2.0" },
