@@ -391,6 +391,10 @@ class RolloutWorker:
         episode_start = time.time()
         episode_success = False
 
+        rpc_msg = RPCRequest.create_reset()
+        await send_queue.put_async(rpc_msg, timeout=PGQ_TIMEOUT)
+        resp = await recv_queue.get_async(timeout=PGQ_TIMEOUT)
+
         while not done and step_count < max_steps:
             try:
                 if step_count == 0:
