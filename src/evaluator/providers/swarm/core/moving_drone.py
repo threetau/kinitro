@@ -580,11 +580,11 @@ class MovingDroneAviary(BaseRLAviary):
 
         # Thrust scaling for velocity commands (approximate)
         processed = processed * self.thrust_scale
-        
+
         if self.action_latency > 0:
             smoothing = np.clip(self.action_latency / max(self._sim_dt, 1e-3), 0.0, 0.9)
             processed = (1 - smoothing) * processed + smoothing * self._prev_action
-        
+
         self._prev_action = np.array(processed, copy=True)
         return processed
 
