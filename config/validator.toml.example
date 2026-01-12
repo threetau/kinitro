@@ -1,4 +1,4 @@
-version = "0.1.8"
+version = "0.1.9"
 log_level = "INFO" # Must be one of TRACE, DEBUG, INFO, WARN, ERROR
 
 wallet_path = "~/.bittensor/wallets"
