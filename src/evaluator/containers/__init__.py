@@ -1,6 +1,6 @@
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Dict, Iterable, Optional
 
@@ -28,14 +28,13 @@ RUNNER_CONTAINER_NAME = "runner"
 
 
 class Containers:
-    DELETE_TIMEOUT_SECONDS = 60
-    DELETE_RETRY_INTERVAL = 5
+    DELETE_TIMEOUT = timedelta(minutes=1)
+    DELETE_RETRY_INTERVAL = timedelta(seconds=5)
     CONTAINER_RETRY_COUNT = 2
-    # TODO: use proper duration types rather than ints
-    POD_READY_TIMEOUT_SECONDS = 600
-    POD_POLL_INTERVAL_SECONDS = 2.0
-    POD_UNSCHEDULABLE_GRACE_SECONDS = 10
-    FAILED_POD_LOG_CACHE_TTL_SECONDS = 600
+    POD_READY_TIMEOUT = timedelta(minutes=10)
+    POD_POLL_INTERVAL = timedelta(seconds=2)
+    POD_UNSCHEDULABLE_GRACE = timedelta(seconds=10)
+    FAILED_POD_LOG_CACHE_TTL = timedelta(minutes=10)
 
     _failed_pod_log_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
     _log_cache_lock: Lock = Lock()
@@ -361,7 +360,7 @@ class Containers:
                             if (
                                 unsched_since is not None
                                 and time.time() - unsched_since
-                                >= self.POD_UNSCHEDULABLE_GRACE_SECONDS
+                                >= self.POD_UNSCHEDULABLE_GRACE.total_seconds()
                             ):
                                 raise PodSchedulingError(
                                     f"Pod {container_name} unschedulable: {condensed}"
@@ -369,20 +368,22 @@ class Containers:
                         else:
                             unsched_since = None
 
-                    if (time.time() - start_time) >= self.POD_READY_TIMEOUT_SECONDS:
+                    if (
+                        time.time() - start_time
+                    ) >= self.POD_READY_TIMEOUT.total_seconds():
                         self._log_pod_events(k8v1api, container_name)
                         raise RuntimeError(
-                            f"Pod {container_name} did not become ready within {self.POD_READY_TIMEOUT_SECONDS}s"
+                            f"Pod {container_name} did not become ready within {self.POD_READY_TIMEOUT.total_seconds()}s"
                         )
 
-                    time.sleep(self.POD_POLL_INTERVAL_SECONDS)
+                    time.sleep(self.POD_POLL_INTERVAL.total_seconds())
                 except Exception as exc:
                     if isinstance(exc, RuntimeError):
                         raise
                     print(
                         f"Waiting for pod to start (elapsed {int(time.time() - start_time)}s): {exc}"
                     )
-                    time.sleep(self.POD_POLL_INTERVAL_SECONDS)
+                    time.sleep(self.POD_POLL_INTERVAL.total_seconds())
 
         except Exception:
             if pod_created:
@@ -510,7 +511,7 @@ class Containers:
     def _wait_for_pod_absence(
         self, core_api: client.CoreV1Api, pod_name: str, namespace: str = "default"
     ) -> None:
-        deadline = time.time() + self.DELETE_TIMEOUT_SECONDS
+        deadline = time.time() + self.DELETE_TIMEOUT.total_seconds()
         while True:
             try:
                 pod = core_api.read_namespaced_pod(name=pod_name, namespace=namespace)
@@ -531,7 +532,7 @@ class Containers:
                     raise TimeoutError(
                         f"Timed out waiting for pod {pod_name} to be deleted"
                     )
-                time.sleep(self.DELETE_RETRY_INTERVAL)
+                time.sleep(self.DELETE_RETRY_INTERVAL.total_seconds())
             except ApiException as api_exc:
                 if api_exc.status == 404:
                     return
@@ -570,7 +571,7 @@ class Containers:
     def _cache_failed_pod_logs(cls, pod_name: str, logs: Dict[str, Any]) -> None:
         """Store runner logs for pods that are about to be torn down."""
 
-        expiry = time.time() + cls.FAILED_POD_LOG_CACHE_TTL_SECONDS
+        expiry = time.time() + cls.FAILED_POD_LOG_CACHE_TTL.total_seconds()
         with cls._log_cache_lock:
             cls._prune_failed_log_cache_locked(time.time())
             cls._failed_pod_log_cache[pod_name] = (expiry, logs)
@@ -612,7 +613,7 @@ class Containers:
     def _wait_for_service_absence(
         self, core_api: client.CoreV1Api, service_name: str, namespace: str = "default"
     ) -> None:
-        deadline = time.time() + self.DELETE_TIMEOUT_SECONDS
+        deadline = time.time() + self.DELETE_TIMEOUT.total_seconds()
         while True:
             try:
                 core_api.read_namespaced_service(name=service_name, namespace=namespace)
@@ -630,7 +631,7 @@ class Containers:
                 print(
                     f"Service {service_name} still present; waiting for deletion to complete"
                 )
-                time.sleep(self.DELETE_RETRY_INTERVAL)
+                time.sleep(self.DELETE_RETRY_INTERVAL.total_seconds())
             except ApiException as api_exc:
                 if api_exc.status == 404:
                     return

@@ -48,9 +48,9 @@ from backend.constants import (
     MAX_WORKERS,
     SCORE_EVALUATION_INTERVAL,
     SCORE_EVALUATION_STARTUP_DELAY,
-    SUBMISSION_DOWNLOAD_URL_TTL_SECONDS,
-    SUBMISSION_RELEASE_URL_TTL_SECONDS,
-    SUBMISSION_UPLOAD_URL_TTL_SECONDS,
+    SUBMISSION_DOWNLOAD_URL_TTL,
+    SUBMISSION_RELEASE_URL_TTL,
+    SUBMISSION_UPLOAD_URL_TTL,
     WEIGHT_BROADCAST_INTERVAL,
     WEIGHT_BROADCAST_STARTUP_DELAY,
 )
@@ -221,7 +221,7 @@ class BackendService:
             "max_commitment_lookback", DEFAULT_MAX_COMMITMENT_LOOKBACK
         )
         self.chain_sync_interval = config.settings.get(
-            "chain_sync_interval", DEFAULT_CHAIN_SYNC_INTERVAL
+            "chain_sync_interval", DEFAULT_CHAIN_SYNC_INTERVAL.total_seconds()
         )
 
         owner_uid_setting = config.settings.get("owner_uid", DEFAULT_OWNER_UID)
@@ -258,14 +258,14 @@ class BackendService:
 
         # Scoring and weight broadcast intervals
         self.score_evaluation_interval = config.settings.get(
-            "score_evaluation_interval", SCORE_EVALUATION_INTERVAL
+            "score_evaluation_interval", SCORE_EVALUATION_INTERVAL.total_seconds()
         )
         self.weight_broadcast_interval = config.settings.get(
-            "weight_broadcast_interval", WEIGHT_BROADCAST_INTERVAL
+            "weight_broadcast_interval", WEIGHT_BROADCAST_INTERVAL.total_seconds()
         )
         timeout_setting = config.settings.get(
             "job_timeout_seconds",
-            config.settings.get("job_timeout", EVAL_JOB_TIMEOUT),
+            config.settings.get("job_timeout", EVAL_JOB_TIMEOUT.total_seconds()),
         )
         self.default_job_timeout_seconds = self._resolve_job_timeout_seconds(
             timeout_setting
@@ -278,18 +278,19 @@ class BackendService:
         self.submission_upload_url_ttl = int(
             config.settings.get(
                 "submission_upload_url_ttl_seconds",
-                SUBMISSION_UPLOAD_URL_TTL_SECONDS,
+                SUBMISSION_UPLOAD_URL_TTL.total_seconds(),
             )
         )
         self.submission_download_url_ttl = int(
             config.settings.get(
                 "submission_download_url_ttl_seconds",
-                SUBMISSION_DOWNLOAD_URL_TTL_SECONDS,
+                SUBMISSION_DOWNLOAD_URL_TTL.total_seconds(),
             )
         )
         self.holdout_release_scan_interval = int(
             config.settings.get(
-                "holdout_release_scan_interval", HOLDOUT_RELEASE_SCAN_INTERVAL
+                "holdout_release_scan_interval",
+                HOLDOUT_RELEASE_SCAN_INTERVAL.total_seconds(),
             )
         )
 
@@ -390,7 +391,7 @@ class BackendService:
 
     def _resolve_job_timeout_seconds(self, configured_value: Any) -> int:
         """Convert configured timeout to a positive integer with a sane default."""
-        default_timeout = EVAL_JOB_TIMEOUT
+        default_timeout = int(EVAL_JOB_TIMEOUT.total_seconds())
         try:
             timeout_seconds = int(configured_value)
         except (TypeError, ValueError):
@@ -1432,7 +1433,7 @@ class BackendService:
 
             except Exception as e:
                 logger.error(f"Error in heartbeat monitor: {e}")
-                await asyncio.sleep(HEARTBEAT_INTERVAL)
+                await asyncio.sleep(HEARTBEAT_INTERVAL.total_seconds())
 
     def _is_miner_eligible(
         self,
@@ -2037,7 +2038,7 @@ class BackendService:
                     release_url, expires_at = (
                         self.submission_storage.generate_download_url(
                             submission.artifact_object_key,
-                            SUBMISSION_RELEASE_URL_TTL_SECONDS,
+                            SUBMISSION_RELEASE_URL_TTL,
                         )
                     )
                 except Exception as exc:
@@ -2907,7 +2908,7 @@ class BackendService:
             artifact_expires_at=artifact_expires_at,
             artifact_sha256=job.artifact_sha256,
             artifact_size_bytes=job.artifact_size_bytes,
-            timeout_seconds=timeout_seconds,
+            timeout=timedelta(seconds=timeout_seconds),
         )
 
         message = job_msg.model_dump_json()

@@ -64,7 +64,7 @@ class BackendConfig(Config):
             help="Maximum runtime for evaluation jobs (seconds)",
             default=self.settings.get(
                 "job_timeout_seconds",
-                self.settings.get("job_timeout", EVAL_JOB_TIMEOUT),
+                self.settings.get("job_timeout", int(EVAL_JOB_TIMEOUT.total_seconds())),
             ),
         )
 

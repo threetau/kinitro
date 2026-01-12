@@ -88,7 +88,7 @@ class Orchestrator:
             )
         self.max_concurrent_jobs = max(MIN_CONCURRENT_JOBS, config.max_concurrent_jobs)
         self.default_job_timeout = self._resolve_job_timeout(
-            config.settings.get("job_timeout"), EVAL_TIMEOUT
+            config.settings.get("job_timeout"), int(EVAL_TIMEOUT.total_seconds())
         )
         logger.info(
             "Default job timeout fallback set to %s seconds (backend may override)",
@@ -272,7 +272,10 @@ class Orchestrator:
             )
 
         job_timeout_seconds = self._resolve_job_timeout(
-            getattr(eval_job_msg, "timeout_seconds", None), self.default_job_timeout
+            getattr(eval_job_msg, "timeout", None).total_seconds()
+            if getattr(eval_job_msg, "timeout", None)
+            else None,
+            self.default_job_timeout,
         )
 
         job_config_payload = self._config_payload_for_storage(eval_job_msg)
@@ -413,7 +416,7 @@ class Orchestrator:
                 raise RuntimeError("No node IP found in cluster")
 
             # Wait for container to be ready
-            await asyncio.sleep(WAIT_TIME)
+            await asyncio.sleep(WAIT_TIME.total_seconds())
 
             # Create a benchmark spec for the job, honoring backend-provided settings
             benchmark_spec = self._build_benchmark_spec_from_job(eval_job_msg)
@@ -447,7 +450,7 @@ class Orchestrator:
             )
             rpc_thread.start()
 
-            await asyncio.sleep(PROCESS_JOB_WAIT_TIME)
+            await asyncio.sleep(PROCESS_JOB_WAIT_TIME.total_seconds())
 
             await self._wait_for_rpc_handshake(
                 job_id=eval_job_msg.job_id,
@@ -932,7 +935,9 @@ class Orchestrator:
 
         try:
             # Use ray.wait with timeout to check if job is done without blocking
-            ready, not_ready = ray.wait([evaluation_future], timeout=RAY_WAIT_TIMEOUT)
+            ready, not_ready = ray.wait(
+                [evaluation_future], timeout=RAY_WAIT_TIMEOUT.total_seconds()
+            )
 
             if ready:
                 # Job completed, get results
@@ -1379,7 +1384,7 @@ class Orchestrator:
                     logger.info(
                         "Requeueing job %s after resource backoff", eval_job_msg.job_id
                     )
-                    await asyncio.sleep(RESOURCE_BACKOFF_SECONDS)
+                    await asyncio.sleep(RESOURCE_BACKOFF_SECONDS.total_seconds())
                     await self._enqueue_job_for_processing(eval_job_msg)
                 except Exception as requeue_err:
                     logger.error(
