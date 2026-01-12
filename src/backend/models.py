@@ -553,7 +553,7 @@ class Competition(TimestampMixin, SQLModel, table=True):
             name="ck_competition_upload_window_positive",
         ),
         CheckConstraint(
-            "submission_uploads_per_window IS NULL OR submission_uploads_per_window > 0",
+            "submission_uploads_per_window IS NULL OR submission_uploads_per_window >= 0",
             name="ck_competition_uploads_per_window_positive",
         ),
         Index("ix_competitions_active", "active"),
