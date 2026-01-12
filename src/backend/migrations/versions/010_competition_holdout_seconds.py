@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-from backend.constants import DEFAULT_SUBMISSION_HOLDOUT_SECONDS
+from backend.constants import DEFAULT_SUBMISSION_HOLDOUT
 
 revision = "010_competition_holdout_seconds"
 down_revision = "009_direct_vault_submission"
@@ -25,7 +25,7 @@ def upgrade() -> None:
             "submission_holdout_seconds",
             sa.Integer(),
             nullable=False,
-            server_default=str(DEFAULT_SUBMISSION_HOLDOUT_SECONDS),
+            server_default=str(int(DEFAULT_SUBMISSION_HOLDOUT.total_seconds())),
         ),
     )
 

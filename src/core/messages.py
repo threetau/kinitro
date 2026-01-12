@@ -5,10 +5,11 @@ These SQLModel models define the message formats used for WebSocket
 communication between the Kinitro Backend and Validators.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from typing import Any, Dict, List, Optional
 
+from pydantic import field_serializer, field_validator
 from sqlmodel import Field, SQLModel
 
 from core.db.models import EvaluationStatus, SnowflakeId
@@ -87,13 +88,28 @@ class EvalJobMessage(SQLModel):
     env_provider: str
     benchmark_name: str
     config: dict
-    timeout_seconds: Optional[int] = None
+    timeout: Optional[timedelta] = None
     benchmark_spec: Optional[dict] = None
     artifact_url: Optional[str] = None
     artifact_expires_at: Optional[datetime] = None
     artifact_sha256: Optional[str] = None
     artifact_size_bytes: Optional[int] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("timeout", mode="before")
+    @classmethod
+    def validate_timeout(cls, v: Any) -> Optional[timedelta]:
+        if v is None:
+            return None
+        if isinstance(v, timedelta):
+            return v
+        if isinstance(v, (int, float)):
+            return timedelta(seconds=v)
+        raise ValueError(f"Invalid timeout value: {v}")
+
+    @field_serializer("timeout")
+    def serialize_timeout(self, value: Optional[timedelta]) -> Optional[float]:
+        return value.total_seconds() if value is not None else None
 
     def to_bytes(self) -> bytes:
         return self.model_dump_json().encode("utf-8")

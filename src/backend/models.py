@@ -2,11 +2,11 @@
 SQLModel models for Kinitro Backend database.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_serializer, field_validator
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -30,7 +30,7 @@ from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 from backend.constants import (
     DEFAULT_MIN_AVG_REWARD,
     DEFAULT_MIN_SUCCESS_RATE,
-    DEFAULT_SUBMISSION_HOLDOUT_SECONDS,
+    DEFAULT_SUBMISSION_HOLDOUT,
     DEFAULT_WIN_MARGIN_PCT,
     EVAL_JOB_TIMEOUT,
 )
@@ -77,15 +77,32 @@ class CompetitionCreateRequest(SQLModel):
     min_avg_reward: float = Field(default=DEFAULT_MIN_AVG_REWARD)
     win_margin_pct: float = Field(default=DEFAULT_WIN_MARGIN_PCT)
     min_success_rate: float = Field(default=DEFAULT_MIN_SUCCESS_RATE)
-    job_timeout_seconds: int = Field(default=EVAL_JOB_TIMEOUT, ge=1)
-    submission_holdout_seconds: int = Field(
-        default=DEFAULT_SUBMISSION_HOLDOUT_SECONDS, ge=0
-    )
+    job_timeout: timedelta = Field(default=EVAL_JOB_TIMEOUT)
+    submission_holdout: timedelta = Field(default=DEFAULT_SUBMISSION_HOLDOUT)
     submission_max_size_bytes: Optional[int] = Field(default=None, ge=1)
-    submission_upload_window_seconds: Optional[int] = Field(default=None, ge=1)
+    submission_upload_window: Optional[timedelta] = Field(default=None)
     submission_uploads_per_window: Optional[int] = Field(default=None, ge=1)
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+
+    @field_validator(
+        "job_timeout", "submission_holdout", "submission_upload_window", mode="before"
+    )
+    @classmethod
+    def validate_duration(cls, v: Any) -> Optional[timedelta]:
+        if v is None:
+            return None
+        if isinstance(v, timedelta):
+            return v
+        if isinstance(v, (int, float)):
+            if v < 0:
+                raise ValueError("Duration cannot be negative")
+            return timedelta(seconds=v)
+        raise ValueError(f"Invalid duration value: {v}")
+
+    @field_serializer("job_timeout", "submission_holdout", "submission_upload_window")
+    def serialize_duration(self, value: Optional[timedelta]) -> Optional[float]:
+        return value.total_seconds() if value is not None else None
 
 
 class CompetitionResponse(SQLModel):
@@ -99,10 +116,10 @@ class CompetitionResponse(SQLModel):
     min_avg_reward: float
     win_margin_pct: float
     min_success_rate: float
-    job_timeout_seconds: int
-    submission_holdout_seconds: int
+    job_timeout: timedelta
+    submission_holdout: timedelta
     submission_max_size_bytes: Optional[int]
-    submission_upload_window_seconds: Optional[int]
+    submission_upload_window: Optional[timedelta]
     submission_uploads_per_window: Optional[int]
     current_leader_hotkey: Optional[SS58Address]
     current_leader_reward: Optional[float]
@@ -116,6 +133,23 @@ class CompetitionResponse(SQLModel):
 
     class Config:
         from_attributes = True
+
+    @field_validator(
+        "job_timeout", "submission_holdout", "submission_upload_window", mode="before"
+    )
+    @classmethod
+    def validate_duration(cls, v: Any) -> Optional[timedelta]:
+        if v is None:
+            return None
+        if isinstance(v, timedelta):
+            return v
+        if isinstance(v, (int, float)):
+            return timedelta(seconds=v)
+        raise ValueError(f"Invalid duration value: {v}")
+
+    @field_serializer("job_timeout", "submission_holdout", "submission_upload_window")
+    def serialize_duration(self, value: Optional[timedelta]) -> Optional[float]:
+        return value.total_seconds() if value is not None else None
 
 
 class LeaderCandidateReviewRequest(SQLModel):
@@ -231,7 +265,7 @@ class JobResponse(SQLModel):
     env_provider: str
     benchmark_name: str
     config: dict
-    timeout_seconds: Optional[int]
+    timeout: Optional[timedelta]
     created_at: datetime
 
     class Config:
@@ -241,6 +275,21 @@ class JobResponse(SQLModel):
     @classmethod
     def _convert_ids(cls, value):
         return str(value)
+
+    @field_validator("timeout", mode="before")
+    @classmethod
+    def validate_timeout(cls, v: Any) -> Optional[timedelta]:
+        if v is None:
+            return None
+        if isinstance(v, timedelta):
+            return v
+        if isinstance(v, (int, float)):
+            return timedelta(seconds=v)
+        raise ValueError(f"Invalid timeout value: {v}")
+
+    @field_serializer("timeout")
+    def serialize_timeout(self, value: Optional[timedelta]) -> Optional[float]:
+        return value.total_seconds() if value is not None else None
 
 
 class EvaluationResultResponse(SQLModel):
@@ -483,14 +532,16 @@ class Competition(TimestampMixin, SQLModel, table=True):
         sa_column_kwargs={"server_default": str(DEFAULT_MIN_SUCCESS_RATE)},
     )
     job_timeout_seconds: int = Field(
-        default=EVAL_JOB_TIMEOUT,
+        default=int(EVAL_JOB_TIMEOUT.total_seconds()),
         nullable=False,
-        sa_column_kwargs={"server_default": str(EVAL_JOB_TIMEOUT)},
+        sa_column_kwargs={"server_default": str(int(EVAL_JOB_TIMEOUT.total_seconds()))},
     )
     submission_holdout_seconds: int = Field(
-        default=DEFAULT_SUBMISSION_HOLDOUT_SECONDS,
+        default=int(DEFAULT_SUBMISSION_HOLDOUT.total_seconds()),
         nullable=False,
-        sa_column_kwargs={"server_default": str(DEFAULT_SUBMISSION_HOLDOUT_SECONDS)},
+        sa_column_kwargs={
+            "server_default": str(int(DEFAULT_SUBMISSION_HOLDOUT.total_seconds()))
+        },
     )
     submission_max_size_bytes: Optional[int] = Field(
         default=None, sa_column=Column(BigInteger, nullable=True)
@@ -537,6 +588,42 @@ class Competition(TimestampMixin, SQLModel, table=True):
     leader_candidates: List["CompetitionLeaderCandidate"] = Relationship(
         back_populates="competition", cascade_delete=True
     )
+
+    @property
+    def job_timeout(self) -> timedelta:
+        """Get job timeout as timedelta."""
+        return timedelta(seconds=self.job_timeout_seconds)
+
+    @job_timeout.setter
+    def job_timeout(self, value: timedelta) -> None:
+        """Set job timeout from timedelta."""
+        self.job_timeout_seconds = int(value.total_seconds())
+
+    @property
+    def submission_holdout(self) -> timedelta:
+        """Get submission holdout as timedelta."""
+        return timedelta(seconds=self.submission_holdout_seconds)
+
+    @submission_holdout.setter
+    def submission_holdout(self, value: timedelta) -> None:
+        """Set submission holdout from timedelta."""
+        self.submission_holdout_seconds = int(value.total_seconds())
+
+    @property
+    def submission_upload_window(self) -> Optional[timedelta]:
+        """Get submission upload window as timedelta."""
+        return (
+            timedelta(seconds=self.submission_upload_window_seconds)
+            if self.submission_upload_window_seconds is not None
+            else None
+        )
+
+    @submission_upload_window.setter
+    def submission_upload_window(self, value: Optional[timedelta]) -> None:
+        """Set submission upload window from timedelta."""
+        self.submission_upload_window_seconds = (
+            int(value.total_seconds()) if value is not None else None
+        )
 
     __table_args__ = (
         CheckConstraint("points > 0", name="ck_competition_points_positive"),
@@ -594,9 +681,19 @@ class SubmissionUpload(TimestampMixin, SQLModel, table=True):
         default=None, sa_column=Column(SADateTime(timezone=True), nullable=True)
     )
     holdout_seconds: int = Field(
-        default=DEFAULT_SUBMISSION_HOLDOUT_SECONDS, nullable=False
+        default=int(DEFAULT_SUBMISSION_HOLDOUT.total_seconds()), nullable=False
     )
     notes: Optional[str] = Field(default=None, sa_column=Column(SAText, nullable=True))
+
+    @property
+    def holdout(self) -> timedelta:
+        """Get holdout duration as timedelta."""
+        return timedelta(seconds=self.holdout_seconds)
+
+    @holdout.setter
+    def holdout(self, value: timedelta) -> None:
+        """Set holdout duration from timedelta."""
+        self.holdout_seconds = int(value.total_seconds())
 
     __table_args__ = (
         Index("ix_submission_uploads_hotkey", "miner_hotkey"),
@@ -732,6 +829,20 @@ class BackendEvaluationJob(TimestampMixin, SQLModel, table=True):
     status_updates: List["BackendEvaluationJobStatus"] = Relationship(
         back_populates="job", cascade_delete=True
     )
+
+    @property
+    def timeout(self) -> Optional[timedelta]:
+        """Get timeout as timedelta."""
+        return (
+            timedelta(seconds=self.timeout_seconds)
+            if self.timeout_seconds is not None
+            else None
+        )
+
+    @timeout.setter
+    def timeout(self, value: Optional[timedelta]) -> None:
+        """Set timeout from timedelta."""
+        self.timeout_seconds = int(value.total_seconds()) if value is not None else None
 
     __table_args__ = (Index("ix_backend_jobs_miner", "miner_hotkey"),)
 

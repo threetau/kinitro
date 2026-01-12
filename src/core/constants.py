@@ -1,3 +1,4 @@
+from datetime import timedelta
 from enum import StrEnum
 
 
@@ -11,4 +12,4 @@ class ImageFormat(StrEnum):
     JPEG = "jpeg"
 
 
-PRESIGN_EXPIRY = 604800  # 7 days in seconds
+PRESIGN_EXPIRY = timedelta(days=7)

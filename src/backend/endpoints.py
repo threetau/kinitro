@@ -38,7 +38,7 @@ from backend.constants import (
     DEFAULT_PAGE_LIMIT,
     MAX_PAGE_LIMIT,
     MIN_PAGE_LIMIT,
-    SUBMISSION_SIGNATURE_MAX_AGE_SECONDS,
+    SUBMISSION_SIGNATURE_MAX_AGE,
 )
 from backend.events import (
     EvaluationCompletedEvent,
@@ -488,7 +488,10 @@ async def request_submission_upload(
 
     now = datetime.now(timezone.utc)
     timestamp_dt = datetime.fromtimestamp(payload.timestamp, tz=timezone.utc)
-    if abs((now - timestamp_dt).total_seconds()) > SUBMISSION_SIGNATURE_MAX_AGE_SECONDS:
+    if (
+        abs((now - timestamp_dt).total_seconds())
+        > SUBMISSION_SIGNATURE_MAX_AGE.total_seconds()
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Signature timestamp is outside the allowed window",
@@ -627,9 +630,16 @@ async def create_competition(competition: CompetitionCreateRequest):
             min_avg_reward=competition.min_avg_reward,
             win_margin_pct=competition.win_margin_pct,
             min_success_rate=competition.min_success_rate,
-            submission_holdout_seconds=competition.submission_holdout_seconds,
+            job_timeout_seconds=int(competition.job_timeout.total_seconds()),
+            submission_holdout_seconds=int(
+                competition.submission_holdout.total_seconds()
+            ),
             submission_max_size_bytes=competition.submission_max_size_bytes,
-            submission_upload_window_seconds=competition.submission_upload_window_seconds,
+            submission_upload_window_seconds=int(
+                competition.submission_upload_window.total_seconds()
+            )
+            if competition.submission_upload_window
+            else None,
             submission_uploads_per_window=competition.submission_uploads_per_window,
             active=True,
             start_time=competition.start_time,
