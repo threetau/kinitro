@@ -34,7 +34,7 @@ from backend.constants import (
     DEFAULT_WIN_MARGIN_PCT,
     EVAL_JOB_TIMEOUT,
 )
-from core.db.models import EvaluationStatus, TimestampMixin
+from core.db.models import EvaluationStatus, SnowflakeId, TimestampMixin
 
 # Type aliases for consistency
 SS58Address = str  # Will be constrained to 48 chars in field definition
@@ -167,10 +167,10 @@ class SubmissionRerunRequest(SQLModel):
 class CompetitionLeaderCandidateResponse(SQLModel):
     """Response model representing a leader candidate entry."""
 
-    id: str
+    id: SnowflakeId
     competition_id: str
     miner_hotkey: str
-    evaluation_result_id: str
+    evaluation_result_id: SnowflakeId
     avg_reward: float
     success_rate: Optional[float]
     score: Optional[float]
@@ -184,11 +184,6 @@ class CompetitionLeaderCandidateResponse(SQLModel):
 
     class Config:
         from_attributes = True
-
-    @field_validator("id", mode="before")
-    @classmethod
-    def _convert_id(cls, value):
-        return str(value)
 
     @field_validator("evaluation_result_id", "reviewed_by_api_key_id", mode="before")
     @classmethod
@@ -212,16 +207,11 @@ class ValidatorInfoResponse(SQLModel):
     class Config:
         from_attributes = True
 
-    @field_validator("api_key_id", mode="before")
-    @classmethod
-    def _convert_api_key_id(cls, value):
-        return None if value is None else str(value)
-
 
 class MinerSubmissionResponse(SQLModel):
     """Response model for miner submission data."""
 
-    id: str
+    id: SnowflakeId
     miner_hotkey: str
     competition_id: str
     hf_repo_id: str
@@ -233,11 +223,6 @@ class MinerSubmissionResponse(SQLModel):
 
     class Config:
         from_attributes = True
-
-    @field_validator("id", mode="before")
-    @classmethod
-    def _convert_id(cls, value):
-        return str(value)
 
 
 class RevealedSubmissionResponse(MinerSubmissionResponse):
@@ -257,8 +242,8 @@ class RevealedSubmissionResponse(MinerSubmissionResponse):
 class JobResponse(SQLModel):
     """Response model for job data."""
 
-    id: str
-    submission_id: str
+    id: SnowflakeId
+    submission_id: SnowflakeId
     competition_id: str
     miner_hotkey: str
     hf_repo_id: str
@@ -270,11 +255,6 @@ class JobResponse(SQLModel):
 
     class Config:
         from_attributes = True
-
-    @field_validator("id", "submission_id", mode="before")
-    @classmethod
-    def _convert_ids(cls, value):
-        return str(value)
 
     @field_validator("timeout", mode="before")
     @classmethod
@@ -295,8 +275,8 @@ class JobResponse(SQLModel):
 class EvaluationResultResponse(SQLModel):
     """Response model for evaluation result data."""
 
-    id: str
-    job_id: str
+    id: SnowflakeId
+    job_id: SnowflakeId
     validator_hotkey: str
     miner_hotkey: str
     competition_id: str
@@ -312,11 +292,6 @@ class EvaluationResultResponse(SQLModel):
     class Config:
         from_attributes = True
 
-    @field_validator("id", "job_id", mode="before")
-    @classmethod
-    def _convert_ids(cls, value):
-        return str(value)
-
 
 class EvaluationLogDownloadResponse(SQLModel):
     """Response model describing a downloadable evaluator log bundle."""
@@ -331,8 +306,8 @@ class EvaluationLogDownloadResponse(SQLModel):
 class EvaluationResultLogResponse(SQLModel):
     """Detailed evaluator log information for a result."""
 
-    result_id: str
-    job_id: str
+    result_id: SnowflakeId
+    job_id: SnowflakeId
     summary: Optional[Dict[str, Any]] = None
     download: Optional[EvaluationLogDownloadResponse] = None
     artifact_metadata: Optional[Dict[str, Any]] = None
@@ -341,17 +316,12 @@ class EvaluationResultLogResponse(SQLModel):
     class Config:
         from_attributes = True
 
-    @field_validator("result_id", "job_id", mode="before")
-    @classmethod
-    def _convert_ids(cls, value):
-        return str(value)
-
 
 class JobStatusResponse(SQLModel):
     """Response model for job status data."""
 
-    id: str
-    job_id: str
+    id: SnowflakeId
+    job_id: SnowflakeId
     validator_hotkey: str
     status: EvaluationStatus
     detail: Optional[str]
@@ -360,11 +330,6 @@ class JobStatusResponse(SQLModel):
 
     class Config:
         from_attributes = True
-
-    @field_validator("id", "job_id", mode="before")
-    @classmethod
-    def _convert_ids(cls, value):
-        return str(value)
 
 
 class BackendStatsResponse(SQLModel):
@@ -455,7 +420,7 @@ class ApiKeyCreateRequest(SQLModel):
 class ApiKeyResponse(SQLModel):
     """Response model for API key data (without the actual key)."""
 
-    id: str
+    id: SnowflakeId
     name: str
     description: Optional[str]
     role: str
@@ -469,16 +434,11 @@ class ApiKeyResponse(SQLModel):
     class Config:
         from_attributes = True
 
-    @field_validator("id", mode="before")
-    @classmethod
-    def _convert_id(cls, value):
-        return str(value)
-
 
 class ApiKeyCreateResponse(SQLModel):
     """Response model for API key creation (includes the actual key)."""
 
-    id: str
+    id: SnowflakeId
     name: str
     description: Optional[str]
     role: str
@@ -490,11 +450,6 @@ class ApiKeyCreateResponse(SQLModel):
 
     class Config:
         from_attributes = True
-
-    @field_validator("id", mode="before")
-    @classmethod
-    def _convert_id(cls, value):
-        return str(value)
 
 
 # Models for DB tables
