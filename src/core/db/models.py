@@ -2,6 +2,7 @@ import enum
 from datetime import datetime
 from typing import Any
 
+from psycopg2.extensions import AsIs, register_adapter
 from pydantic import GetCoreSchemaHandler, ValidationError
 from pydantic_core import CoreSchema, core_schema
 from sqlalchemy import text
@@ -165,6 +166,15 @@ class SnowflakeId:
     def validate(cls, v):
         """Pydantic v1 validator."""
         return cls(v)
+
+
+# Register psycopg2 adapter so SnowflakeId can be used in SQL queries
+def _adapt_snowflake_id(snowflake_id: "SnowflakeId") -> AsIs:
+    """Convert SnowflakeId to its integer value for psycopg2."""
+    return AsIs(int(snowflake_id))
+
+
+register_adapter(SnowflakeId, _adapt_snowflake_id)
 
 
 class EvaluationStatus(enum.Enum):
