@@ -14,11 +14,6 @@ from backend.models import SS58Address
 from core.db.models import EvaluationStatus, SnowflakeId
 
 
-def _serialize_snowflake_id(value: SnowflakeId) -> str:
-    """Serialize SnowflakeId to string for JSON safety."""
-    return str(value)
-
-
 class BaseEvent(BaseModel):
     """Base class for all event data models."""
 
@@ -46,32 +41,17 @@ class JobEventMixin(BaseModel):
 
     job_id: SnowflakeId
 
-    @field_serializer("job_id")
-    @staticmethod
-    def serialize_job_id(value: SnowflakeId) -> str:
-        return _serialize_snowflake_id(value)
-
 
 class SubmissionEventMixin(BaseModel):
     """Mixin for events that include a submission_id field."""
 
     submission_id: SnowflakeId
 
-    @field_serializer("submission_id")
-    @staticmethod
-    def serialize_submission_id(value: SnowflakeId) -> str:
-        return _serialize_snowflake_id(value)
-
 
 class EpisodeEventMixin(BaseModel):
     """Mixin for events that include an episode_id field."""
 
     episode_id: SnowflakeId
-
-    @field_serializer("episode_id")
-    @staticmethod
-    def serialize_episode_id(value: SnowflakeId) -> str:
-        return _serialize_snowflake_id(value)
 
 
 # Job Events
