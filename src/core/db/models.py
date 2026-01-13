@@ -152,7 +152,7 @@ class SnowflakeId:
             json_schema=core_schema.no_info_plain_validator_function(validate),
             python_schema=python_schema,
             serialization=core_schema.plain_serializer_function_ser_schema(
-                serialize, return_schema=core_schema.str_schema()
+                serialize, info_arg=True, return_schema=core_schema.str_schema()
             ),
         )
 
