@@ -383,7 +383,7 @@ class SubmissionLeaderboardEntry(SQLModel):
     """Aggregated submission performance across evaluation results."""
 
     rank: int
-    submission_id: str
+    submission_id: SnowflakeId
     competition_id: str
     miner_hotkey: str
     hf_repo_id: Optional[str]
