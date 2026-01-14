@@ -6,12 +6,12 @@ broadcast to frontend clients via WebSocket connections.
 """
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from backend.models import SS58Address
-from core.db.models import EvaluationStatus
+from core.db.models import EvaluationStatus, SnowflakeId
 
 
 class BaseEvent(BaseModel):
@@ -31,43 +31,27 @@ class BaseEvent(BaseModel):
         """Automatically serialize any datetime field to ISO format."""
         if isinstance(value, datetime):
             return value.isoformat()
+        if isinstance(value, SnowflakeId):
+            return str(value)
         return serializer(value)
 
 
 class JobEventMixin(BaseModel):
     """Mixin for events that include a job_id field."""
 
-    job_id: str
-
-    @field_validator("job_id", mode="before")
-    @classmethod
-    def convert_job_id_to_string(cls, v: Union[int, str]) -> str:
-        """Convert job_id to string if it's an integer."""
-        return str(v)
+    job_id: SnowflakeId
 
 
 class SubmissionEventMixin(BaseModel):
     """Mixin for events that include a submission_id field."""
 
-    submission_id: str
-
-    @field_validator("submission_id", mode="before")
-    @classmethod
-    def convert_submission_id_to_string(cls, v: Union[int, str]) -> str:
-        """Convert submission_id to string if it's an integer."""
-        return str(v)
+    submission_id: SnowflakeId
 
 
 class EpisodeEventMixin(BaseModel):
     """Mixin for events that include an episode_id field."""
 
-    episode_id: str
-
-    @field_validator("episode_id", mode="before")
-    @classmethod
-    def convert_episode_id_to_string(cls, v: Union[int, str]) -> str:
-        """Convert episode_id to string if it's an integer."""
-        return str(v)
+    episode_id: SnowflakeId
 
 
 # Job Events
@@ -183,7 +167,7 @@ class EpisodeCompletedEvent(
 class CompetitionCreatedEvent(BaseEvent):
     """Event data for COMPETITION_CREATED event."""
 
-    id: str
+    id: SnowflakeId
     name: str
     description: str
     benchmarks: List[str]
@@ -198,7 +182,7 @@ class CompetitionCreatedEvent(BaseEvent):
 class CompetitionUpdatedEvent(BaseEvent):
     """Event data for COMPETITION_UPDATED event."""
 
-    id: str
+    id: SnowflakeId
     name: str
     description: str
     benchmarks: List[str]
@@ -212,7 +196,7 @@ class CompetitionUpdatedEvent(BaseEvent):
 class CompetitionActivatedEvent(BaseEvent):
     """Event data for COMPETITION_ACTIVATED event."""
 
-    id: str
+    id: SnowflakeId
     name: str
     points: int
 
@@ -220,7 +204,7 @@ class CompetitionActivatedEvent(BaseEvent):
 class CompetitionDeactivatedEvent(BaseEvent):
     """Event data for COMPETITION_DEACTIVATED event."""
 
-    id: str
+    id: SnowflakeId
     name: str
     reason: Optional[str] = None
 
