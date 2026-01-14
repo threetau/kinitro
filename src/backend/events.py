@@ -31,6 +31,8 @@ class BaseEvent(BaseModel):
         """Automatically serialize any datetime field to ISO format."""
         if isinstance(value, datetime):
             return value.isoformat()
+        if isinstance(value, SnowflakeId):
+            return str(value)
         return serializer(value)
 
 

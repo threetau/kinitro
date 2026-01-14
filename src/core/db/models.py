@@ -2,6 +2,7 @@ import enum
 from datetime import datetime
 from typing import Any
 
+from psycopg2.extensions import AsIs, register_adapter
 from pydantic import GetCoreSchemaHandler, ValidationError
 from pydantic_core import CoreSchema, core_schema
 from sqlalchemy import text
@@ -116,6 +117,10 @@ class SnowflakeId:
         """Prevent deletion (immutability)."""
         raise AttributeError("SnowflakeId is immutable")
 
+    def __reduce__(self) -> tuple:
+        """Support pickle serialization (used by Ray)."""
+        return (self.__class__, (self._value,))
+
     @classmethod
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: GetCoreSchemaHandler
@@ -148,11 +153,20 @@ class SnowflakeId:
 
         python_schema = core_schema.no_info_plain_validator_function(validate)
 
+        # Chain str_schema with validator for JSON: enables OpenAPI schema generation
+        # while still validating and converting to SnowflakeId
+        json_schema = core_schema.chain_schema(
+            [
+                core_schema.str_schema(),
+                core_schema.no_info_plain_validator_function(validate),
+            ]
+        )
+
         return core_schema.json_or_python_schema(
-            json_schema=core_schema.no_info_plain_validator_function(validate),
+            json_schema=json_schema,
             python_schema=python_schema,
             serialization=core_schema.plain_serializer_function_ser_schema(
-                serialize, return_schema=core_schema.str_schema()
+                serialize, info_arg=True, return_schema=core_schema.str_schema()
             ),
         )
 
@@ -165,6 +179,15 @@ class SnowflakeId:
     def validate(cls, v):
         """Pydantic v1 validator."""
         return cls(v)
+
+
+# Register psycopg2 adapter so SnowflakeId can be used in SQL queries
+def _adapt_snowflake_id(snowflake_id: "SnowflakeId") -> AsIs:
+    """Convert SnowflakeId to its integer value for psycopg2."""
+    return AsIs(int(snowflake_id))
+
+
+register_adapter(SnowflakeId, _adapt_snowflake_id)
 
 
 class EvaluationStatus(enum.Enum):
