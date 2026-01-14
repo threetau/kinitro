@@ -617,18 +617,18 @@ class BackendService:
 
         # Delay before starting scoring
         logger.info(
-            f"Starting score evaluation task in {SCORE_EVALUATION_STARTUP_DELAY} seconds..."
+            f"Starting score evaluation task in {SCORE_EVALUATION_STARTUP_DELAY.total_seconds()} seconds..."
         )
-        await asyncio.sleep(SCORE_EVALUATION_STARTUP_DELAY)
+        await asyncio.sleep(SCORE_EVALUATION_STARTUP_DELAY.total_seconds())
         self._score_evaluation_task = asyncio.create_task(
             self._periodic_score_evaluation()
         )
 
         # Delay before starting weight broadcast
         logger.info(
-            f"Starting weight broadcast task in {WEIGHT_BROADCAST_STARTUP_DELAY} seconds..."
+            f"Starting weight broadcast task in {WEIGHT_BROADCAST_STARTUP_DELAY.total_seconds()} seconds..."
         )
-        await asyncio.sleep(WEIGHT_BROADCAST_STARTUP_DELAY)
+        await asyncio.sleep(WEIGHT_BROADCAST_STARTUP_DELAY.total_seconds())
         self._weight_broadcast_task = asyncio.create_task(
             self._periodic_weight_broadcast()
         )
