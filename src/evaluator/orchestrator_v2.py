@@ -5,6 +5,9 @@ This is a refactored orchestrator that uses the TaskExecutor pattern
 for pluggable task type support. It maintains backward compatibility
 with the existing EvalJobMessage format while adding support for
 the new TaskSpec-based approach.
+
+Connects directly to the backend via WebSocket to receive jobs and
+send results.
 """
 
 from __future__ import annotations
@@ -16,12 +19,8 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, Optional
 
-import asyncpg
 import ray
 from fiber.chain.chain_utils import load_hotkey_keypair
-from pgqueuer import PgQueuer, Queries
-from pgqueuer.db import AsyncpgDriver
-from pgqueuer.models import Job
 from snowflake import SnowflakeGenerator
 
 from core.db.models import EvaluationStatus
@@ -34,11 +33,11 @@ from core.tasks import (
     TaskSpec,
     TaskType,
 )
+from evaluator.backend_client import BackendClient
 from evaluator.config import EvaluatorConfig
 from evaluator.constants import (
     EVAL_TIMEOUT,
     MIN_CONCURRENT_JOBS,
-    RESOURCE_BACKOFF_SECONDS,
 )
 from evaluator.containers import Containers, PodSchedulingError
 from evaluator.executors import ExecutorRegistry, RLRolloutExecutor
@@ -77,6 +76,9 @@ class OrchestratorV2:
     executors, allowing new task types to be added without modifying
     the orchestrator itself.
 
+    Connects directly to the backend via WebSocket to receive jobs and
+    send results.
+
     Usage:
         config = EvaluatorConfig()
         orchestrator = OrchestratorV2(config)
@@ -86,6 +88,9 @@ class OrchestratorV2:
     def __init__(self, config: EvaluatorConfig):
         self.config = config
         logger.info("OrchestratorV2 initialized with db: %s", self.config.pg_database)
+
+        # Backend client for direct WebSocket connection
+        self.backend_client: Optional[BackendClient] = None
 
         # Database and identity
         self.db = DatabaseManager(self.config.pg_database)
@@ -152,6 +157,38 @@ class OrchestratorV2:
         rl_executor = RLRolloutExecutor(self.config)
         ExecutorRegistry.register(rl_executor)
         logger.info("Registered default executors: %s", ExecutorRegistry.list_types())
+
+    def _init_backend_client(self) -> BackendClient:
+        """Initialize the BackendClient for direct WebSocket connection."""
+        backend_ws_url = getattr(self.config, "backend_ws_url", None)
+        if not backend_ws_url:
+            raise ValueError(
+                "backend_ws_url not configured. Set backend_ws_url in evaluator config."
+            )
+
+        evaluator_id = getattr(self.config, "evaluator_id", None)
+        if not evaluator_id:
+            # Generate a default evaluator ID from hotkey
+            evaluator_id = f"evaluator-{self.keypair.ss58_address[:16]}"
+            logger.warning(
+                "No evaluator_id configured, using generated ID: %s", evaluator_id
+            )
+
+        # Get supported task types from registered executors
+        supported_task_types = [t.value for t in ExecutorRegistry.list_types()]
+
+        return BackendClient(
+            backend_url=backend_ws_url,
+            evaluator_id=evaluator_id,
+            supported_task_types=supported_task_types,
+            max_concurrent_jobs=self.max_concurrent_jobs,
+            capabilities={
+                "ray_num_cpus": self.config.ray_num_cpus,
+                "ray_num_gpus": self.config.ray_num_gpus,
+                "hotkey": self.keypair.ss58_address,
+            },
+            on_job_received=self._handle_job_from_backend,
+        )
 
     @staticmethod
     def _resolve_job_timeout(value: Any, fallback: int) -> int:
@@ -233,19 +270,27 @@ class OrchestratorV2:
             created_at=datetime.now(timezone.utc),
         )
 
-    async def setup_job(self, job: Job) -> Optional[Dict[str, Any]]:
+    async def _handle_job_from_backend(self, eval_job_msg: EvalJobMessage) -> None:
+        """
+        Handle a job received via WebSocket from the backend.
+
+        This method is called by the BackendClient when a new job is received.
+        """
+        logger.info(
+            "Received job %s from backend via WebSocket for competition %s",
+            eval_job_msg.job_id,
+            eval_job_msg.competition_id,
+        )
+
+        # Process the job using existing infrastructure
+        await self.process_job(eval_job_msg)
+
+    async def setup_job(self, eval_job_msg: EvalJobMessage) -> Optional[Dict[str, Any]]:
         """Set up job infrastructure using the appropriate executor.
 
         Returns a job context dict for monitoring, or None if setup fails.
         """
-        logger.info("Setting up job: %s", job.id)
-
-        if not job.payload:
-            logger.error("Job %s has no payload", job.id)
-            return None
-
-        # Parse the job message
-        eval_job_msg = EvalJobMessage.from_bytes(job.payload)
+        logger.info("Setting up job: %s", eval_job_msg.job_id)
 
         # Check for expired artifact
         if (
@@ -350,8 +395,6 @@ class OrchestratorV2:
         Returns True if the job is complete (success, failure, or timeout).
         """
         job_id = job_context["job_id"]
-        # eval_job_msg = job_context["eval_job_msg"]
-        # task_spec = job_context["task_spec"]
         task_context = job_context["task_context"]
         executor = job_context["executor"]
         start_time = job_context["start_time"]
@@ -575,7 +618,7 @@ class OrchestratorV2:
         status: EvaluationStatus,
         detail: str,
     ) -> None:
-        """Update job status in database and notify backend."""
+        """Update job status in database and notify backend via WebSocket."""
         try:
             update_fields: Dict[str, Any] = {"status": status}
             if status == EvaluationStatus.STARTING:
@@ -588,16 +631,19 @@ class OrchestratorV2:
             logger.error("Failed to update job status to %s: %s", status, e)
             return
 
+        # Create and send status message via WebSocket
+        status_msg = JobStatusUpdateMessage(
+            job_id=eval_job_msg.job_id,
+            validator_hotkey=self.keypair.ss58_address,
+            status=status,
+            detail=detail,
+        )
+
         try:
-            status_msg = JobStatusUpdateMessage(
-                job_id=eval_job_msg.job_id,
-                validator_hotkey=self.keypair.ss58_address,
-                status=status,
-                detail=detail,
-            )
-            await self.db.queue_job_status_update_msg(status_msg)
+            if self.backend_client:
+                await self.backend_client.send_status_update(status_msg)
         except Exception as e:
-            logger.error("Failed to queue job status update: %s", e)
+            logger.error("Failed to send job status update: %s", e)
 
     async def _publish_success_result(
         self,
@@ -605,7 +651,7 @@ class OrchestratorV2:
         result: TaskResult,
         completed_at: datetime,
     ) -> None:
-        """Publish a success result to the backend."""
+        """Publish a success result to the backend via WebSocket."""
         metrics = result.metrics
 
         # Extract benchmark spec
@@ -641,7 +687,9 @@ class OrchestratorV2:
             },
         )
 
-        await self.db.queue_evaluation_result_msg(eval_result_msg)
+        # Send via WebSocket
+        if self.backend_client:
+            await self.backend_client.send_result(eval_result_msg)
 
     async def _publish_failure_result(
         self,
@@ -650,7 +698,7 @@ class OrchestratorV2:
         completed_at: datetime,
         error_message: str,
     ) -> None:
-        """Publish a failure result to the backend."""
+        """Publish a failure result to the backend via WebSocket."""
         spec_payload = (
             copy.deepcopy(eval_job_msg.benchmark_spec)
             if eval_job_msg.benchmark_spec
@@ -676,50 +724,46 @@ class OrchestratorV2:
             error=error_message,
         )
 
-        await self.db.queue_evaluation_result_msg(eval_result_msg)
+        # Send via WebSocket
+        if self.backend_client:
+            await self.backend_client.send_result(eval_result_msg)
 
-    async def process_job(self, job: Job) -> None:
+    async def process_job(self, eval_job_msg: EvalJobMessage) -> None:
         """Process a job asynchronously."""
+        job_id = eval_job_msg.job_id
+
         if self.concurrent_slots.locked():
             logger.warning(
                 "Max concurrent jobs (%s) reached. Job %s waiting for a free slot.",
                 self.max_concurrent_jobs,
-                getattr(job, "id", "unknown"),
+                job_id,
             )
 
         await self.concurrent_slots.acquire()
 
         try:
-            job_context = await self.setup_job(job)
+            job_context = await self.setup_job(eval_job_msg)
         except PodSchedulingError as e:
             logger.warning(
                 "Insufficient cluster resources for job %s: %s",
-                getattr(job, "id", "unknown"),
+                job_id,
                 e,
             )
-            # Re-queue the job after backoff
-            if job.payload:
-                eval_job_msg = EvalJobMessage.from_bytes(job.payload)
-                await asyncio.sleep(RESOURCE_BACKOFF_SECONDS.total_seconds())
-                await self._enqueue_job_for_processing(eval_job_msg)
             self.concurrent_slots.release()
             return
         except Exception as e:
-            logger.error(
-                "Failed to process job %s: %s", getattr(job, "id", "unknown"), e
-            )
+            logger.error("Failed to process job %s: %s", job_id, e)
             self.concurrent_slots.release()
             return
 
         if not job_context:
             logger.warning(
                 "Setup for job %s returned no context; releasing slot.",
-                getattr(job, "id", "unknown"),
+                job_id,
             )
             self.concurrent_slots.release()
             return
 
-        job_id = job_context["job_id"]
         self.running_jobs[job_id] = job_context
         logger.info(
             "Job %s added to running jobs. Total running: %s",
@@ -750,22 +794,6 @@ class OrchestratorV2:
                     )
 
             await asyncio.sleep(1)
-
-    async def _enqueue_job_for_processing(self, eval_job_msg: EvalJobMessage) -> None:
-        """Re-queue an evaluation job onto PgQueuer for processing."""
-        conn = await asyncpg.connect(dsn=self.config.pg_database)
-        try:
-            driver = AsyncpgDriver(conn)
-            q = Queries(driver)
-            await q.enqueue(["add_job"], [eval_job_msg.to_bytes()], [0])
-            logger.info("Requeued job %s onto add_job queue", eval_job_msg.job_id)
-        except Exception:
-            logger.exception(
-                "Failed to enqueue job %s for restart", eval_job_msg.job_id
-            )
-            raise
-        finally:
-            await conn.close()
 
     async def recover_stale_jobs(self) -> None:
         """Recover jobs that were running when orchestrator crashed."""
@@ -806,8 +834,6 @@ class OrchestratorV2:
                         },
                     )
 
-                    # Re-queue the job
-                    # (Would need to reconstruct EvalJobMessage from stored data)
                     logger.info("Stale job %s reset to QUEUED", job.id)
 
                 except Exception as e:
@@ -869,15 +895,14 @@ class OrchestratorV2:
                 logger.error("Error during periodic cleanup: %s", e)
 
     async def start(self) -> None:
-        """Start the orchestrator."""
+        """Start the orchestrator with direct backend connection."""
         logger.info("Starting OrchestratorV2...")
 
         # Recover stale jobs
         await self.recover_stale_jobs()
 
-        conn = await asyncpg.connect(dsn=self.config.pg_database)
-        driver = AsyncpgDriver(conn)
-        pgq = PgQueuer(driver)
+        # Initialize the backend client
+        self.backend_client = self._init_backend_client()
 
         # Start background tasks
         monitor_task = asyncio.create_task(self.monitor_running_jobs())
@@ -886,27 +911,38 @@ class OrchestratorV2:
         cleanup_task = asyncio.create_task(self.periodic_cleanup())
         logger.info("Started periodic cleanup task")
 
-        @pgq.entrypoint("add_job")
-        async def process(job: Job) -> None:
-            asyncio.create_task(self.process_job(job))
-            logger.info("Job %s added to processing queue.", job.id)
-
         logger.info(
-            "OrchestratorV2 is now listening for jobs (max concurrent: %s)...",
+            "OrchestratorV2 connecting to backend (max concurrent: %s)...",
             self.max_concurrent_jobs,
         )
 
         try:
-            await pgq.run()
+            # Connect and run - this blocks until stop() is called
+            await self.backend_client.connect_and_run()
         finally:
             monitor_task.cancel()
             cleanup_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await cleanup_task
+            except asyncio.CancelledError:
+                pass
 
-        await asyncio.Future()
-
-    def stop(self) -> None:
+    async def stop(self) -> None:
         """Stop the orchestrator."""
         logger.info("Stopping OrchestratorV2...")
+
+        # Stop backend client
+        if self.backend_client:
+            try:
+                await self.backend_client.stop()
+                logger.info("Backend client stopped")
+            except Exception as e:
+                logger.error("Error stopping backend client: %s", e)
+            self.backend_client = None
 
         # Clean up all running jobs
         for job_id in list(self.running_jobs.keys()):
@@ -918,9 +954,10 @@ class OrchestratorV2:
                 executor = job_context.get("executor")
                 task_context = job_context.get("task_context")
                 if executor and task_context:
-                    # Note: This is sync context, can't await
-                    # Would need to handle async cleanup differently
-                    pass
+                    try:
+                        await executor.teardown(task_context)
+                    except Exception as e:
+                        logger.error("Error tearing down job %s: %s", job_id, e)
             except Exception as e:
                 logger.error("Error cleaning up job %s: %s", job_id, e)
             finally:
