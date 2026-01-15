@@ -55,6 +55,7 @@ from backend.constants import (
     WEIGHT_BROADCAST_INTERVAL,
     WEIGHT_BROADCAST_STARTUP_DELAY,
 )
+from backend.evaluator_hub import EvaluatorHub
 from backend.events import (
     EpisodeCompletedEvent,
     EpisodeStepEvent,
@@ -288,6 +289,7 @@ class BackendService:
 
         # Initialize extracted components (will be fully initialized in startup)
         self.ws_hub = WebSocketHub()
+        self.evaluator_hub = EvaluatorHub()  # Direct evaluator connections
         self.scoring_engine: Optional[ScoringEngine] = None
         self.chain_monitor: Optional[ChainMonitor] = None
         self.job_scheduler: Optional[JobScheduler] = None

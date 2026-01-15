@@ -208,6 +208,28 @@ class ValidatorInfoResponse(SQLModel):
         from_attributes = True
 
 
+class EvaluatorInfoResponse(SQLModel):
+    """Response model for evaluator information."""
+
+    evaluator_id: str
+    api_key_id: Optional[str]
+    supported_task_types: List[str]
+    max_concurrent_jobs: int
+    current_job_count: int
+    is_connected: bool
+    first_connected_at: datetime
+    last_heartbeat: datetime
+    total_jobs_assigned: int
+    total_jobs_completed: int
+    total_jobs_failed: int
+    capabilities: Optional[dict]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class MinerSubmissionResponse(SQLModel):
     """Response model for miner submission data."""
 
@@ -1120,6 +1142,93 @@ class ValidatorConnection(TimestampMixin, SQLModel, table=True):
     )
 
 
+class EvaluatorConnection(TimestampMixin, SQLModel, table=True):
+    """Track evaluator connections and their capabilities for direct backend communication."""
+
+    __tablename__ = "evaluator_connections"
+
+    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+
+    # Unique evaluator instance identifier
+    evaluator_id: str = Field(max_length=128, nullable=False, unique=True, index=True)
+
+    # Link to API key used for authentication
+    api_key_id: Optional[int] = Field(
+        sa_column=Column(
+            BigInteger, ForeignKey("api_keys.id"), nullable=True, index=True
+        )
+    )
+
+    # Capabilities
+    supported_task_types: List[str] = Field(
+        sa_column=Column(JSON, nullable=False),
+        default_factory=lambda: ["rl_rollout"],
+    )
+    max_concurrent_jobs: int = Field(
+        default=1, nullable=False, sa_column_kwargs={"server_default": "1"}
+    )
+    current_job_count: int = Field(
+        default=0, nullable=False, sa_column_kwargs={"server_default": "0"}
+    )
+
+    # Connection state
+    is_connected: bool = Field(
+        default=True,
+        nullable=False,
+        index=True,
+        sa_column_kwargs={"server_default": "true"},
+    )
+    last_heartbeat: datetime = Field(
+        sa_column=Column(
+            SADateTime(timezone=True), nullable=False, server_default=func.now()
+        )
+    )
+    first_connected_at: datetime = Field(
+        sa_column=Column(
+            SADateTime(timezone=True), nullable=False, server_default=func.now()
+        )
+    )
+
+    # Statistics
+    total_jobs_assigned: int = Field(
+        default=0, nullable=False, sa_column_kwargs={"server_default": "0"}
+    )
+    total_jobs_completed: int = Field(
+        default=0, nullable=False, sa_column_kwargs={"server_default": "0"}
+    )
+    total_jobs_failed: int = Field(
+        default=0, nullable=False, sa_column_kwargs={"server_default": "0"}
+    )
+
+    # Resource metadata (GPU count, memory, etc.)
+    capabilities: Optional[dict] = Field(
+        default=None, sa_column=Column(JSON, nullable=True)
+    )
+
+    # Relationships
+    api_key: Optional["ApiKey"] = Relationship(back_populates="evaluator_connections")
+
+    __table_args__ = (
+        CheckConstraint(
+            "current_job_count >= 0", name="ck_evaluator_concurrent_non_negative"
+        ),
+        CheckConstraint(
+            "max_concurrent_jobs > 0", name="ck_evaluator_max_concurrent_positive"
+        ),
+        CheckConstraint(
+            "total_jobs_assigned >= 0", name="ck_evaluator_jobs_assigned_non_negative"
+        ),
+        CheckConstraint(
+            "total_jobs_completed >= 0", name="ck_evaluator_jobs_completed_non_negative"
+        ),
+        CheckConstraint(
+            "total_jobs_failed >= 0", name="ck_evaluator_jobs_failed_non_negative"
+        ),
+        Index("ix_evaluator_connections_connected", "is_connected"),
+        Index("ix_evaluator_connections_heartbeat", "last_heartbeat"),
+    )
+
+
 class BackendState(TimestampMixin, SQLModel, table=True):
     """Backend service state for persistence across restarts."""
 
@@ -1197,6 +1306,9 @@ class ApiKey(TimestampMixin, SQLModel, table=True):
     validator_connections: List["ValidatorConnection"] = Relationship(
         back_populates="api_key", cascade_delete=True
     )
+    evaluator_connections: List["EvaluatorConnection"] = Relationship(
+        back_populates="api_key", cascade_delete=True
+    )
     reviewed_leader_candidates: List["CompetitionLeaderCandidate"] = Relationship(
         back_populates="reviewed_by"
     )
@@ -1204,8 +1316,10 @@ class ApiKey(TimestampMixin, SQLModel, table=True):
     __table_args__ = (
         Index("ix_api_keys_active", "is_active"),
         Index("ix_api_keys_expires", "expires_at"),
+        # Note: 'evaluator' role added for direct evaluator connections
         CheckConstraint(
-            "role IN ('admin', 'validator', 'viewer')", name="ck_api_keys_valid_role"
+            "role IN ('admin', 'validator', 'evaluator', 'viewer')",
+            name="ck_api_keys_valid_role",
         ),
     )
 

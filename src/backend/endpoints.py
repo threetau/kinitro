@@ -93,6 +93,7 @@ from .models import (
     EvaluationLogDownloadResponse,
     EvaluationResultLogResponse,
     EvaluationResultResponse,
+    EvaluatorInfoResponse,
     JobResponse,
     JobStatusResponse,
     LeaderCandidateReviewRequest,
@@ -2740,6 +2741,423 @@ async def validator_websocket(websocket: WebSocket):
 
             # Broadcast updated stats (validator count changed)
             await backend_service._broadcast_stats_update()
+
+
+# ============================================================================
+# WebSocket Endpoint for Evaluators (Direct Connection)
+# ============================================================================
+
+
+@app.websocket("/ws/evaluator")
+async def evaluator_websocket(websocket: WebSocket):
+    """WebSocket endpoint for direct evaluator connections.
+
+    This enables evaluators to connect directly to the backend without
+    going through a validator relay. Evaluators register with their
+    capabilities and receive jobs directly.
+    """
+    await websocket.accept()
+    connection_id = uuid.uuid4().hex
+    evaluator_id: Optional[str] = None
+
+    try:
+        # Wait for registration message
+        data = await websocket.receive_text()
+        message = json.loads(data)
+
+        if message.get("message_type") != MessageType.EVALUATOR_REGISTER:
+            await websocket.send_text(
+                json.dumps({"error": "Must send EVALUATOR_REGISTER first"})
+            )
+            await websocket.close()
+            return
+
+        # Validate API key
+        api_key = message.get("api_key")
+        if not api_key:
+            await websocket.send_text(json.dumps({"error": "Missing API key"}))
+            await websocket.close()
+            return
+
+        api_key_obj = await get_api_key_from_db(api_key, backend_service)
+        if not api_key_obj:
+            await websocket.send_text(
+                json.dumps({"error": "Invalid, expired, or inactive API key"})
+            )
+            await websocket.close()
+            return
+
+        # Check for evaluator or admin role
+        if api_key_obj.role not in (UserRole.EVALUATOR, UserRole.ADMIN):
+            await websocket.send_text(
+                json.dumps(
+                    {"error": "API key does not have evaluator access"}
+                )
+            )
+            await websocket.close()
+            return
+
+        evaluator_id = message.get("evaluator_id")
+        if not evaluator_id:
+            await websocket.send_text(json.dumps({"error": "Missing evaluator_id"}))
+            await websocket.close()
+            return
+
+        supported_task_types = message.get("supported_task_types", ["rl_rollout"])
+        max_concurrent_jobs = message.get("max_concurrent_jobs", 1)
+        capabilities = message.get("capabilities")
+
+        # Register in evaluator hub
+        await backend_service.evaluator_hub.register(
+            connection_id=connection_id,
+            evaluator_id=evaluator_id,
+            websocket=websocket,
+            api_key_id=api_key_obj.id,
+            supported_task_types=supported_task_types,
+            max_concurrent_jobs=max_concurrent_jobs,
+            capabilities=capabilities,
+        )
+
+        # Persist to database
+        if backend_service.async_session:
+            async with backend_service.async_session() as session:
+                from .models import EvaluatorConnection
+
+                result = await session.execute(
+                    select(EvaluatorConnection).where(
+                        EvaluatorConnection.evaluator_id == evaluator_id
+                    )
+                )
+                evaluator_conn = result.scalar_one_or_none()
+
+                if not evaluator_conn:
+                    evaluator_conn = EvaluatorConnection(
+                        id=next(backend_service.id_generator),
+                        evaluator_id=evaluator_id,
+                        api_key_id=api_key_obj.id,
+                        supported_task_types=supported_task_types,
+                        max_concurrent_jobs=max_concurrent_jobs,
+                        is_connected=True,
+                        capabilities=capabilities,
+                    )
+                    session.add(evaluator_conn)
+                else:
+                    evaluator_conn.api_key_id = api_key_obj.id
+                    evaluator_conn.supported_task_types = supported_task_types
+                    evaluator_conn.max_concurrent_jobs = max_concurrent_jobs
+                    evaluator_conn.last_heartbeat = datetime.now(timezone.utc)
+                    evaluator_conn.is_connected = True
+                    evaluator_conn.capabilities = capabilities
+
+                await session.commit()
+
+        # Send acknowledgment
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "message_type": MessageType.EVALUATOR_REGISTRATION_ACK,
+                    "success": True,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        )
+
+        logger.info(
+            f"Evaluator registered: {evaluator_id} ({connection_id}) "
+            f"with {max_concurrent_jobs} max concurrent jobs"
+        )
+
+        # Handle messages
+        while True:
+            data = await websocket.receive_text()
+            message = json.loads(data)
+            message_type = message.get("message_type")
+
+            if message_type == MessageType.HEARTBEAT:
+                # Update heartbeat in hub
+                backend_service.evaluator_hub.update_heartbeat(evaluator_id)
+
+                # Update database
+                if backend_service.async_session:
+                    async with backend_service.async_session() as session:
+                        from .models import EvaluatorConnection
+
+                        result = await session.execute(
+                            select(EvaluatorConnection).where(
+                                EvaluatorConnection.evaluator_id == evaluator_id
+                            )
+                        )
+                        evaluator_conn = result.scalar_one_or_none()
+                        if evaluator_conn:
+                            evaluator_conn.last_heartbeat = datetime.now(timezone.utc)
+                            await session.commit()
+
+                await websocket.send_text(
+                    json.dumps(
+                        {
+                            "message_type": MessageType.HEARTBEAT_ACK,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                )
+
+            elif message_type == MessageType.EVAL_RESULT:
+                # Handle evaluation result from evaluator
+                result_msg = EvalResultMessage(**message)
+
+                if backend_service.async_session:
+                    async with backend_service.async_session() as session:
+                        from .models import EvaluatorConnection
+
+                        # Find job
+                        job_result = await session.execute(
+                            select(BackendEvaluationJob).where(
+                                BackendEvaluationJob.id == result_msg.job_id
+                            )
+                        )
+                        backend_job = job_result.scalar_one_or_none()
+
+                        if backend_job:
+                            # Create result - use evaluator_id as validator_hotkey
+                            # for compatibility with existing schema
+                            eval_result = BackendEvaluationResult(
+                                id=next(backend_service.id_generator),
+                                job_id=result_msg.job_id,
+                                validator_hotkey=evaluator_id,  # Using evaluator_id
+                                miner_hotkey=result_msg.miner_hotkey,
+                                competition_id=result_msg.competition_id,
+                                env_provider=result_msg.env_provider,
+                                benchmark=result_msg.benchmark_name,
+                                score=result_msg.score,
+                                success_rate=result_msg.success_rate,
+                                avg_reward=result_msg.avg_reward,
+                                total_episodes=result_msg.total_episodes,
+                                logs=result_msg.logs,
+                                error=result_msg.error,
+                                extra_data=result_msg.extra_data,
+                                env_specs=result_msg.env_specs,
+                            )
+
+                            session.add(eval_result)
+
+                            # Update evaluator stats
+                            eval_conn_result = await session.execute(
+                                select(EvaluatorConnection).where(
+                                    EvaluatorConnection.evaluator_id == evaluator_id
+                                )
+                            )
+                            evaluator_conn = eval_conn_result.scalar_one_or_none()
+                            if evaluator_conn:
+                                if result_msg.error:
+                                    evaluator_conn.total_jobs_failed += 1
+                                else:
+                                    evaluator_conn.total_jobs_completed += 1
+                                # Decrement current job count
+                                if evaluator_conn.current_job_count > 0:
+                                    evaluator_conn.current_job_count -= 1
+
+                            await session.commit()
+
+                            # Update job status
+                            result_status = getattr(result_msg, "status", None)
+                            if result_status is None:
+                                result_status = (
+                                    EvaluationStatus.FAILED
+                                    if result_msg.error
+                                    else EvaluationStatus.COMPLETED
+                                )
+
+                            detail = (
+                                f"Evaluation completed with score {result_msg.score}"
+                                if result_status == EvaluationStatus.COMPLETED
+                                else result_msg.error or result_status.value
+                            )
+
+                            await backend_service._update_job_status(
+                                result_msg.job_id,
+                                evaluator_id,
+                                result_status,
+                                detail,
+                            )
+
+                            logger.info(
+                                f"Stored result from evaluator {evaluator_id} "
+                                f"for job {result_msg.job_id}"
+                            )
+
+                            # Broadcast evaluation completed event
+                            eval_event = EvaluationCompletedEvent(
+                                job_id=eval_result.job_id,
+                                validator_hotkey=evaluator_id,
+                                miner_hotkey=eval_result.miner_hotkey,
+                                competition_id=eval_result.competition_id,
+                                benchmark_name=eval_result.benchmark,
+                                score=eval_result.score,
+                                success_rate=eval_result.success_rate,
+                                avg_reward=eval_result.avg_reward,
+                                total_episodes=eval_result.total_episodes,
+                                result_time=eval_result.result_time,
+                                created_at=eval_result.created_at,
+                            )
+                            await event_broadcaster.broadcast_event(
+                                EventType.EVALUATION_COMPLETED, eval_event
+                            )
+
+                # Decrement job count in hub
+                backend_service.evaluator_hub.job_completed(evaluator_id)
+
+                # Send acknowledgment
+                await websocket.send_text(
+                    json.dumps(
+                        {
+                            "message_type": MessageType.RESULT_ACK,
+                            "job_id": str(result_msg.job_id),
+                            "status": "received",
+                        }
+                    )
+                )
+
+            elif message_type == MessageType.JOB_STATUS_UPDATE:
+                status_msg = JobStatusUpdateMessage(**message)
+
+                logger.info(
+                    "Received job status update from evaluator %s for job %s: %s",
+                    evaluator_id,
+                    status_msg.job_id,
+                    status_msg.status,
+                )
+
+                await backend_service._update_job_status(
+                    status_msg.job_id,
+                    evaluator_id,
+                    status_msg.status,
+                    status_msg.detail,
+                )
+
+            elif message_type == MessageType.EPISODE_DATA:
+                episode_msg = EpisodeDataMessage(**message)
+                await backend_service.queue_episode_data(evaluator_id, episode_msg)
+
+                logger.debug(
+                    "Queued episode data from evaluator %s for episode %s",
+                    evaluator_id,
+                    episode_msg.episode_id,
+                )
+
+            elif message_type == MessageType.EPISODE_STEP_DATA:
+                step_msg = EpisodeStepDataMessage(**message)
+                await backend_service.queue_episode_step_data(evaluator_id, step_msg)
+
+                logger.debug(
+                    "Queued step data from evaluator %s for episode %s step %s",
+                    evaluator_id,
+                    step_msg.episode_id,
+                    step_msg.step,
+                )
+
+            elif message_type == MessageType.JOB_ACK:
+                # Evaluator acknowledging job receipt
+                job_id = message.get("job_id")
+                accepted = message.get("accepted", True)
+                reason = message.get("reason")
+
+                if not accepted:
+                    logger.warning(
+                        "Evaluator %s rejected job %s: %s",
+                        evaluator_id,
+                        job_id,
+                        reason,
+                    )
+                    # Could re-route job to another evaluator here
+                else:
+                    logger.debug(
+                        "Evaluator %s accepted job %s",
+                        evaluator_id,
+                        job_id,
+                    )
+
+    except WebSocketDisconnect:
+        logger.info(f"Evaluator disconnected: {evaluator_id} ({connection_id})")
+    except Exception as e:
+        logger.error(f"Error in evaluator WebSocket: {e}")
+    finally:
+        # Cleanup
+        if evaluator_id:
+            await backend_service.evaluator_hub.unregister(connection_id)
+
+            # Update database
+            if backend_service.async_session:
+                async with backend_service.async_session() as session:
+                    from .models import EvaluatorConnection
+
+                    result = await session.execute(
+                        select(EvaluatorConnection).where(
+                            EvaluatorConnection.evaluator_id == evaluator_id
+                        )
+                    )
+                    evaluator_conn = result.scalar_one_or_none()
+                    if evaluator_conn:
+                        evaluator_conn.is_connected = False
+                        await session.commit()
+
+
+# ============================================================================
+# Evaluator REST Endpoints
+# ============================================================================
+
+
+@app.get("/evaluators", response_model=List[EvaluatorInfoResponse])
+async def list_evaluators(
+    connected_only: bool = Query(
+        False, description="Filter for connected evaluators only"
+    ),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_PAGE_LIMIT, ge=MIN_PAGE_LIMIT, le=MAX_PAGE_LIMIT),
+):
+    """List all evaluators."""
+    if not backend_service.async_session:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not initialized",
+        )
+    async with backend_service.async_session() as session:
+        from .models import EvaluatorConnection
+
+        query = select(EvaluatorConnection)
+        if connected_only:
+            query = query.where(EvaluatorConnection.is_connected)
+        query = query.offset(skip).limit(limit)
+
+        result = await session.execute(query)
+        evaluators = result.scalars().all()
+
+        return [EvaluatorInfoResponse.model_validate(e) for e in evaluators]
+
+
+@app.get("/evaluators/{evaluator_id}", response_model=EvaluatorInfoResponse)
+async def get_evaluator(evaluator_id: str):
+    """Get a specific evaluator by ID."""
+    if not backend_service.async_session:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not initialized",
+        )
+    async with backend_service.async_session() as session:
+        from .models import EvaluatorConnection
+
+        result = await session.execute(
+            select(EvaluatorConnection).where(
+                EvaluatorConnection.evaluator_id == evaluator_id
+            )
+        )
+        evaluator = result.scalar_one_or_none()
+
+        if not evaluator:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Evaluator not found"
+            )
+
+        return EvaluatorInfoResponse.model_validate(evaluator)
 
 
 # ============================================================================

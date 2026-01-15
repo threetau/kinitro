@@ -1,3 +1,6 @@
+import os
+import uuid
+
 import dotenv
 
 from core.config import Config, ConfigOpts
@@ -8,6 +11,12 @@ dotenv.load_dotenv()
 
 DEFAULT_RPC_HANDSHAKE_MAX_ATTEMPTS = 5
 DEFAULT_RPC_HANDSHAKE_RETRY_SECONDS = 2.0
+
+# Backend connection defaults
+DEFAULT_BACKEND_WS_URL = "ws://localhost:8080/ws/evaluator"
+DEFAULT_RECONNECT_INTERVAL = 5.0
+DEFAULT_MAX_RECONNECT_INTERVAL = 60.0
+DEFAULT_HEARTBEAT_INTERVAL = 30.0
 
 
 class EvaluatorConfig(Config):
@@ -20,6 +29,28 @@ class EvaluatorConfig(Config):
         super().__init__(opts)
         self.pg_database = self.settings.get("pg_database")  # type: ignore
         self.log_file = self._normalize_log_file(self.settings.get("log_file"))
+
+        # Backend WebSocket connection settings
+        self.backend_ws_url = self.settings.get(
+            "backend_ws_url", DEFAULT_BACKEND_WS_URL
+        )
+        self.evaluator_id = self.settings.get(
+            "evaluator_id",
+            os.environ.get("EVALUATOR_ID", f"evaluator-{uuid.uuid4().hex[:8]}"),
+        )
+        self.api_key = os.environ.get("KINITRO_API_KEY")
+        self.reconnect_interval = float(
+            self.settings.get("reconnect_interval", DEFAULT_RECONNECT_INTERVAL)
+        )
+        self.max_reconnect_interval = float(
+            self.settings.get("max_reconnect_interval", DEFAULT_MAX_RECONNECT_INTERVAL)
+        )
+        self.heartbeat_interval = float(
+            self.settings.get("heartbeat_interval", DEFAULT_HEARTBEAT_INTERVAL)
+        )
+
+        # Connection mode: "direct" for WebSocket to backend, "pgqueuer" for legacy
+        self.connection_mode = self.settings.get("connection_mode", "direct")
 
         # S3 storage configuration
         self.s3_config = load_s3_config()
