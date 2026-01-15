@@ -525,6 +525,14 @@ class Competition(TimestampMixin, SQLModel, table=True):
         sa_column_kwargs={"server_default": "true"},
     )
 
+    # Task type for executor dispatch (defaults to rl_rollout for existing competitions)
+    task_type: str = Field(
+        default="rl_rollout",
+        max_length=64,
+        nullable=False,
+        sa_column_kwargs={"server_default": "'rl_rollout'"},
+    )
+
     # Start and end times for the competition
     start_time: Optional[datetime] = Field(
         default=None, sa_column=Column(SADateTime(timezone=True), nullable=True)

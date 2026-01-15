@@ -96,6 +96,11 @@ class EvalJobMessage(SQLModel):
     artifact_size_bytes: Optional[int] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+    # Task type for executor dispatch (defaults to rl_rollout for backward compatibility)
+    task_type: str = "rl_rollout"
+    # Optional serialized TaskSpec for new-style jobs
+    task_spec: Optional[dict] = None
+
     @field_validator("timeout", mode="before")
     @classmethod
     def validate_timeout(cls, v: Any) -> Optional[timedelta]:
