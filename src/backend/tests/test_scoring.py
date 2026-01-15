@@ -60,6 +60,7 @@ class TestScoringEngineEligibility:
 
         competition = MagicMock(spec=Competition)
         competition.id = "test_comp"
+        competition.task_type = "rl_rollout"
         competition.min_success_rate = 0.8
         competition.min_avg_reward = 50.0
 
@@ -74,6 +75,7 @@ class TestScoringEngineEligibility:
 
         competition = MagicMock(spec=Competition)
         competition.id = "test_comp"
+        competition.task_type = "rl_rollout"
         competition.min_success_rate = 0.8
         competition.min_avg_reward = 50.0
 
@@ -88,6 +90,7 @@ class TestScoringEngineEligibility:
 
         competition = MagicMock(spec=Competition)
         competition.id = "test_comp"
+        competition.task_type = "rl_rollout"
         competition.min_success_rate = 0.8
         competition.min_avg_reward = 50.0
 
@@ -102,6 +105,7 @@ class TestScoringEngineEligibility:
 
         competition = MagicMock(spec=Competition)
         competition.id = "test_comp"
+        competition.task_type = "rl_rollout"
         competition.min_success_rate = 0.8
         competition.min_avg_reward = 50.0
 
@@ -116,6 +120,7 @@ class TestScoringEngineEligibility:
 
         competition = MagicMock(spec=Competition)
         competition.id = "test_comp"
+        competition.task_type = "rl_rollout"
         competition.min_success_rate = 0.8
         competition.min_avg_reward = 50.0
 

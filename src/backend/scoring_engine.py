@@ -3,15 +3,20 @@ Scoring engine for Kinitro evaluations.
 
 Handles all scoring, eligibility checking, and leader candidate logic.
 Extracted from BackendService for better separation of concerns.
+
+The ScoringEngine uses pluggable ScoringStrategy implementations to support
+different task types with their own eligibility and scoring logic.
 """
 
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from fiber.chain.models import Node
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from core.log import get_logger
+from core.tasks import TaskType
 
 from .models import (
     BackendEvaluationResult,
@@ -20,6 +25,10 @@ from .models import (
     LeaderCandidateStatus,
     SS58Address,
 )
+from .scoring import ScoringStrategyRegistry
+
+if TYPE_CHECKING:
+    from .scoring import ScoringStrategy
 
 logger = get_logger(__name__)
 
@@ -56,6 +65,9 @@ class ScoringEngine:
     - Creating and managing leader candidates
     - Computing scores for competition winners
     - Calculating weight distributions for miners
+    
+    The ScoringEngine uses pluggable ScoringStrategy implementations to support
+    different task types. The strategy is selected based on competition.task_type.
     """
 
     def __init__(
@@ -63,35 +75,48 @@ class ScoringEngine:
         session_factory: async_sessionmaker[AsyncSession],
         config: ScoringConfig,
         id_generator,
+        strategy_registry: ScoringStrategyRegistry | None = None,
     ):
         self.session_factory = session_factory
         self.config = config
         self.id_generator = id_generator
+        # Use provided registry or create default with all built-in strategies
+        self.strategy_registry = strategy_registry or ScoringStrategyRegistry.default()
+
+    def get_strategy(self, competition: Competition) -> "ScoringStrategy":
+        """Get the scoring strategy for a competition based on its task type.
+        
+        Args:
+            competition: The competition to get a strategy for
+            
+        Returns:
+            The appropriate ScoringStrategy for the competition's task type
+        """
+        return self.strategy_registry.get(competition.task_type)
 
     def is_eligible(
         self,
         result: BackendEvaluationResult,
         competition: Competition,
     ) -> bool:
-        """Check if a miner meets eligibility criteria for a competition."""
-        if result.success_rate is None or result.avg_reward is None:
-            return False
-
-        if result.success_rate < competition.min_success_rate:
-            logger.trace(
-                f"Miner {result.miner_hotkey} excluded from competition {competition.id}: "
-                f"success_rate={result.success_rate:.3f} < min_threshold={competition.min_success_rate:.3f}"
+        """Check if a miner meets eligibility criteria for a competition.
+        
+        Uses the competition's task type to select the appropriate scoring
+        strategy for eligibility checking.
+        """
+        strategy = self.get_strategy(competition)
+        metrics = strategy.extract_metrics(result)
+        eligibility = strategy.check_eligibility(metrics, competition)
+        
+        if not eligibility.eligible and eligibility.reason:
+            logger.debug(
+                "Miner %s excluded from competition %s: %s",
+                result.miner_hotkey,
+                competition.id,
+                eligibility.reason,
             )
-            return False
-
-        if result.avg_reward < competition.min_avg_reward:
-            logger.trace(
-                f"Miner {result.miner_hotkey} excluded from competition {competition.id}: "
-                f"avg_reward={result.avg_reward:.3f} < min_threshold={competition.min_avg_reward}"
-            )
-            return False
-
-        return True
+        
+        return eligibility.eligible
 
     async def queue_leader_candidate(
         self,
@@ -196,6 +221,9 @@ class ScoringEngine:
         miner_scores: dict[SS58Address, float],
     ) -> None:
         """Score a single competition and update miner_scores in place."""
+        # Get the scoring strategy for this competition's task type
+        strategy = self.get_strategy(competition)
+        
         # Get all evaluation results for this competition
         results_query = select(BackendEvaluationResult).where(
             BackendEvaluationResult.competition_id == competition.id
@@ -207,18 +235,21 @@ class ScoringEngine:
             logger.debug(f"No evaluation results for competition {competition.id}")
             return
 
-        # Find eligible challengers and order them by success rate / avg reward
+        # Find eligible challengers and order them using the strategy's compare method
         eligible_results = [
             result for result in eval_results if self.is_eligible(result, competition)
         ]
 
-        eligible_results.sort(
-            key=lambda res: (
-                res.success_rate if res.success_rate is not None else float("-inf"),
-                res.avg_reward if res.avg_reward is not None else float("-inf"),
-            ),
-            reverse=True,
-        )
+        # Sort using strategy's compare method (descending order, best first)
+        from functools import cmp_to_key
+        
+        def compare_results(a: BackendEvaluationResult, b: BackendEvaluationResult) -> int:
+            metrics_a = strategy.extract_metrics(a)
+            metrics_b = strategy.extract_metrics(b)
+            # Negate because we want descending order (best first)
+            return -strategy.compare(metrics_a, metrics_b)
+        
+        eligible_results.sort(key=cmp_to_key(compare_results))
 
         if not eligible_results:
             if competition.current_leader_hotkey:
