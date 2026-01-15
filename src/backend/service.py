@@ -65,7 +65,13 @@ from backend.events import (
     SubmissionReceivedEvent,
     ValidatorDisconnectedEvent,
 )
-from backend.job_scheduler import JobConfig, JobScheduler
+from backend.job_scheduler import (
+    EvaluationJobNotFoundError,
+    JobConfig,
+    JobScheduler,
+    NoBenchmarksAvailableError,
+    SubmissionNotFoundError,
+)
 from backend.realtime import EventType, event_broadcaster
 from backend.scoring import ScoringConfig, ScoringEngine
 from backend.submission_storage import PresignedUpload, SubmissionStorage
@@ -1377,7 +1383,7 @@ class BackendService:
                     release_url, expires_at = (
                         self.submission_storage.generate_download_url(
                             submission.artifact_object_key,
-                            SUBMISSION_RELEASE_URL_TTL,
+                            SUBMISSION_RELEASE_URL_TTL.total_seconds(),
                         )
                     )
                 except Exception as exc:

@@ -16,8 +16,8 @@ ExecutorRegistry.get(task_type)
 TaskExecutor (interface)
     │
     ├── RLRolloutExecutor (rl_rollout)
-    ├── TrainingExecutor (training_run) [future]
-    └── BrowserTaskExecutor (browser_task) [future]
+    └── TrainingExecutor (training_run) [future]
+    ...
 ```
 
 ## Creating a New Executor

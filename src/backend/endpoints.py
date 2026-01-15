@@ -2445,9 +2445,7 @@ async def evaluator_websocket(websocket: WebSocket):
         # Check for evaluator or admin role
         if api_key_obj.role not in (UserRole.EVALUATOR, UserRole.ADMIN):
             await websocket.send_text(
-                json.dumps(
-                    {"error": "API key does not have evaluator access"}
-                )
+                json.dumps({"error": "API key does not have evaluator access"})
             )
             await websocket.close()
             return

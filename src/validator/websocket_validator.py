@@ -43,7 +43,9 @@ class WeightSettingValidator(Neuron):
         self.backend_url = config.settings.get(
             "backend_url", "http://localhost:8080"
         ).rstrip("/")
-        self.poll_interval = config.settings.get("weight_poll_interval", 300)  # 5 min default
+        self.poll_interval = config.settings.get(
+            "weight_poll_interval", 300
+        )  # 5 min default
 
         # Chain state
         self.nodes: Optional[Dict[SS58Address, Node]] = None

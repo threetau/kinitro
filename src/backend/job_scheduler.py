@@ -251,11 +251,11 @@ class JobScheduler:
             try:
                 await self.broadcast_job(job)
             except Exception as exc:
-                logger.error("Failed to broadcast job %s to evaluators: %s", job.id, exc)
+                logger.error(
+                    "Failed to broadcast job %s to evaluators: %s", job.id, exc
+                )
 
-    def _build_job_message(
-        self, job: BackendEvaluationJob
-    ) -> Optional[EvalJobMessage]:
+    def _build_job_message(self, job: BackendEvaluationJob) -> Optional[EvalJobMessage]:
         """Build an EvalJobMessage from a BackendEvaluationJob.
 
         Returns:

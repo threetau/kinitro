@@ -39,7 +39,9 @@ def upgrade() -> None:
         sa.Column(
             "max_concurrent_jobs", sa.Integer(), nullable=False, server_default="1"
         ),
-        sa.Column("current_job_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column(
+            "current_job_count", sa.Integer(), nullable=False, server_default="0"
+        ),
         sa.Column("is_connected", sa.Boolean(), nullable=False, server_default="true"),
         sa.Column(
             "last_heartbeat",
@@ -59,7 +61,9 @@ def upgrade() -> None:
         sa.Column(
             "total_jobs_completed", sa.Integer(), nullable=False, server_default="0"
         ),
-        sa.Column("total_jobs_failed", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column(
+            "total_jobs_failed", sa.Integer(), nullable=False, server_default="0"
+        ),
         sa.Column("capabilities", sa.JSON(), nullable=True),
         sa.Column(
             "created_at",
@@ -94,11 +98,17 @@ def upgrade() -> None:
         "ix_evaluator_connections_connected", "evaluator_connections", ["is_connected"]
     )
     op.create_index(
-        "ix_evaluator_connections_heartbeat", "evaluator_connections", ["last_heartbeat"]
+        "ix_evaluator_connections_heartbeat",
+        "evaluator_connections",
+        ["last_heartbeat"],
     )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_evaluator_connections_heartbeat", table_name="evaluator_connections")
-    op.drop_index("ix_evaluator_connections_connected", table_name="evaluator_connections")
+    op.drop_index(
+        "ix_evaluator_connections_heartbeat", table_name="evaluator_connections"
+    )
+    op.drop_index(
+        "ix_evaluator_connections_connected", table_name="evaluator_connections"
+    )
     op.drop_table("evaluator_connections")

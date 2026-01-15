@@ -460,9 +460,7 @@ class BackendClient:
             # Check queue health
             queue_size = self._send_queue.qsize()
             if queue_size > SEND_QUEUE_MAXSIZE * SEND_QUEUE_WARN_FRACTION:
-                logger.warning(
-                    f"Send queue is {queue_size}/{SEND_QUEUE_MAXSIZE} full"
-                )
+                logger.warning(f"Send queue is {queue_size}/{SEND_QUEUE_MAXSIZE} full")
 
             self._send_queue.put_nowait(message)
             return True

@@ -65,7 +65,7 @@ class ScoringEngine:
     - Creating and managing leader candidates
     - Computing scores for competition winners
     - Calculating weight distributions for miners
-    
+
     The ScoringEngine uses pluggable ScoringStrategy implementations to support
     different task types. The strategy is selected based on competition.task_type.
     """
@@ -85,10 +85,10 @@ class ScoringEngine:
 
     def get_strategy(self, competition: Competition) -> "ScoringStrategy":
         """Get the scoring strategy for a competition based on its task type.
-        
+
         Args:
             competition: The competition to get a strategy for
-            
+
         Returns:
             The appropriate ScoringStrategy for the competition's task type
         """
@@ -100,14 +100,14 @@ class ScoringEngine:
         competition: Competition,
     ) -> bool:
         """Check if a miner meets eligibility criteria for a competition.
-        
+
         Uses the competition's task type to select the appropriate scoring
         strategy for eligibility checking.
         """
         strategy = self.get_strategy(competition)
         metrics = strategy.extract_metrics(result)
         eligibility = strategy.check_eligibility(metrics, competition)
-        
+
         if not eligibility.eligible and eligibility.reason:
             logger.debug(
                 "Miner %s excluded from competition %s: %s",
@@ -115,7 +115,7 @@ class ScoringEngine:
                 competition.id,
                 eligibility.reason,
             )
-        
+
         return eligibility.eligible
 
     async def queue_leader_candidate(
@@ -223,7 +223,7 @@ class ScoringEngine:
         """Score a single competition and update miner_scores in place."""
         # Get the scoring strategy for this competition's task type
         strategy = self.get_strategy(competition)
-        
+
         # Get all evaluation results for this competition
         results_query = select(BackendEvaluationResult).where(
             BackendEvaluationResult.competition_id == competition.id
@@ -242,13 +242,15 @@ class ScoringEngine:
 
         # Sort using strategy's compare method (descending order, best first)
         from functools import cmp_to_key
-        
-        def compare_results(a: BackendEvaluationResult, b: BackendEvaluationResult) -> int:
+
+        def compare_results(
+            a: BackendEvaluationResult, b: BackendEvaluationResult
+        ) -> int:
             metrics_a = strategy.extract_metrics(a)
             metrics_b = strategy.extract_metrics(b)
             # Negate because we want descending order (best first)
             return -strategy.compare(metrics_a, metrics_b)
-        
+
         eligible_results.sort(key=cmp_to_key(compare_results))
 
         if not eligible_results:

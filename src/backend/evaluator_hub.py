@@ -49,12 +49,8 @@ class EvaluatorHub:
 
     def __init__(
         self,
-        on_result_received: Optional[
-            Callable[[dict], Awaitable[None]]
-        ] = None,
-        on_status_update: Optional[
-            Callable[[dict], Awaitable[None]]
-        ] = None,
+        on_result_received: Optional[Callable[[dict], Awaitable[None]]] = None,
+        on_status_update: Optional[Callable[[dict], Awaitable[None]]] = None,
     ):
         # WebSocket connections by connection_id
         self._connections: Dict[ConnectionId, EvaluatorState] = {}
@@ -161,9 +157,7 @@ class EvaluatorHub:
             except Exception as e:
                 logger.debug(f"Error closing WebSocket for {connection_id}: {e}")
 
-    async def send_job(
-        self, evaluator_id: EvaluatorId, job: EvalJobMessage
-    ) -> bool:
+    async def send_job(self, evaluator_id: EvaluatorId, job: EvalJobMessage) -> bool:
         """
         Send a job to a specific evaluator.
 
@@ -257,9 +251,7 @@ class EvaluatorHub:
 
         return sent_count
 
-    async def send_message(
-        self, evaluator_id: EvaluatorId, message: SQLModel
-    ) -> bool:
+    async def send_message(self, evaluator_id: EvaluatorId, message: SQLModel) -> bool:
         """
         Send an arbitrary message to a specific evaluator.
 
