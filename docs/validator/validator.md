@@ -4,17 +4,19 @@ section: 'Start Validating'
 
 # Validator
 
-Validators are responsible for evaluating the performance of miner-submitted agents on a variety of tasks.
+Validators are responsible for setting weights on the Bittensor chain based on miner performance. The validator periodically polls the backend's `/weights` endpoint and commits any changes on-chain.
 
-**Choose your validator type first:**
+## Architecture Overview
 
-1. [Full Validator (full pipeline)](#full-validator-full-pipeline) – runs evaluations, streams logs, and requires the evaluator + Postgres stack.
-2. [Lite Validator (HTTP weight setter)](#lite-validator-http-weight-setter) – polls the public weight endpoint and only sets weights on-chain.
+The validator is intentionally lightweight:
 
-After picking the implementation, choose how you want to deploy it:
+```
+Backend ─────GET /weights────► Validator ─────set_weights────► Bittensor Chain
+```
 
-1. [Bare Metal](#setup---bare-metal)
-2. [Containerized deployment](#setup---containerized-deployment)
+- **No WebSocket connection** - The validator uses simple HTTP polling
+- **No database required** - Weights are fetched fresh each cycle
+- **No evaluator needed** - Evaluators connect directly to the backend (see [Evaluator docs](../architecture/evaluator.md))
 
 ## Setup - Bare Metal
 
@@ -26,9 +28,7 @@ Copy the `.env.validator.example` file to `.env` and fill in the required enviro
 cp .env.validator.example .env
 ```
 
-You will need to create an R2 bucket and set the relevant environment variables. This is required for storing some evaluation data. For more information please refer to Cloudflare's [R2 documentation](https://developers.cloudflare.com/r2/buckets/).
-
-If you are running a Full Validator (*not* a lite validator), You will need to set `KINITRO_API_KEY` to obtain access to the Kinitro backend. Please contact us on our [discord channel](https://discord.gg/96SdmpeMqG) for access.
+The only required environment variables are for your Bittensor wallet configuration.
 
 ### Configuration
 
@@ -38,162 +38,149 @@ To configure a validator, start by copying the example configuration file:
 cp config/validator.toml.example validator.toml
 ```
 
-The example config now includes both the Full validator and the lite HTTP-based weight setter. Core knobs look like:
+Key configuration options:
 
 ```toml
-validator_mode = "full"         # switch to "lite" to run the HTTP weight setter
+# Backend endpoint to poll for weights
 weights_url = "https://api.kinitro.ai/weights"
-weights_poll_interval = 30.0
+
+# How often to poll for weight updates (seconds)
+weights_poll_interval = 300.0  # 5 minutes
+
+# HTTP request timeout (seconds)
 weights_request_timeout = 10.0
-weights_stale_threshold = 180.0
+
+# How old weights can be before considered stale (seconds)
+weights_stale_threshold = 900.0  # 15 minutes
+
+# Bittensor configuration
+netuid = 123
+network = "finney"  # or "test" for testnet
+wallet_name = "default"
+hotkey_name = "default"
 ```
 
-Use the default `weights_url` unless you operate your own backend; the lite mode polls this endpoint and pushes updates on-chain.
-
-#### Full validator (full pipeline)
-
-Set `validator_mode = "full"` to run the full evaluator pipeline. This mode:
-
-- maintains a WebSocket connection to the backend for job distribution and telemetry,
-- requires the PostgreSQL queue (`pg_database`) and evaluator service,
-- forwards evaluation results back to the backend.
-
-You will also need `evaluator.toml` for the orchestrator that executes jobs:
-
-```bash
-cp config/evaluator.toml.example evaluator.toml
-```
-
-Edit `evaluator.toml` to set your desired parameters, such as the PostgreSQL database connection string, R2 credentials, logging intervals, and the `log_file` path (defaults to `logs/evaluator.log`) where the orchestrator persists its stdout/stderr stream. The backend FastAPI service reads the same `log_file` key from `backend.toml`, so backend requests and background worker logs land in `logs/backend.log` by default.
-
-Key resource knobs in `evaluator.toml`:
-
-- `log_file` – path on disk where evaluator logs are mirrored in addition to stdout.
-- `ray_num_cpus`, `ray_num_gpus`, `ray_memory_gb`, `ray_object_store_memory_gb` – tune the Ray head resources the orchestrator reserves when it boots.
-- `worker_num_cpus`, `worker_num_gpus`, `worker_memory_gb`, `worker_max_restarts`, `worker_max_task_retries` – control how much CPU/GPU/memory each rollout worker actor requests from Ray.
-
-#### Lite validator (HTTP weight setter)
-
-Set `validator_mode = "lite"` when you only need to mirror backend weight decisions on-chain. This mode:
-
-- polls `weights_url` over HTTPS for the latest snapshot,
-- uses your Bittensor wallet/hotkey to submit weights,
-- does **not** require the evaluator service or Postgres queue.
-
-You still need valid wallet credentials and chain connectivity, but no backend API key is required because the `/weights` endpoint is public.
-
-### Setting up database
-
-The Full validator requires a PostgreSQL database for queuing evaluation jobs and results. The lite validator can skip this section.
-
-To set up the database, you can either:
-
-1. **Reset the database** (drops and recreates the database with all migrations):
-
-   ```bash
-   chmod +x ./scripts/reset_validator_db.sh
-   ./scripts/reset_validator_db.sh
-   ```
-
-2. **Run migrations only** (on an existing database):
-
-   ```bash
-   chmod +x ./scripts/migrate_validator_db.sh
-   ./scripts/migrate_validator_db.sh
-   ```
-
-The migration script will check if the database exists and run Alembic migrations to bring it up to date. It will also ensure the pgq extension is installed if needed.
+Use the default `weights_url` unless you operate your own backend.
 
 ### Running the validator
 
-Regardless of mode, launch the process with:
+Launch the validator with:
 
 ```bash
 python -m validator --config validator.toml
 ```
 
-- With `validator_mode = "full"` the service opens the backend WebSocket and requires the evaluator plus database to be running.
-- With `validator_mode = "lite"` the service polls `/weights` and immediately applies updates on-chain. No evaluator or database is needed.
+The validator will:
+1. Poll `GET /weights` at the configured interval
+2. Compare fetched weights against the last committed values
+3. Call `set_weights` on the Bittensor chain when changes occur
+4. Log all weight-setting activity
 
-### Running the Evaluator
+### Wallet Setup
 
-Only required for the Full validator. Start it once your validator is up:
+Ensure your Bittensor wallet is properly configured:
 
 ```bash
-python -m evaluator.orchestrator --config evaluator.toml
+# Check wallet exists
+btcli wallet list
+
+# Register on subnet if needed
+btcli subnet register --netuid <netuid> --wallet.name <wallet> --wallet.hotkey <hotkey>
 ```
 
-## Setup - Containerized deployment
+The validator needs sufficient stake to set weights on the subnet.
 
-We ship Docker recipes for the validator stack in `deploy/docker/`. The workflow below covers both CPU-only and GPU-enabled setups. The provided Compose profiles target the full validator; the lite validator can be run as a lightweight bare-metal process alongside the stack if desired.
+## Setup - Containerized Deployment
+
+We ship Docker recipes for the validator in `deploy/docker/`. The validator container is lightweight and only requires network access to the backend and Bittensor chain.
 
 ### 1. Prerequisites
 
-- **Docker Compose v2** (bundled with modern Docker releases).
-- **Environment variables** – export `KINITRO_API_KEY` in your shell or place it in `deploy/docker/validator-config/.env` before you launch the stack.
-- **Bittensor wallets** – point `BITTENSOR_HOME` at your wallet directory (defaults to `$HOME/.bittensor`). For example:
+- **Docker Compose v2** (bundled with modern Docker releases)
+- **Bittensor wallets** - Point `BITTENSOR_HOME` at your wallet directory (defaults to `$HOME/.bittensor`)
 
-  ```bash
-  export KINITRO_API_KEY=xxxxxxxx
-  export BITTENSOR_HOME="$HOME/.bittensor"
-  ```
-
-- **GPU hosts only** – install the NVIDIA Container Toolkit (see the [official guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)).
-- **Minikube (optional)** – required when you plan to run GPU evaluations; install it and start with GPU support as described in the [Minikube start documentation](https://minikube.sigs.k8s.io/docs/start/?arch=%2Fmacos%2Farm64%2Fstable%2Fbinary+download).
+```bash
+export BITTENSOR_HOME="$HOME/.bittensor"
+```
 
 ### 2. Prepare configuration files
 
-Copy your bare-metal configs into the Compose folder so the containers mount them read-only:
+Copy your configuration into the Compose folder:
 
 ```bash
-mkdir -p deploy/docker/validator-config deploy/docker/evaluator-config
+mkdir -p deploy/docker/validator-config
 cp validator.toml deploy/docker/validator-config/
-cp evaluator.toml deploy/docker/evaluator-config/
-cp .env deploy/docker/.env                      # optional, keeps secrets out of the compose file
 ```
 
-Keep `evaluator.toml` in sync with the resource hints you need (CPU/GPU counts, worker memory, etc.). The container reads these files from `/etc/kinitro` at runtime.
-
-### 3. Run the CPU evaluator stack
-
-The CPU evaluator lives in the `cpu` profile, so it will only start if you ask for it. Bring up the base services (Postgres, validator, watchtower) and the CPU evaluator:
+### 3. Run the validator
 
 ```bash
-docker compose -f deploy/docker/compose.yaml up -d postgres validator watchtower
-docker compose -f deploy/docker/compose.yaml --profile cpu up -d evaluator
+docker compose -f deploy/docker/compose.yaml up -d validator
 ```
 
-Use `scripts/update_validator.sh` to pull new images, apply migrations with the `migrator` profile, and restart the services automatically. Set `USE_GPU_EVALUATOR=1` when you want the helper script to restart the GPU profile instead of the CPU evaluator:
+The validator container mounts your wallet directory read-only and uses the configuration from `validator-config/`.
+
+## Running an Evaluator (Optional)
+
+If you want to contribute to the evaluation network, you can run an evaluator separately. Evaluators connect directly to the backend via WebSocket and do not require the validator.
+
+See the [Evaluator documentation](../architecture/evaluator.md) for setup instructions.
+
+### Evaluator Prerequisites
+
+Running an evaluator requires:
+- **Kubernetes cluster** (Minikube for local development, or a managed K8s service)
+- **Ray cluster** for distributed rollouts
+- **API key** from the Kinitro team (contact us on [Discord](https://discord.gg/96SdmpeMqG))
+
+### Evaluator Configuration
 
 ```bash
-./scripts/update_validator.sh              # CPU stack
-USE_GPU_EVALUATOR=1 ./scripts/update_validator.sh  # GPU stack
+cp config/evaluator.toml.example evaluator.toml
 ```
 
-### 4. Run the GPU evaluator (Minikube + CUDA)
+Key settings in `evaluator.toml`:
 
-1. Start Minikube with GPU support so the evaluator can create submission pods that request GPUs:
+- `backend_url` - WebSocket URL for the backend
+- `api_key` - Your evaluator API key
+- `max_concurrent_jobs` - Number of parallel evaluations
+- Ray and worker resource settings
 
-   ```bash
-   minikube start --driver=docker --gpu
-   ```
+### Running the Evaluator
 
-   This also creates the external Docker network named `minikube`, which the evaluator containers join for API access.
-2. Launch the GPU evaluator profile (CPU evaluator stays off unless you start the `cpu` profile):
+```bash
+python -m evaluator --config evaluator.toml
+```
 
-   ```bash
-   docker compose -f deploy/docker/compose.yaml --profile gpu --compatibility up -d evaluator-gpu
-   ```
+## Image Matrix
 
-If you prefer to keep both profiles running, bring up each profile explicitly (`--profile cpu up -d evaluator` and `--profile gpu up -d evaluator-gpu`).
+| Image | Purpose |
+| --- | --- |
+| `ghcr.io/threetau/kinitro-validator` | Weight-setting validator service |
+| `ghcr.io/threetau/kinitro-evaluator` | Evaluation orchestrator (CPU / `-gpu`) |
+| `ghcr.io/threetau/kinitro-miner-agent` | Submission runtime for evaluation pods (CPU / `-gpu`) |
 
-### Image matrix
+## Troubleshooting
 
-| Image | Purpose | Variant |
-| --- | --- | --- |
-| `ghcr.io/threetau/kinitro-validator` | Full validator service | CPU |
-| `ghcr.io/threetau/kinitro-evaluator` | Orchestrator & Ray rollout workers | CPU / `-gpu` |
-| `ghcr.io/threetau/kinitro-miner-agent` | Submission runtime for evaluator-launched pods (Minikube) | CPU / `-gpu` |
-| `kinitro-migrator` (local build) | Alembic + pgq migrations | CPU |
+### Validator not setting weights
 
-For local development or private registries, use the Docker Compose `build` targets to push images to your infrastructure. Update `deploy/docker/compose.yaml` to point at your registry/tag naming scheme.
+1. Check wallet registration: `btcli subnet list --netuid <netuid>`
+2. Verify sufficient stake for weight setting
+3. Check network connectivity to `weights_url`
+4. Review logs for HTTP errors
+
+### Stale weights warning
+
+If weights are older than `weights_stale_threshold`, the validator logs a warning. This typically means:
+- The backend is not receiving evaluation results
+- No approved leaders exist for competitions
+- Network issues between validator and backend
+
+### Connection errors
+
+```bash
+# Test connectivity to backend
+curl -s https://api.kinitro.ai/weights | jq .
+```
+
+If the endpoint returns a valid JSON response with weights, the issue is likely with your local configuration.

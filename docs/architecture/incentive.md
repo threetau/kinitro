@@ -39,11 +39,12 @@ and stamp approval metadata"]
 
 Administrators can annotate approvals or rejections, and the backend records the reviewer, reason, and timestamp. Pending candidates remain in the queue until a decision is made, making it easy to compare multiple challengers side-by-side.
 
-## Weight Broadcasting
+## Weight Distribution
 
-1. **WebSocket broadcast** – The backend pushes weight messages to every connected validator.
-2. **Chain update** – Validators commit weights on the Bittensor chain.
-3. **Cache warmup** – The backend keeps a copy of the latest weights in memory so reconnecting validators receive immediate updates even before the next scoring cycle. Competitions without an approved leader simply contribute zero weight until an approval occurs.
+1. **HTTP endpoint** - The backend serves weight snapshots via `GET /weights`, which returns a `WeightsSnapshot` containing UID-to-weight mappings.
+2. **Validator polling** - Validators periodically poll this endpoint (default: every 5 minutes) to fetch the latest weights.
+3. **Chain update** - When weights change, validators call `set_weights` on the Bittensor chain.
+4. **Cache warmup** - The backend keeps a copy of the latest weights in memory for fast retrieval. Competitions without an approved leader simply contribute zero weight until an approval occurs.
 
 ## Configuration
 
@@ -56,4 +57,4 @@ Administrators can annotate approvals or rejections, and the backend records the
 
 - Scores depend on trusted evaluation results. Validators should ensure evaluators are running the same container images and configuration to avoid inconsistent outcomes.
 - When no miner satisfies a competition’s success criteria, the backend skips weight updates for that competition and previously broadcast weights decay to zero.
-- Validators without an active API key will fail to receive weight updates.
+- Validators poll the public `/weights` endpoint, which does not require authentication.
