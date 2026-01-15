@@ -331,14 +331,14 @@ class BackendService:
 
         self.job_scheduler = JobScheduler(
             session_factory=self.async_session,
-            ws_hub=self.ws_hub,
+            evaluator_hub=self.evaluator_hub,
             config=job_config,
             id_generator=self.id_generator,
             submission_storage=self.submission_storage,
         )
 
         logger.info(
-            "Initialized extracted components: ScoringEngine, ChainMonitor, JobScheduler, WebSocketHub"
+            "Initialized extracted components: ScoringEngine, ChainMonitor, JobScheduler, EvaluatorHub"
         )
 
     # Delegate WebSocket operations to WebSocketHub

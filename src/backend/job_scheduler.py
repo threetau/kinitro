@@ -1,7 +1,7 @@
 """
 Job scheduler for Kinitro backend.
 
-Creates and broadcasts evaluation jobs to validators.
+Creates and routes evaluation jobs to evaluators via direct WebSocket connection.
 Extracted from BackendService for better separation of concerns.
 """
 
@@ -25,7 +25,7 @@ from .models import (
 from .realtime import EventType, event_broadcaster
 
 if TYPE_CHECKING:
-    from .websocket_hub import WebSocketHub
+    from .evaluator_hub import EvaluatorHub
 
 logger = get_logger(__name__)
 
@@ -106,11 +106,11 @@ class NoBenchmarksAvailableError(Exception):
 
 class JobScheduler:
     """
-    Creates and broadcasts evaluation jobs.
+    Creates and routes evaluation jobs to evaluators.
 
     This class is responsible for:
     - Creating evaluation jobs for submissions
-    - Broadcasting jobs to connected validators
+    - Routing jobs to connected evaluators via WebSocket
     - Handling job reruns
     - Monitoring for stale jobs
     """
@@ -118,13 +118,13 @@ class JobScheduler:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
-        ws_hub: "WebSocketHub",
+        evaluator_hub: "EvaluatorHub",
         config: JobConfig,
         id_generator,
         submission_storage=None,
     ):
         self.session_factory = session_factory
-        self.ws_hub = ws_hub
+        self.evaluator_hub = evaluator_hub
         self.config = config
         self.id_generator = id_generator
         self.submission_storage = submission_storage
@@ -211,13 +211,11 @@ class JobScheduler:
         return jobs
 
     async def publish_jobs(self, jobs: Sequence[BackendEvaluationJob]) -> None:
-        """Emit events and broadcasts for newly created jobs."""
+        """Emit events and route jobs to evaluators."""
         if not jobs:
             return
 
-        connected_validator_hotkeys = tuple(
-            dict.fromkeys(self.ws_hub.get_validator_hotkeys())
-        )
+        connected_evaluator_ids = self.evaluator_hub.get_evaluator_ids()
 
         for job in jobs:
             _benchmark_spec_payload, base_config_payload = (
@@ -234,8 +232,8 @@ class JobScheduler:
                 config=base_config_payload,
                 status=EvaluationStatus.QUEUED,
                 validator_statuses={
-                    hotkey: EvaluationStatus.QUEUED
-                    for hotkey in connected_validator_hotkeys
+                    evaluator_id: EvaluationStatus.QUEUED
+                    for evaluator_id in connected_evaluator_ids
                 },
             )
 
@@ -253,18 +251,16 @@ class JobScheduler:
             try:
                 await self.broadcast_job(job)
             except Exception as exc:
-                logger.error("Failed to push job %s to validators: %s", job.id, exc)
+                logger.error("Failed to broadcast job %s to evaluators: %s", job.id, exc)
 
-    async def broadcast_job(self, job: BackendEvaluationJob) -> int:
-        """Broadcast job to connected validators.
+    def _build_job_message(
+        self, job: BackendEvaluationJob
+    ) -> Optional[EvalJobMessage]:
+        """Build an EvalJobMessage from a BackendEvaluationJob.
 
         Returns:
-            Number of validators that received the job
+            EvalJobMessage or None if artifact URL cannot be generated
         """
-        if not self.ws_hub.has_connections():
-            logger.warning("No validators connected")
-            return 0
-
         artifact_url = None
         artifact_expires_at: Optional[datetime] = None
         if self.submission_storage and job.artifact_object_key:
@@ -278,12 +274,13 @@ class JobScheduler:
                 logger.error(
                     "Failed to generate artifact URL for job %s: %s", job.id, exc
                 )
+                return None
         else:
             logger.error(
-                "Cannot broadcast submission %s: storage unavailable or artifact missing",
+                "Cannot build job message for submission %s: storage unavailable or artifact missing",
                 job.submission_id,
             )
-            return 0
+            return None
 
         benchmark_spec_payload, base_config_payload = _extract_benchmark_spec_payload(
             job.config
@@ -291,7 +288,7 @@ class JobScheduler:
 
         timeout_seconds = job.timeout_seconds or self.config.default_job_timeout_seconds
 
-        job_msg = EvalJobMessage(
+        return EvalJobMessage(
             job_id=job.id,
             competition_id=job.competition_id,
             submission_id=job.submission_id,
@@ -308,10 +305,23 @@ class JobScheduler:
             timeout=timedelta(seconds=timeout_seconds),
         )
 
-        message = job_msg.model_dump_json()
-        broadcast_count = await self.ws_hub.broadcast_message(message)
+    async def broadcast_job(self, job: BackendEvaluationJob) -> int:
+        """Broadcast job to all connected evaluators.
 
-        logger.info(f"Broadcasted job {job.id} to {broadcast_count} validators")
+        Returns:
+            Number of evaluators that received the job
+        """
+        if not self.evaluator_hub.has_connections():
+            logger.warning("No evaluators connected")
+            return 0
+
+        job_msg = self._build_job_message(job)
+        if not job_msg:
+            return 0
+
+        broadcast_count = await self.evaluator_hub.broadcast_job(job_msg)
+
+        logger.info(f"Broadcasted job {job.id} to {broadcast_count} evaluators")
         return broadcast_count
 
     async def rerun_submission_evaluations(
