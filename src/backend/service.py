@@ -69,7 +69,6 @@ from backend.job_scheduler import JobConfig, JobScheduler
 from backend.realtime import EventType, event_broadcaster
 from backend.scoring import ScoringConfig, ScoringEngine
 from backend.submission_storage import PresignedUpload, SubmissionStorage
-from backend.websocket_hub import WebSocketHub
 
 try:  # pragma: no cover - optional dependency
     from fiber import Keypair as FiberKeypair  # type: ignore
@@ -252,7 +251,6 @@ class BackendService:
 
         # Background tasks
         self._running = False
-        self._heartbeat_monitor_task = None
         self._stale_job_monitor_task = None
         self._score_evaluation_task = None
         self._weight_broadcast_task = None
@@ -288,7 +286,6 @@ class BackendService:
         self._validator_queue_warning_triggered = False
 
         # Initialize extracted components (will be fully initialized in startup)
-        self.ws_hub = WebSocketHub()
         self.evaluator_hub = EvaluatorHub()  # Direct evaluator connections
         self.scoring_engine: Optional[ScoringEngine] = None
         self.chain_monitor: Optional[ChainMonitor] = None
@@ -340,17 +337,6 @@ class BackendService:
         logger.info(
             "Initialized extracted components: ScoringEngine, ChainMonitor, JobScheduler, EvaluatorHub"
         )
-
-    # Delegate WebSocket operations to WebSocketHub
-    @property
-    def active_connections(self) -> Dict[ConnectionId, WebSocket]:
-        """Delegate to WebSocketHub for backward compatibility."""
-        return self.ws_hub.active_connections
-
-    @property
-    def validator_connections(self) -> Dict[ConnectionId, SS58Address]:
-        """Delegate to WebSocketHub for backward compatibility."""
-        return self.ws_hub.validator_connections
 
     @property
     def nodes(self) -> Optional[Dict[SS58Address, Node]]:
@@ -611,9 +597,6 @@ class BackendService:
         # Start chain monitor using the extracted component
         await self.chain_monitor.start()
 
-        self._heartbeat_monitor_task = asyncio.create_task(
-            self._monitor_validator_heartbeats()
-        )
         self._stale_job_monitor_task = asyncio.create_task(self._monitor_stale_jobs())
 
         for worker_id in range(self.validator_worker_count):
@@ -675,7 +658,6 @@ class BackendService:
 
         # Cancel background tasks
         tasks_to_cancel = [
-            (self._heartbeat_monitor_task, "heartbeat_monitor"),
             (self._stale_job_monitor_task, "stale_job_monitor"),
             (self._score_evaluation_task, "score_evaluation"),
             (self._weight_broadcast_task, "weight_broadcast"),
@@ -695,9 +677,6 @@ class BackendService:
                     logger.error(f"{name} task cancelled: {e}")
 
         self._validator_worker_tasks.clear()
-
-        # Close WebSocket connections using the hub
-        await self.ws_hub.close_all()
 
         # Close database
         if self.engine:
@@ -847,12 +826,13 @@ class BackendService:
                 weights=weights_dict.copy(),
             )
 
-            # Broadcast to validators using WebSocketHub
-            broadcast_count = await self.ws_hub.broadcast_weights(weights_dict)
-
-            logger.info(f"Broadcasted weight update to {broadcast_count} validators")
+            logger.info(
+                "Updated weights snapshot: %d miners, total_weight=%.4f",
+                len(weights_dict),
+                snapshot_total_weight,
+            )
         except Exception as e:
-            logger.error(f"Failed to broadcast weights: {e}")
+            logger.error(f"Failed to update weights: {e}")
 
     def get_latest_weights_snapshot(self) -> Optional[WeightsSnapshot]:
         """Return the most recent weight broadcast snapshot, if available."""
@@ -1328,17 +1308,16 @@ class BackendService:
                             ]:
                                 logger.warning(f"Marking stale job {job.id} as TIMEOUT")
 
-                                for (
-                                    validator_hotkey
-                                ) in self.ws_hub.get_validator_hotkeys():
-                                    timeout_status = BackendEvaluationJobStatus(
-                                        id=next(self.id_generator),
-                                        job_id=job.id,
-                                        validator_hotkey=validator_hotkey,
-                                        status=EvaluationStatus.TIMEOUT,
-                                        detail="Job marked as timeout due to inactivity",
-                                    )
-                                    session.add(timeout_status)
+                                # Create timeout status (no validator hotkey since
+                                # validators no longer connect via WebSocket)
+                                timeout_status = BackendEvaluationJobStatus(
+                                    id=next(self.id_generator),
+                                    job_id=job.id,
+                                    validator_hotkey="system",
+                                    status=EvaluationStatus.TIMEOUT,
+                                    detail="Job marked as timeout due to inactivity",
+                                )
+                                session.add(timeout_status)
 
                                 await session.commit()
 
@@ -1356,60 +1335,6 @@ class BackendService:
             except Exception as e:
                 logger.error(f"Error monitoring stale jobs: {e}")
                 await asyncio.sleep(300)
-
-    async def _monitor_validator_heartbeats(self) -> None:
-        """Monitor validator heartbeats and cleanup stale connections."""
-        while self._running:
-            try:
-                current_time = datetime.now(timezone.utc)
-                timeout_threshold = current_time - timedelta(minutes=2)
-
-                if self.async_session:
-                    async with self.async_session() as session:
-                        result = await session.execute(
-                            select(ValidatorConnection).where(
-                                and_(
-                                    ValidatorConnection.is_connected,
-                                    ValidatorConnection.last_heartbeat
-                                    < timeout_threshold,
-                                )
-                            )
-                        )
-
-                        stale_validators = result.scalars().all()
-
-                        for validator in stale_validators:
-                            logger.warning(
-                                f"Marking validator as disconnected: {validator.validator_hotkey}"
-                            )
-                            validator.is_connected = False
-
-                            conn_id = self.ws_hub.get_connection_for_hotkey(
-                                validator.validator_hotkey
-                            )
-                            if conn_id:
-                                await self.ws_hub.unregister_validator(conn_id)
-
-                                disconnected_event = ValidatorDisconnectedEvent(
-                                    validator_hotkey=validator.validator_hotkey,
-                                    connection_id=conn_id,
-                                    disconnected_at=datetime.now(timezone.utc),
-                                    reason="Heartbeat timeout",
-                                )
-                                await event_broadcaster.broadcast_event(
-                                    EventType.VALIDATOR_DISCONNECTED, disconnected_event
-                                )
-
-                        await session.commit()
-
-                        if stale_validators:
-                            await self._broadcast_stats_update()
-
-                await asyncio.sleep(30)
-
-            except Exception as e:
-                logger.error(f"Error in heartbeat monitor: {e}")
-                await asyncio.sleep(HEARTBEAT_INTERVAL.total_seconds())
 
     async def _holdout_release_loop(self) -> None:
         """Periodically release submission artifacts after the hold-out window."""
