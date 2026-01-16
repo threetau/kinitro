@@ -152,14 +152,23 @@ class RLRolloutExecutor:
         submission_id = spec.submission_id
         job_id = spec.job_id or spec.task_id
 
-        # Create container
+        # Create container - run in thread pool to avoid blocking the event loop
+        # This is critical to prevent WebSocket keepalive timeouts during pod creation
         containers = Containers()
+        loop = asyncio.get_event_loop()
         try:
-            pod_name = containers.create_container(
+            logger.info(
+                "Creating container for submission %s (running in thread pool)",
                 submission_id,
-                job_id,
-                archive_url=spec.artifact_url,
-                archive_sha256=spec.artifact_sha256,
+            )
+            pod_name = await loop.run_in_executor(
+                None,  # Use default thread pool executor
+                lambda: containers.create_container(
+                    submission_id,
+                    job_id,
+                    archive_url=spec.artifact_url,
+                    archive_sha256=spec.artifact_sha256,
+                ),
             )
             context.container_name = pod_name
             context.state["containers"] = containers
@@ -170,38 +179,45 @@ class RLRolloutExecutor:
             raise RuntimeError(f"Failed to create container: {e}") from e
 
         # Get NodePort and Node IP for direct TCP connection
+        # Also run in thread pool to avoid blocking
         try:
-            config.load_kube_config()
-            k8v1api = client.CoreV1Api()
-            v1 = client.CoreV1Api()
-            service_name = pod_name
-            svc = k8v1api.read_namespaced_service(service_name, "default")
-            node_port = None
-            for port in svc.spec.ports:
-                if port.node_port:
-                    node_port = port.node_port
-                    break
-            if not node_port:
-                raise RuntimeError(f"No nodePort found for service {service_name}")
 
-            # Get the first node's external IP (or internal if not available)
-            nodes = v1.list_node().items
-            node_ip = None
-            for node in nodes:
-                for addr in node.status.addresses:
-                    if addr.type == "ExternalIP":
-                        node_ip = addr.address
+            def get_container_network_info(pod_name: str):
+                config.load_kube_config()
+                k8v1api = client.CoreV1Api()
+                v1 = client.CoreV1Api()
+                service_name = pod_name
+                svc = k8v1api.read_namespaced_service(service_name, "default")
+                node_port = None
+                for port in svc.spec.ports:
+                    if port.node_port:
+                        node_port = port.node_port
                         break
-                if not node_ip:
+                if not node_port:
+                    raise RuntimeError(f"No nodePort found for service {service_name}")
+
+                # Get the first node's external IP (or internal if not available)
+                nodes = v1.list_node().items
+                node_ip = None
+                for node in nodes:
                     for addr in node.status.addresses:
-                        if addr.type == "InternalIP":
+                        if addr.type == "ExternalIP":
                             node_ip = addr.address
                             break
-                if node_ip:
-                    break
-            if not node_ip:
-                raise RuntimeError("No node IP found in cluster")
+                    if not node_ip:
+                        for addr in node.status.addresses:
+                            if addr.type == "InternalIP":
+                                node_ip = addr.address
+                                break
+                    if node_ip:
+                        break
+                if not node_ip:
+                    raise RuntimeError("No node IP found in cluster")
+                return node_ip, node_port
 
+            node_ip, node_port = await loop.run_in_executor(
+                None, lambda: get_container_network_info(pod_name)
+            )
             context.container_host = node_ip
             context.container_port = node_port
         except Exception as e:
@@ -238,7 +254,6 @@ class RLRolloutExecutor:
                 s3_config=self.config.s3_config,
                 episode_log_interval=self.config.episode_log_interval,
                 step_log_interval=self.config.step_log_interval,
-                database_url=self.config.pg_database,
             )
             context.state["cluster"] = cluster
             context.state["worker"] = worker
@@ -290,7 +305,8 @@ class RLRolloutExecutor:
         worker_to_rpc_queue = context.state.get("worker_to_rpc_queue")
         rpc_to_worker_queue = context.state.get("rpc_to_worker_queue")
 
-        if not worker or not worker_to_rpc_queue or not rpc_to_worker_queue:
+        # Check for None explicitly - Ray Queue's bool() returns False when empty
+        if worker is None or worker_to_rpc_queue is None or rpc_to_worker_queue is None:
             return TaskResult(
                 task_id=spec.task_id,
                 success=False,

@@ -149,7 +149,13 @@ class Orchestrator:
             logger.info("Ray already initialized")
 
     def _register_default_executors(self) -> None:
-        """Register the default task executors."""
+        """Register the default task executors and initialize providers."""
+        # Initialize default environment providers
+        from evaluator.providers.registry import ProviderRegistry
+
+        ProviderRegistry.initialize_default_providers()
+        logger.info("Initialized providers: %s", ProviderRegistry.list_providers())
+
         # Register RL rollout executor
         rl_executor = RLRolloutExecutor(self.config)
         ExecutorRegistry.register(rl_executor)

@@ -200,7 +200,8 @@ class BackendClient:
         Returns:
             True if queued successfully
         """
-        return await self._queue_message(result.model_dump())
+        # Use mode='json' to properly serialize enums to their values
+        return await self._queue_message(result.model_dump(mode="json"))
 
     async def send_status_update(self, status: JobStatusUpdateMessage) -> bool:
         """
@@ -212,7 +213,8 @@ class BackendClient:
         Returns:
             True if queued successfully
         """
-        return await self._queue_message(status.model_dump())
+        # Use mode='json' to properly serialize enums to their values
+        return await self._queue_message(status.model_dump(mode="json"))
 
     async def send_episode_data(self, data: EpisodeDataMessage) -> bool:
         """
@@ -224,7 +226,8 @@ class BackendClient:
         Returns:
             True if queued successfully
         """
-        return await self._queue_message(data.model_dump())
+        # Use mode='json' to properly serialize enums to their values
+        return await self._queue_message(data.model_dump(mode="json"))
 
     async def send_episode_step_data(self, data: EpisodeStepDataMessage) -> bool:
         """
@@ -236,7 +239,8 @@ class BackendClient:
         Returns:
             True if queued successfully
         """
-        return await self._queue_message(data.model_dump())
+        # Use mode='json' to properly serialize enums to their values
+        return await self._queue_message(data.model_dump(mode="json"))
 
     async def send_job_ack(
         self, job_id: int, accepted: bool, reason: Optional[str] = None
