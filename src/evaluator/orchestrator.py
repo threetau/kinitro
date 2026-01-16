@@ -38,10 +38,10 @@ from evaluator.constants import (
     MIN_CONCURRENT_JOBS,
 )
 from evaluator.containers import Containers, PodSchedulingError
+from evaluator.db.db_manager import DatabaseManager
+from evaluator.db.models import EvaluationJob
 from evaluator.executors import ExecutorRegistry, RLRolloutExecutor
 from evaluator.log_uploader import EvaluationLogUploader
-from validator.db.db_manager import DatabaseManager
-from validator.db.models import EvaluationJob
 
 logger = get_logger(__name__)
 

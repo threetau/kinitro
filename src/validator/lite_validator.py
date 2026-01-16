@@ -1,17 +1,19 @@
 """
-Lite validator that polls the backend HTTP weights endpoint and writes weights on-chain.
+Lite validator for Kinitro.
+
+This validator periodically fetches weights from the backend and sets them
+on the Bittensor chain. This is a simple polling approach that avoids the
+complexity of maintaining WebSocket connections.
 """
 
-from __future__ import annotations
-
 import asyncio
-from datetime import datetime, timezone
-from typing import Optional
+from typing import Dict, Optional
 
 import httpx
-from pydantic import ValidationError
+from fiber.chain.fetch_nodes import _get_nodes_for_uid
+from fiber.chain.models import Node
 
-from backend.models import WeightsSnapshot
+from backend.models import SS58Address
 from core.chain import set_node_weights
 from core.log import get_logger
 from core.neuron import Neuron
@@ -23,274 +25,189 @@ logger = get_logger(__name__)
 
 class LiteValidator(Neuron):
     """
-    Minimal validator implementation that periodically polls the backend weights endpoint
-    and calls `set_node_weights` on the Bittensor chain.
+    Polling-based validator that fetches weights and sets them on chain.
+
+    This validator:
+    1. Periodically polls the backend /weights endpoint
+    2. Sets the received weights on the Bittensor chain
+
+    Much simpler than maintaining a WebSocket connection.
     """
 
     def __init__(self, config: ValidatorConfig):
         super().__init__(config)
         self.hotkey = self.keypair.ss58_address
-        self.weights_url = config.settings.get(
-            "weights_url", "https://api.kinitro.ai/weights"
-        )
-        self.poll_interval = float(config.settings.get("weights_poll_interval", 30.0))
-        self.request_timeout = float(
-            config.settings.get("weights_request_timeout", 10.0)
-        )
-        self.stale_threshold = float(
-            config.settings.get("weights_stale_threshold", 180.0)
-        )
+
+        # Backend settings
+        self.backend_url = config.settings.get(
+            "backend_url", "http://localhost:8080"
+        ).rstrip("/")
+        self.poll_interval = config.settings.get(
+            "weight_poll_interval", 300
+        )  # 5 min default
+
+        # Chain state
+        self.nodes: Optional[Dict[SS58Address, Node]] = None
+        self.validator_node_id: Optional[int] = None
+
+        # Track last weights to avoid redundant chain calls
+        self._last_weights_hash: Optional[int] = None
+
         self._running = False
-        self._stop_event = asyncio.Event()
-        self._last_snapshot_timestamp: Optional[datetime] = None
-        self._last_weights_signature: Optional[tuple[tuple[int, float], ...]] = None
-        self._last_backend_timestamp: Optional[datetime] = None
-        self._last_success_at: Optional[datetime] = None
-        self._max_backoff = max(self.poll_interval * 10.0, 300.0)
-        self._node_resync_interval = max(self.stale_threshold, 300.0)
-        self._last_resync_at: Optional[datetime] = None
-        self._http_client: Optional[httpx.AsyncClient] = None
 
         logger.info(
-            "Lite validator initialized (hotkey=%s, weights_url=%s, poll_interval=%.1fs, stale_threshold=%.1fs)",
+            "LiteValidator initialized for hotkey: %s, polling every %ds",
             self.hotkey,
-            self.weights_url,
             self.poll_interval,
-            self.stale_threshold,
         )
 
-    async def start(self) -> None:
-        """Begin the polling loop."""
-        if self._running:
-            logger.warning("Lite validator already running")
-            return
-
-        logger.info("Starting lite validator polling loop")
+    async def start(self):
+        """Start the validator service."""
+        logger.info("Starting LiteValidator")
         self._running = True
-        self._stop_event.clear()
-        backoff = self.poll_interval
-        self._http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(self.request_timeout)
-        )
 
-        try:
-            while self._running:
-                success = await self._poll_once()
-                backoff = (
-                    self.poll_interval
-                    if success
-                    else min(backoff * 2.0, self._max_backoff)
-                )
+        # Initialize chain connection
+        await self._init_chain()
 
-                try:
-                    await asyncio.wait_for(self._stop_event.wait(), timeout=backoff)
-                except asyncio.TimeoutError:
-                    continue
-        finally:
-            self._running = False
-            self._stop_event.set()
-            await self._close_http_client()
-            logger.info("Lite validator loop exited")
+        # Main polling loop
+        while self._running:
+            try:
+                await self._poll_and_set_weights()
+            except Exception as e:
+                logger.error(f"Error in weight polling cycle: {e}")
 
-    async def stop(self) -> None:
-        """Stop the polling loop."""
-        if not self._running:
-            return
-
-        logger.info("Stopping lite validator")
-        self._running = False
-        self._stop_event.set()
-        await self._close_http_client()
-
-    async def _close_http_client(self) -> None:
-        client = self._http_client
-        if client is None:
-            return
-        self._http_client = None
-        try:
-            await client.aclose()
-        except Exception as exc:  # pragma: no cover
-            logger.debug("Error closing HTTP client: %s", exc)
-
-    async def _poll_once(self) -> bool:
-        """Fetch and process a single weight snapshot."""
-        try:
-            snapshot = await self._fetch_weights_snapshot()
-        except Exception as exc:  # pragma: no cover - defensive logging
-            logger.error("Failed to fetch weights snapshot: %s", exc)
-            return False
-
-        if snapshot is None:
-            logger.debug("No weights snapshot available yet")
-            if self._last_backend_timestamp:
-                age = (
-                    datetime.now(timezone.utc) - self._last_backend_timestamp
-                ).total_seconds()
-                if age > self.stale_threshold:
-                    logger.warning(
-                        "No fresh weight snapshots received for %.1fs (threshold=%.1fs)",
-                        age,
-                        self.stale_threshold,
-                    )
-            return False
-
-        if self._stop_event.is_set():
-            logger.debug("Shutdown requested; skipping snapshot processing")
-            return False
-
-        now = datetime.now(timezone.utc)
-
-        try:
-            await self._handle_snapshot(snapshot, now)
-        except Exception as exc:  # pragma: no cover - defensive logging
-            logger.error("Error handling weights snapshot: %s", exc)
-            return False
-
-        return True
-
-    async def _fetch_weights_snapshot(self) -> Optional[WeightsSnapshot]:
-        """Retrieve the latest weights via HTTP."""
-
-        if self._stop_event.is_set():
-            return None
-
-        client = self._http_client
-        if client is None:
-            raise RuntimeError("HTTP client not initialized")
-
-        try:
-            response = await client.get(self.weights_url)
-        except httpx.RequestError as exc:
             if self._running:
-                logger.warning("Weight endpoint request failed: %s", exc)
-            return None
+                await asyncio.sleep(self.poll_interval)
 
-        if response.status_code == 404:
-            return None
+    async def stop(self):
+        """Stop the validator service."""
+        logger.info("Stopping LiteValidator")
+        self._running = False
 
+    async def _poll_and_set_weights(self):
+        """Fetch weights from backend and set on chain."""
         try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            logger.error("Unexpected response from weight endpoint: %s", exc)
-            return None
+            # Fetch weights from backend
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(f"{self.backend_url}/weights")
 
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            logger.error("Failed to decode weights JSON payload: %s", exc)
-            return None
+                if response.status_code == 404:
+                    logger.debug("Weights not available yet from backend")
+                    return
 
-        try:
-            return WeightsSnapshot.model_validate(payload)
-        except ValidationError as exc:
-            logger.error("Failed to validate weights snapshot payload: %s", exc)
-            return None
+                response.raise_for_status()
+                data = response.json()
 
-    async def _handle_snapshot(self, snapshot: WeightsSnapshot, now: datetime) -> bool:
-        """Validate and, if new, apply the weight snapshot."""
+            weights = data.get("weights", {})
+            if not weights:
+                logger.debug("Empty weights received from backend")
+                return
 
-        timestamp = snapshot.updated_at
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=timezone.utc)
+            # Convert string keys to int (JSON serializes int keys as strings)
+            weights = {int(k): float(v) for k, v in weights.items()}
 
-        snapshot_label = timestamp.isoformat()
-        self._last_backend_timestamp = timestamp
-        age = (now - timestamp).total_seconds()
-        if age > self.stale_threshold:
-            logger.warning(
-                "Weights snapshot (updated_at=%s) is stale by %.1fs (threshold=%.1fs)",
-                snapshot_label,
-                age,
-                self.stale_threshold,
+            # Check if weights changed
+            weights_hash = hash(frozenset(weights.items()))
+            if weights_hash == self._last_weights_hash:
+                logger.debug("Weights unchanged, skipping chain update")
+                return
+
+            logger.info(
+                "Received new weights from backend: %d UIDs, total=%.4f",
+                len(weights),
+                sum(weights.values()),
             )
 
-        weights_payload = snapshot.weights
-        if not weights_payload:
-            logger.error("No valid weights found in snapshot (%s)", snapshot_label)
-            return False
+            # Set weights on chain
+            await self._set_weights_on_chain(weights)
+            self._last_weights_hash = weights_hash
 
-        node_ids = []
-        node_weights = []
-        for node_id, weight in weights_payload.items():
-            node_ids.append(int(node_id))
-            node_weights.append(float(weight))
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error fetching weights: {e.response.status_code}")
+        except httpx.RequestError as e:
+            logger.error(f"Request error fetching weights: {e}")
+        except Exception as e:
+            logger.error(f"Error polling weights: {e}")
 
-        weights_signature = tuple(
-            sorted(
-                (int(node_id), float(weight))
-                for node_id, weight in weights_payload.items()
-            )
-        )
-        if self._last_snapshot_timestamp:
-            if timestamp <= self._last_snapshot_timestamp and (
-                self._last_weights_signature == weights_signature
-            ):
-                logger.debug(
-                    "Skipping snapshot updated_at=%s (duplicate or older than last applied)",
-                    snapshot_label,
+    async def _set_weights_on_chain(self, weights: Dict[int, float]):
+        """Set weights on the Bittensor chain."""
+        if not self.substrate:
+            logger.error("Chain connection not initialized, cannot set weights")
+            return
+
+        # Sync nodes to get latest state
+        logger.info("Syncing nodes before setting weights...")
+        await self._sync_nodes()
+
+        # Get validator node_id if not already set
+        if self.validator_node_id is None:
+            validator_node = self.nodes.get(self.hotkey) if self.nodes else None
+            if validator_node:
+                self.validator_node_id = validator_node.node_id
+            else:
+                logger.error(
+                    f"Validator hotkey {self.hotkey} not found in nodes, cannot set weights"
                 )
-                return False
-        elif self._last_weights_signature == weights_signature:
-            logger.debug(
-                "Skipping snapshot (%s) with identical weights payload",
-                snapshot_label,
-            )
-            return False
+                return
 
-        # Periodically refresh node metadata to stay aligned with on-chain state.
-        if self._should_resync_nodes(now):
-            logger.info("Refreshing node metadata from chain before setting weights")
-            self.sync_nodes()
-            self._last_resync_at = now
+        # Extract node_ids and weights as parallel lists
+        node_ids = list(weights.keys())
+        node_weights = list(weights.values())
 
-        total_weight = sum(node_weights)
-        logger.info(
-            "Applying weights snapshot updated_at=%s to chain (%s miners, total_weight=%.6f)",
-            snapshot_label,
-            len(node_ids),
-            total_weight,
-        )
-        logger.debug(
-            "Weight payload for updated_at=%s: %s",
-            snapshot_label,
-            ", ".join(
-                f"{uid}:{weight:.6f}" for uid, weight in zip(node_ids, node_weights)
-            ),
-        )
-
+        # Set weights on chain
+        logger.info(f"Setting weights on chain for {len(node_ids)} miners")
         success = set_node_weights(
             substrate=self.substrate,
             keypair=self.keypair,
             node_ids=node_ids,
             node_weights=node_weights,
-            netuid=self.netuid,
-            validator_node_id=self.uid,
+            netuid=self.config.settings["subtensor"]["netuid"],
+            validator_node_id=self.validator_node_id,
             version_key=0,
             wait_for_inclusion=True,
             wait_for_finalization=False,
         )
 
-        if not success:
-            logger.error(
-                "Failed to set weights on-chain for snapshot updated_at=%s",
-                snapshot_label,
+        if success:
+            logger.info(f"Successfully set weights on chain for {len(node_ids)} miners")
+        else:
+            logger.error("Failed to set weights on chain")
+
+    async def _init_chain(self) -> None:
+        """Initialize blockchain info."""
+        try:
+            logger.info("Getting nodes from chain...")
+
+            # Sync nodes from chain
+            await self._sync_nodes()
+
+            # Get our validator node_id from the nodes
+            validator_node = self.nodes.get(self.hotkey) if self.nodes else None
+            if validator_node:
+                self.validator_node_id = validator_node.node_id
+                logger.info(f"Validator node_id: {self.validator_node_id}")
+            else:
+                logger.warning(f"Validator hotkey {self.hotkey} not found in nodes")
+                self.validator_node_id = None
+
+            logger.info("Blockchain connection initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize blockchain connection: {e}")
+            logger.warning("Continuing without blockchain connection")
+
+    async def _sync_nodes(self) -> None:
+        """Sync nodes from the chain."""
+        try:
+            loop = asyncio.get_event_loop()
+            node_list = await loop.run_in_executor(
+                None,
+                _get_nodes_for_uid,
+                self.substrate,
+                self.config.settings["subtensor"]["netuid"],
             )
-            return False
-
-        self._last_snapshot_timestamp = timestamp
-        self._last_weights_signature = weights_signature
-        logger.info(
-            "Successfully set weights on-chain for snapshot updated_at=%s (processed %s miners)",
-            snapshot_label,
-            len(node_ids),
-        )
-        return True
-
-    def _should_resync_nodes(self, now: datetime) -> bool:
-        if self.nodes is None:
-            return True
-        if self._last_resync_at is None:
-            return True
-        return (
-            now - self._last_resync_at
-        ).total_seconds() >= self._node_resync_interval
+            self.nodes = {node.hotkey: node for node in node_list}
+            logger.info(f"Synced {len(self.nodes)} nodes")
+        except Exception as e:
+            logger.error(f"Failed to sync nodes: {e}")
+            if not self.nodes:
+                self.nodes = {}

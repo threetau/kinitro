@@ -49,7 +49,7 @@ class EvaluatorConfig(Config):
             self.settings.get("heartbeat_interval", DEFAULT_HEARTBEAT_INTERVAL)
         )
 
-        # Connection mode: "direct" for WebSocket to backend, "pgqueuer" for legacy
+        # Connection mode: "direct" for WebSocket to backend
         self.connection_mode = self.settings.get("connection_mode", "direct")
 
         # S3 storage configuration

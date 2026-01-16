@@ -110,7 +110,7 @@ class RLRolloutExecutor:
 
         # Check provider is registered
         if env_provider:
-            if not self.provider_registry.has(env_provider):
+            if not self.provider_registry.has_provider(env_provider):
                 # Not a hard error - EnvManager handles provider dispatch internally
                 logger.debug(
                     "Provider %s not found in registry, will use EnvManager dispatch",

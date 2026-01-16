@@ -38,7 +38,7 @@ class BackendClient:
     WebSocket client for evaluator to communicate with backend.
 
     This enables direct communication between evaluators and the backend,
-    eliminating the need for a validator relay with pgqueuer.
+    eliminating the need for a validator relay.
 
     Features:
     - Automatic reconnection with exponential backoff
