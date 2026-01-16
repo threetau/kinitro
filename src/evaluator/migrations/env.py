@@ -1,5 +1,5 @@
 """
-Alembic environment configuration for validator database.
+Alembic environment configuration for evaluator database.
 """
 
 import asyncio
@@ -18,8 +18,8 @@ from sqlmodel import SQLModel
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-# Import the validator models to ensure they're registered with SQLModel
-from validator.db import models  # noqa: E402, F401
+# Import the evaluator models to ensure they're registered with SQLModel
+from evaluator.db import models  # noqa: E402, F401
 
 # this is the Alembic Config object
 config = context.config
@@ -40,15 +40,15 @@ def get_database_url():
     if db_url:
         return db_url
 
-    # Try to read from validator config file directly
+    # Try to read from evaluator config file directly
     try:
         import toml  # noqa: PLC0415
 
-        config_path = project_root / "config" / "validator.toml"
+        config_path = project_root / "config" / "evaluator.toml"
         if config_path.exists():
             config_data = toml.load(config_path)
             return config_data.get(
-                "pg_database", "postgresql://postgres@localhost/validator_db"
+                "pg_database", "postgresql://postgres@localhost/evaluator_db"
             )
     except Exception:
         pass

@@ -60,7 +60,6 @@ class RolloutCluster:
         s3_config: Optional[S3Config] = None,
         episode_log_interval: int = 1,
         step_log_interval: int = 1,
-        database_url: Optional[str] = None,
     ) -> ray.actor.ActorHandle:
         logger.info(
             f"Creating worker: {rollout_worker_id}, {benchmark_specs}, {submission_container_host}, {submission_container_port}, {submission_id}"
@@ -75,7 +74,6 @@ class RolloutCluster:
             s3_config,
             episode_log_interval,
             step_log_interval,
-            database_url,
         )
         self.workers.append(worker)
         return worker
@@ -117,7 +115,6 @@ class RolloutWorker:
         s3_config: Optional[S3Config] = None,
         episode_log_interval: int = 1,
         step_log_interval: int = 1,
-        database_url: Optional[str] = None,
     ) -> None:
         logger.info(
             f"RolloutWorker init: {cluster_name}, {rollout_worker_id}, {benchmark_specs}, "
@@ -140,7 +137,6 @@ class RolloutWorker:
         self.episode_log_interval = episode_log_interval
         self.step_log_interval = step_log_interval
         self.s3_config = s3_config
-        self.database_url = database_url
         self.episode_loggers: Dict[str, EpisodeLogger] = {}
         self._global_episode_counter = 1
 
@@ -299,7 +295,6 @@ class RolloutWorker:
             step_log_interval=self.step_log_interval,
             enable_s3_upload=self.s3_config is not None,
             s3_config=self.s3_config,
-            database_url=self.database_url,
         )
 
         # Generate a unique task ID combining benchmark and env names

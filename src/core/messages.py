@@ -31,6 +31,11 @@ class MessageType(StrEnum):
     JOB_STATUS_UPDATE = "job_status_update"
     ERROR = "error"
 
+    # Evaluator-Backend WebSocket messages
+    EVALUATOR_REGISTER = "evaluator_register"
+    EVALUATOR_REGISTRATION_ACK = "evaluator_registration_ack"
+    JOB_ACK = "job_ack"
+
     # Client-Backend WebSocket messages
     SUBSCRIBE = "subscribe"
     UNSUBSCRIBE = "unsubscribe"
@@ -95,6 +100,11 @@ class EvalJobMessage(SQLModel):
     artifact_sha256: Optional[str] = None
     artifact_size_bytes: Optional[int] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    # Task type for executor dispatch (defaults to rl_rollout for backward compatibility)
+    task_type: str = "rl_rollout"
+    # Optional serialized TaskSpec for new-style jobs
+    task_spec: Optional[dict] = None
 
     @field_validator("timeout", mode="before")
     @classmethod
@@ -251,6 +261,42 @@ class ErrorMessage(SQLModel):
     message_type: MessageType = MessageType.ERROR
     error: str
     details: Optional[str] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ============================================================================
+# Evaluator-Backend WebSocket Messages
+# ============================================================================
+
+
+class EvaluatorRegisterMessage(SQLModel):
+    """Message for evaluator registration with backend (direct connection)."""
+
+    message_type: MessageType = MessageType.EVALUATOR_REGISTER
+    evaluator_id: str  # Unique identifier for this evaluator instance
+    api_key: str  # API key for authentication
+    capabilities: Optional[Dict[str, Any]] = None  # GPU count, memory, supported tasks
+    max_concurrent_jobs: int = 1
+    supported_task_types: List[str] = Field(default_factory=lambda: ["rl_rollout"])
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class EvaluatorRegistrationAckMessage(SQLModel):
+    """Acknowledgment message for evaluator registration."""
+
+    message_type: MessageType = MessageType.EVALUATOR_REGISTRATION_ACK
+    success: bool
+    error: Optional[str] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class JobAckMessage(SQLModel):
+    """Acknowledgment from evaluator that it received/accepted a job."""
+
+    message_type: MessageType = MessageType.JOB_ACK
+    job_id: SnowflakeId
+    accepted: bool
+    reason: Optional[str] = None  # Reason if not accepted
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

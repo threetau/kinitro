@@ -31,8 +31,8 @@ After setting up the repository locally, the next steps will depend on what role
 ## Platform Roles
 
 - **Miners** upload agent artifacts to our backend and submit a signed commitment to the Bittensor chain. Use the [miner guide](./miner.md) to configure packaging, uploading, and on-chain commits.
-- **Validators** maintain a websocket connection to the backend, persist jobs in pgqueuer, and relay results and episode logs. Follow the [validator guide](./validator/validator.md) for environment setup and operations.
-- **Evaluator operators** run the Ray orchestrator that spins up submission containers, executes benchmarks, and logs telemetry. See the [evaluator architecture notes](./architecture/evaluator.md) for details.
+- **Validators** poll the backend's `/weights` endpoint and set weights on the Bittensor chain. Follow the [validator guide](./validator/validator.md) for environment setup and operations.
+- **Evaluator operators** run the Ray orchestrator that connects directly to the backend, spins up submission containers, executes benchmarks, and streams telemetry. See the [evaluator architecture notes](./architecture/evaluator.md) for details.
 - **Backend operators** deploy the FastAPI service that monitors the chain, schedules jobs, emits realtime updates, and approve pending leader candidates before new rewards go live.
 
 ## Learn the Architecture

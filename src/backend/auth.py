@@ -18,6 +18,7 @@ class UserRole(str, Enum):
 
     ADMIN = "admin"
     VALIDATOR = "validator"
+    EVALUATOR = "evaluator"  # For direct evaluator connections
     VIEWER = "viewer"
 
 
