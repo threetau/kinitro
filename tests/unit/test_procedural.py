@@ -1,7 +1,6 @@
 """Tests for procedural generation."""
 
 import numpy as np
-import pytest
 
 from robo.environments.procedural import (
     ProceduralTaskGenerator,

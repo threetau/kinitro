@@ -37,6 +37,7 @@ class ObservationData:
 def encode_image_base64(image: np.ndarray) -> str:
     """Encode numpy image array to base64 PNG string."""
     import io
+
     from PIL import Image
 
     img = Image.fromarray(image.astype(np.uint8))
@@ -48,6 +49,7 @@ def encode_image_base64(image: np.ndarray) -> str:
 def decode_image_base64(b64_string: str) -> np.ndarray:
     """Decode base64 PNG string to numpy array."""
     import io
+
     from PIL import Image
 
     buffer = io.BytesIO(base64.b64decode(b64_string))
@@ -184,7 +186,7 @@ async def run_episode(
                 timeout=config.action_timeout_ms / 1000.0,
             )
             action = np.array(action_list, dtype=np.float32)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Miner too slow - episode fails
             return EpisodeResult(
                 success=False,
@@ -295,7 +297,7 @@ async def run_episode_detailed(
                 timeout=config.action_timeout_ms / 1000.0,
             )
             action = np.array(action_list, dtype=np.float32)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             failure_reason = "action_timeout"
             break
         except Exception as e:

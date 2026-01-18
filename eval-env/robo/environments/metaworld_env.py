@@ -291,7 +291,7 @@ class MetaWorldEnvironment(RoboticsEnvironment):
                 img = cam_env.render()
                 if img is not None:
                     images[cam_name] = img
-            except Exception as e:
+            except Exception:
                 # Rendering may fail in headless environments
                 pass
 

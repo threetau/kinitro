@@ -14,8 +14,8 @@ _mani_skill2 = None
 def _get_mani_skill():
     global _mani_skill2
     if _mani_skill2 is None:
-        import mani_skill2.envs  # noqa: F401
         import gymnasium as gym
+        import mani_skill2.envs  # noqa: F401
 
         _mani_skill2 = gym
     return _mani_skill2

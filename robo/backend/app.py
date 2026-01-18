@@ -24,30 +24,29 @@ _signal_received = False
 def _force_cleanup_handler(signum, frame):
     """Signal handler to force cleanup docker containers on interrupt."""
     import subprocess
-    
+
     global _signal_received
-    
+
     container_name = "robo-eval-env"
-    
+
     if _signal_received:
         # Second signal - force cleanup and exit immediately
         logger.info("force_exit", signal=signum)
         # Kill container synchronously before exiting
         try:
-            subprocess.run(["docker", "rm", "-f", container_name], 
-                          capture_output=True, timeout=3)
+            subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, timeout=3)
         except Exception:
             pass
         import os
+
         os._exit(1)
-    
+
     _signal_received = True
     logger.info("received_signal_cleanup", signal=signum)
-    
+
     # Kill container immediately on first signal too
     try:
-        subprocess.run(["docker", "rm", "-f", container_name], 
-                      capture_output=True, timeout=3)
+        subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, timeout=3)
         logger.info("container_killed_on_signal", container=container_name)
     except Exception as e:
         logger.warning("container_kill_failed", error=str(e))
@@ -69,11 +68,11 @@ def create_app(config: BackendConfig | None = None) -> FastAPI:
     # Create storage and scheduler
     storage = Storage(config.database_url)
     scheduler = EvaluationScheduler(config, storage)
-    
+
     # Set global for signal handler
     global _scheduler
     _scheduler = scheduler
-    
+
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, _force_cleanup_handler)
     signal.signal(signal.SIGTERM, _force_cleanup_handler)
@@ -98,20 +97,20 @@ def create_app(config: BackendConfig | None = None) -> FastAPI:
 
         # Shutdown
         logger.info("stopping_backend")
-        
+
         # Cancel the scheduler task first
         scheduler_task.cancel()
         try:
             await asyncio.wait_for(scheduler_task, timeout=5.0)
-        except (asyncio.CancelledError, asyncio.TimeoutError):
+        except (TimeoutError, asyncio.CancelledError):
             pass
-        
+
         # Now cleanup scheduler resources (with timeout)
         try:
             await asyncio.wait_for(scheduler.stop(), timeout=10.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("scheduler_stop_timeout", msg="Force stopping scheduler")
-        
+
         await storage.close()
 
     app = FastAPI(

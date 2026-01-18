@@ -114,19 +114,19 @@ def compute_subset_scores(
     for subset_size in range(1, len(env_ids) + 1):
         # Compute weight for this subset size
         if subset_weight_scheme == "linear":
-            K_s = float(subset_size)
+            subset_weight = float(subset_size)
         elif subset_weight_scheme == "exponential":
-            K_s = float(2 ** (subset_size - 1))
+            subset_weight = float(2 ** (subset_size - 1))
         elif subset_weight_scheme == "equal":
-            K_s = 1.0
+            subset_weight = 1.0
         else:
-            K_s = float(subset_size)
+            subset_weight = float(subset_size)
 
         # Check each subset of this size
         for subset in combinations(env_ids, subset_size):
             winner = find_subset_winner(miner_scores, subset, epsilons)
             if winner is not None:
-                final_scores[winner] += K_s
+                final_scores[winner] += subset_weight
 
     return final_scores
 

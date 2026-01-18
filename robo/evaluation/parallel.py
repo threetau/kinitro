@@ -8,7 +8,7 @@ import structlog
 
 from robo.chain.commitments import MinerCommitment
 from robo.environments import get_environment
-from robo.environments.base import EpisodeResult, RoboticsEnvironment
+from robo.environments.base import EpisodeResult
 from robo.environments.procedural import generate_seed_from_block
 from robo.evaluation.rollout import PolicyInterface, RolloutConfig, run_episode
 

@@ -2,14 +2,13 @@
 
 import asyncio
 import time
-from typing import Any
 
 import structlog
 
 from robo.backend.config import BackendConfig
 from robo.backend.evaluator import EvaluatorConfig, RoboticsEvaluator
 from robo.backend.storage import Storage
-from robo.chain.commitments import MinerCommitment, read_miner_commitments
+from robo.chain.commitments import read_miner_commitments
 from robo.chain.weights import weights_to_u16
 from robo.environments import get_all_environment_ids
 from robo.scoring.pareto import compute_pareto_frontier
@@ -113,19 +112,19 @@ class EvaluationScheduler:
                 await self._current_task
             except asyncio.CancelledError:
                 pass
-        
+
         # Cleanup evaluator resources
         if self._evaluator is not None:
             try:
                 await asyncio.wait_for(self._evaluator.cleanup(), timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("evaluator_cleanup_timeout")
                 # Force cleanup by killing docker container
                 self._evaluator.force_cleanup()
             except Exception as e:
                 logger.warning("evaluator_cleanup_error", error=str(e))
             self._evaluator = None
-        
+
         logger.info("scheduler_stopped")
 
     @property

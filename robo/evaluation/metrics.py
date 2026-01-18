@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from robo.environments.base import EpisodeResult
-from robo.evaluation.parallel import EvaluationResult, MinerResult
+from robo.evaluation.parallel import EvaluationResult
 
 
 @dataclass

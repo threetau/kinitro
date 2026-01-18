@@ -7,9 +7,9 @@ Provides the core evaluation loop that:
 3. Collects success rates and rewards
 """
 
-from robo.evaluation.rollout import EpisodeResult, RolloutConfig, run_episode
-from robo.evaluation.parallel import MinerResult, evaluate_miner_on_environment, evaluate_all_miners
 from robo.evaluation.metrics import aggregate_results, compute_success_rate
+from robo.evaluation.parallel import MinerResult, evaluate_all_miners, evaluate_miner_on_environment
+from robo.evaluation.rollout import EpisodeResult, RolloutConfig, run_episode
 
 __all__ = [
     "EpisodeResult",

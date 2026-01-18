@@ -128,9 +128,9 @@ def verify_weight_setting_eligibility(
             return False, "Hotkey not registered on subnet"
 
         uid = hotkeys.index(hotkey)
-        neuron = neurons[uid]
+        _neuron = neurons[uid]  # noqa: F841 - kept for future validation
 
-        # NOTE: this has been disbaled for now do not check permit and stake
+        # NOTE: this has been disabled for now do not check permit and stake
         # # Check if has validator permit
         # if not neuron.validator_permit:
         #     return False, "No validator permit"

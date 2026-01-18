@@ -122,7 +122,7 @@ class RobotActor:
         # Extract proprioceptive observations
         end_effector_pos = np.array(observation["end_effector_pos"], dtype=np.float32)
         gripper_state = float(observation["gripper_state"])
-        proprio = np.concatenate([end_effector_pos, [gripper_state]])
+        _proprio = np.concatenate([end_effector_pos, [gripper_state]])  # noqa: F841
 
         # Extract camera images (if available)
         camera_images = observation.get("camera_images", {})
@@ -172,15 +172,15 @@ class ExampleVisionPolicy:
     def __init__(self, model_path: str = "policy.pt"):
         try:
             import torch
-            import torchvision.transforms as T
+            import torchvision.transforms as transforms
 
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
             # Image preprocessing
-            self.transform = T.Compose(
+            self.transform = transforms.Compose(
                 [
-                    T.ToTensor(),
-                    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
                 ]
             )
 
@@ -197,7 +197,7 @@ class ExampleVisionPolicy:
             self.model = None
             self.transform = None
 
-    def preprocess_images(self, images: dict[str, np.ndarray]) -> "torch.Tensor | None":
+    def preprocess_images(self, images: dict[str, np.ndarray]) -> "Any":
         """Preprocess camera images for the policy."""
         if self.transform is None or not images:
             return None
@@ -269,7 +269,7 @@ class ExampleMultiTaskPolicy:
 
     def __call__(self, proprio: np.ndarray, images: dict[str, np.ndarray]) -> np.ndarray:
         # Concatenate observation with task embedding
-        augmented_obs = np.concatenate([proprio, self.current_embedding])
+        _augmented_obs = np.concatenate([proprio, self.current_embedding])  # noqa: F841
 
         # Process images through CNN encoder
         # image_features = self.cnn_encoder(images)

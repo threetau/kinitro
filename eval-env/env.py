@@ -8,7 +8,7 @@ This Actor class runs inside an affinetes-managed container and:
 
 Usage (from backend):
     import affinetes as af_env
-    
+
     env = af_env.load_env(image="robo-subnet/eval-env:v1")
     result = await env.evaluate(
         task_id=123,
@@ -17,11 +17,8 @@ Usage (from backend):
     )
 """
 
-import os
-import sys
-import time
 import asyncio
-from typing import Optional
+import time
 
 import httpx
 import numpy as np
@@ -34,30 +31,28 @@ from robo.environments.registry import get_all_environment_ids
 class Actor:
     """
     Robotics evaluation actor for affinetes.
-    
+
     Runs MuJoCo/MetaWorld simulation and queries miner policy endpoints
     to get actions, matching the Affine (SN120) evaluation pattern.
     """
-    
+
     def __init__(self):
         """Initialize the evaluation actor."""
         self._env_cache = {}
         self._http_client = None
-    
+
     def _get_env(self, env_id: str):
         """Get or create a robotics environment."""
         if env_id not in self._env_cache:
             self._env_cache[env_id] = get_environment(env_id)
         return self._env_cache[env_id]
-    
+
     async def _get_http_client(self, timeout: float = 30.0) -> httpx.AsyncClient:
         """Get or create HTTP client for miner requests."""
         if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(timeout, connect=5.0)
-            )
+            self._http_client = httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=5.0))
         return self._http_client
-    
+
     async def _call_miner(
         self,
         base_url: str,
@@ -67,27 +62,27 @@ class Actor:
     ) -> dict:
         """
         Call miner's policy endpoint.
-        
+
         Args:
             base_url: Miner's base URL (e.g., https://slug.chutes.ai)
             endpoint: Endpoint path (e.g., "act" or "reset")
             payload: JSON payload to send
             timeout: Request timeout in seconds
-            
+
         Returns:
             JSON response from miner
         """
         client = await self._get_http_client(timeout)
         url = f"{base_url.rstrip('/')}/{endpoint}"
-        
+
         resp = await client.post(url, json=payload)
         resp.raise_for_status()
         return resp.json()
-    
+
     async def list_environments(self) -> list[str]:
         """List available robotics environments."""
         return get_all_environment_ids()
-    
+
     async def evaluate(
         self,
         task_id: int,
@@ -103,13 +98,13 @@ class Actor:
     ) -> dict:
         """
         Evaluate a miner's policy on a robotics task.
-        
+
         This method:
         1. Resets the simulation environment
         2. Calls the miner's /reset endpoint
         3. Loops: get observation → call miner's /act → step simulation
         4. Returns success/failure score
-        
+
         Args:
             task_id: Task identifier for reproducibility
             seed: Random seed (defaults to task_id)
@@ -121,7 +116,7 @@ class Actor:
             action_timeout: Timeout for each action request (seconds)
             use_images: Whether to send camera images to miner
             timeout: Overall evaluation timeout (seconds)
-            
+
         Returns:
             Evaluation result dict with:
             - task_name: Environment identifier
@@ -133,12 +128,12 @@ class Actor:
         """
         if base_url is None:
             raise ValueError("base_url (miner endpoint) is required")
-        
+
         if seed is None:
             seed = task_id
-        
+
         start_time = time.time()
-        
+
         try:
             return await asyncio.wait_for(
                 self._run_evaluation(
@@ -154,7 +149,7 @@ class Actor:
                 ),
                 timeout=timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return self._build_error_result(
                 env_id=env_id,
                 task_id=task_id,
@@ -164,6 +159,7 @@ class Actor:
             )
         except Exception as e:
             import traceback
+
             return self._build_error_result(
                 env_id=env_id,
                 task_id=task_id,
@@ -171,12 +167,12 @@ class Actor:
                 start_time=start_time,
                 error=f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}",
             )
-    
+
     async def _run_evaluation(
         self,
         task_id: int,
         seed: int,
-        model: Optional[str],
+        model: str | None,
         base_url: str,
         env_id: str,
         max_timesteps: int,
@@ -185,10 +181,10 @@ class Actor:
         start_time: float,
     ) -> dict:
         """Internal evaluation loop."""
-        
+
         # Get environment
         env = self._get_env(env_id)
-        
+
         # Generate task configuration
         task_config = env.generate_task(seed=seed)
         task_config_dict = {
@@ -198,7 +194,7 @@ class Actor:
             "seed": seed,
             "task_id": task_id,
         }
-        
+
         # Reset miner policy
         try:
             await self._call_miner(
@@ -215,18 +211,18 @@ class Actor:
                 start_time=start_time,
                 error=f"Miner reset failed: {type(e).__name__}: {str(e)}",
             )
-        
+
         # Reset simulation environment
         obs = env.reset(task_config)
-        
+
         total_reward = 0.0
         timesteps = 0
         action_times = []
-        
+
         for t in range(max_timesteps):
             # Build request payload
             payload = {"observation": obs.tolist()}
-            
+
             # Add images if available and requested
             if use_images and hasattr(env, "get_images"):
                 try:
@@ -234,7 +230,7 @@ class Actor:
                     payload["images"] = {k: v.tolist() for k, v in images.items()}
                 except Exception:
                     pass  # Skip images if rendering fails
-            
+
             # Get action from miner
             action_start = time.time()
             try:
@@ -263,31 +259,31 @@ class Actor:
                     error=f"Miner action failed at step {t}: {type(e).__name__}: {str(e)}",
                     extra={"timesteps_completed": t},
                 )
-            
+
             action_times.append(time.time() - action_start)
-            
+
             # Validate action shape
             expected_shape = env.action_shape
             if action.shape != expected_shape:
                 # Try to fix common issues
                 if action.ndim == 0:
                     action = np.array([float(action)])
-                action = action.flatten()[:expected_shape[0]]
+                action = action.flatten()[: expected_shape[0]]
                 if len(action) < expected_shape[0]:
                     action = np.pad(action, (0, expected_shape[0] - len(action)))
-            
+
             # Step environment
             obs, reward, done, info = env.step(action)
             total_reward += reward
             timesteps = t + 1
-            
+
             if done:
                 break
-        
+
         # Get success status
         success = env.get_success()
         score = 1.0 if success else 0.0
-        
+
         return {
             "task_name": f"robotics:{env_id}",
             "score": score,
@@ -305,7 +301,7 @@ class Actor:
                 "base_url": base_url,
             },
         }
-    
+
     def _build_error_result(
         self,
         env_id: str,
@@ -331,14 +327,14 @@ class Actor:
         if extra:
             result["extra"].update(extra)
         return result
-    
+
     async def cleanup(self):
         """Cleanup resources."""
         # Close HTTP client
         if self._http_client is not None:
             await self._http_client.aclose()
             self._http_client = None
-        
+
         # Close environments
         for env in self._env_cache.values():
             try:

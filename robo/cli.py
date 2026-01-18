@@ -1,7 +1,6 @@
 """Command-line interface for the robotics subnet."""
 
 import asyncio
-from typing import Optional
 
 import typer
 
@@ -273,7 +272,7 @@ def db_status(
                 typer.echo(f"  Unique miners evaluated: {total_miners}")
 
                 if latest_cycle:
-                    typer.echo(f"\nLatest completed cycle:")
+                    typer.echo("\nLatest completed cycle:")
                     typer.echo(f"  ID: {latest_cycle.id}")
                     typer.echo(f"  Block: {latest_cycle.block_number}")
                     typer.echo(f"  Status: {latest_cycle.status}")
@@ -287,13 +286,13 @@ def db_status(
                     typer.echo("\nNo completed evaluation cycles yet.")
 
                 if running_cycle:
-                    typer.echo(f"\nCurrently running cycle:")
+                    typer.echo("\nCurrently running cycle:")
                     typer.echo(f"  ID: {running_cycle.id}")
                     typer.echo(f"  Block: {running_cycle.block_number}")
                     typer.echo(f"  Started: {running_cycle.started_at}")
 
                 if latest_weights:
-                    typer.echo(f"\nLatest weights:")
+                    typer.echo("\nLatest weights:")
                     typer.echo(f"  Block: {latest_weights.block_number}")
                     typer.echo(f"  Miners: {len(latest_weights.weights_json)}")
                     typer.echo(f"  Created: {latest_weights.created_at}")
@@ -508,15 +507,15 @@ def show_commitment(
 ):
     """
     Show commitment for a miner.
-    
+
     Query by wallet (default), UID, or hotkey address.
     """
     import bittensor as bt
-    
+
     from robo.chain.commitments import _query_commitment_by_hotkey, parse_commitment
-    
+
     subtensor = bt.Subtensor(network=network)
-    
+
     # Determine which hotkey to query
     if hotkey:
         query_hotkey = hotkey
@@ -533,16 +532,16 @@ def show_commitment(
         query_hotkey = wallet.hotkey.ss58_address
         typer.echo(f"Querying commitment for wallet {wallet_name}/{hotkey_name}")
         typer.echo(f"  Hotkey: {query_hotkey}")
-    
+
     # Query the commitment
     raw = _query_commitment_by_hotkey(subtensor, netuid, query_hotkey)
-    
+
     if not raw:
         typer.echo("\nNo commitment found.")
         raise typer.Exit(0)
-    
+
     typer.echo(f"\nRaw commitment: {raw[:100]}{'...' if len(raw) > 100 else ''}")
-    
+
     # Parse the commitment (supports both JSON and legacy formats)
     parsed = parse_commitment(raw)
     if parsed["huggingface_repo"]:
@@ -550,7 +549,7 @@ def show_commitment(
         typer.echo(f"  Repo: {parsed['huggingface_repo']}")
         typer.echo(f"  Revision: {parsed['revision_sha']}")
         typer.echo(f"  Chute ID: {parsed['chute_id']}")
-        if parsed['docker_image']:
+        if parsed["docker_image"]:
             typer.echo(f"  Docker Image: {parsed['docker_image']}")
     else:
         typer.echo("\nCould not parse commitment format.")
@@ -607,7 +606,9 @@ def build_eval_env(
         help="Docker tag for eval environment image",
     ),
     push: bool = typer.Option(False, help="Push to registry after building"),
-    registry: Optional[str] = typer.Option(None, help="Registry URL for pushing (e.g., docker.io/myuser)"),
+    registry: str | None = typer.Option(
+        None, help="Registry URL for pushing (e.g., docker.io/myuser)"
+    ),
     no_cache: bool = typer.Option(False, help="Build without using cache"),
     quiet: bool = typer.Option(False, help="Suppress build output"),
 ):
@@ -717,8 +718,12 @@ def init_miner(
 def chutes_push(
     repo: str = typer.Option(..., "--repo", "-r", help="HuggingFace repository ID"),
     revision: str = typer.Option(..., "--revision", help="HuggingFace commit SHA"),
-    chutes_api_key: Optional[str] = typer.Option(None, "--api-key", envvar="CHUTES_API_KEY", help="Chutes API key"),
-    chute_user: Optional[str] = typer.Option(None, "--user", envvar="CHUTE_USER", help="Chutes username"),
+    chutes_api_key: str | None = typer.Option(
+        None, "--api-key", envvar="CHUTES_API_KEY", help="Chutes API key"
+    ),
+    chute_user: str | None = typer.Option(
+        None, "--user", envvar="CHUTE_USER", help="Chutes username"
+    ),
     gpu_count: int = typer.Option(1, "--gpu-count", help="Number of GPUs"),
     min_vram_gb: int = typer.Option(8, "--min-vram", help="Minimum VRAM in GB"),
 ):
@@ -750,7 +755,7 @@ def chutes_push(
         typer.echo("Set it via --user or CHUTE_USER environment variable")
         raise typer.Exit(1)
 
-    typer.echo(f"Deploying to Chutes:")
+    typer.echo("Deploying to Chutes:")
     typer.echo(f"  Repo: {repo}")
     typer.echo(f"  Revision: {revision[:12]}...")
     typer.echo(f"  User: {user}")
@@ -801,7 +806,9 @@ chute.entrypoint = "uvicorn server:app --host 0.0.0.0 --port 8000"
         typer.echo("\nDeployment submitted!")
         typer.echo("Check the Chutes dashboard for your chute_id")
         typer.echo("\nNext step:")
-        typer.echo(f"  robo commit --repo {repo} --revision {revision} --chute-id YOUR_CHUTE_ID --netuid ...")
+        typer.echo(
+            f"  robo commit --repo {repo} --revision {revision} --chute-id YOUR_CHUTE_ID --netuid ..."
+        )
 
     finally:
         tmp_file.unlink(missing_ok=True)
@@ -810,21 +817,31 @@ chute.entrypoint = "uvicorn server:app --host 0.0.0.0 --port 8000"
 @app.command("miner-deploy")
 def miner_deploy(
     repo: str = typer.Option(..., "--repo", "-r", help="HuggingFace repository ID"),
-    policy_path: Optional[str] = typer.Option(None, "--path", "-p", help="Path to local policy directory"),
-    revision: Optional[str] = typer.Option(None, "--revision", help="HuggingFace commit SHA (required if --skip-upload)"),
-    chute_id: Optional[str] = typer.Option(None, "--chute-id", help="Chutes deployment ID (required if --skip-chutes)"),
-    message: str = typer.Option("Model update", "--message", "-m", help="Commit message for HuggingFace upload"),
+    policy_path: str | None = typer.Option(
+        None, "--path", "-p", help="Path to local policy directory"
+    ),
+    revision: str | None = typer.Option(
+        None, "--revision", help="HuggingFace commit SHA (required if --skip-upload)"
+    ),
+    chute_id: str | None = typer.Option(
+        None, "--chute-id", help="Chutes deployment ID (required if --skip-chutes)"
+    ),
+    message: str = typer.Option(
+        "Model update", "--message", "-m", help="Commit message for HuggingFace upload"
+    ),
     skip_upload: bool = typer.Option(False, "--skip-upload", help="Skip HuggingFace upload"),
     skip_chutes: bool = typer.Option(False, "--skip-chutes", help="Skip Chutes deployment"),
     skip_commit: bool = typer.Option(False, "--skip-commit", help="Skip on-chain commit"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be done without executing"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be done without executing"
+    ),
     network: str = typer.Option("finney", "--network", help="Bittensor network"),
     netuid: int = typer.Option(..., "--netuid", help="Subnet UID"),
     wallet_name: str = typer.Option("default", "--wallet-name", help="Wallet name"),
     hotkey_name: str = typer.Option("default", "--hotkey-name", help="Hotkey name"),
-    chutes_api_key: Optional[str] = typer.Option(None, "--chutes-api-key", envvar="CHUTES_API_KEY"),
-    chute_user: Optional[str] = typer.Option(None, "--chute-user", envvar="CHUTE_USER"),
-    hf_token: Optional[str] = typer.Option(None, "--hf-token", envvar="HF_TOKEN"),
+    chutes_api_key: str | None = typer.Option(None, "--chutes-api-key", envvar="CHUTES_API_KEY"),
+    chute_user: str | None = typer.Option(None, "--chute-user", envvar="CHUTE_USER"),
+    hf_token: str | None = typer.Option(None, "--hf-token", envvar="HF_TOKEN"),
 ):
     """
     One-command deployment: Upload -> Deploy -> Commit.
@@ -844,7 +861,6 @@ def miner_deploy(
         # Dry run to see what would happen
         robo miner-deploy -r user/policy -p ./my-policy --netuid 123 --dry-run
     """
-    import json
     import os
     import subprocess
     import textwrap
@@ -991,12 +1007,13 @@ chute.entrypoint = "uvicorn server:app --host 0.0.0.0 --port 8000"
                     async def get_chute():
                         async with aiohttp.ClientSession() as session:
                             async with session.get(
-                                "https://api.chutes.ai/chutes/",
-                                headers={"Authorization": api_key}
+                                "https://api.chutes.ai/chutes/", headers={"Authorization": api_key}
                             ) as r:
                                 if r.status == 200:
                                     data = await r.json()
-                                    chutes = data.get("items", data) if isinstance(data, dict) else data
+                                    chutes = (
+                                        data.get("items", data) if isinstance(data, dict) else data
+                                    )
                                     for c in reversed(chutes):
                                         if c.get("readme") == repo or c.get("model_name") == repo:
                                             return c.get("chute_id")
@@ -1192,10 +1209,10 @@ def mock_miner(
         # Start on specific port
         robo mock-miner --port 8002
     """
+    import numpy as np
     import uvicorn
     from fastapi import FastAPI
     from pydantic import BaseModel
-    import numpy as np
 
     mock_app = FastAPI(title="Mock Miner Policy Server")
 
@@ -1226,6 +1243,7 @@ def mock_miner(
         uptime_seconds: float = 0.0
 
     import time
+
     _start_time = time.time()
 
     @mock_app.get("/health", response_model=HealthResponse)

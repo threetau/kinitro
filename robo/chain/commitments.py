@@ -50,7 +50,9 @@ def parse_commitment(raw: str) -> dict:
             hf_repo = data.get("model", "")
             revision = data.get("revision", "")
             chute_id = data.get("chute_id", "")
-            docker_image = data.get("docker_image", "") or f"{hf_repo}:{revision}" if hf_repo else ""
+            docker_image = (
+                data.get("docker_image", "") or f"{hf_repo}:{revision}" if hf_repo else ""
+            )
 
             if hf_repo and revision:
                 return {
@@ -104,40 +106,40 @@ def _query_commitment_by_hotkey(subtensor, netuid: int, hotkey: str) -> str | No
     """
     try:
         result = subtensor.substrate.query("Commitments", "CommitmentOf", [netuid, hotkey])
-        
+
         # Handle different result types
         if result is None:
             return None
-            
+
         # Result might be a dict directly (newer substrate interface)
         if isinstance(result, dict):
             data = result
-        elif hasattr(result, 'value'):
+        elif hasattr(result, "value"):
             data = result.value
         else:
             return None
-            
+
         if not data:
             return None
-            
+
         # Handle structured commitment format: {'deposit': ..., 'block': ..., 'info': {'fields': ...}}
         if isinstance(data, dict) and "info" in data:
             info = data.get("info", {})
             fields = info.get("fields", ())
-            
+
             if fields and len(fields) > 0:
                 # First field contains the raw data
                 first_field = fields[0]
-                
+
                 # Handle tuple format: ({'Raw94': ((bytes...),)},)
                 if isinstance(first_field, tuple) and len(first_field) > 0:
                     first_field = first_field[0]
-                
+
                 # Extract bytes from various formats
                 if isinstance(first_field, dict):
                     # Format: {'RawXX': ((bytes...),)} or {'Data': bytes}
                     for key, value in first_field.items():
-                        if key.startswith('Raw') or key == 'Data':
+                        if key.startswith("Raw") or key == "Data":
                             # Extract the bytes tuple
                             if isinstance(value, tuple) and len(value) > 0:
                                 byte_data = value[0]
@@ -151,13 +153,13 @@ def _query_commitment_by_hotkey(subtensor, netuid: int, hotkey: str) -> str | No
                     return first_field.decode("utf-8", errors="ignore")
                 elif isinstance(first_field, str):
                     return first_field
-                    
+
         # Handle simple formats
         elif isinstance(data, (bytes, bytearray)):
             return data.decode("utf-8", errors="ignore")
         elif isinstance(data, str):
             return data
-            
+
         return None
     except Exception as e:
         logger.debug("commitment_query_failed", hotkey=hotkey[:16], error=str(e))
@@ -249,13 +251,15 @@ def commit_model(
         True if commitment succeeded
     """
     import json
-    
+
     # Use JSON format compatible with Affine
-    commitment_data = json.dumps({
-        "model": repo,
-        "revision": revision,
-        "chute_id": chute_id,
-    })
+    commitment_data = json.dumps(
+        {
+            "model": repo,
+            "revision": revision,
+            "chute_id": chute_id,
+        }
+    )
 
     try:
         result = subtensor.set_commitment(
@@ -265,9 +269,9 @@ def commit_model(
             wait_for_inclusion=True,
             wait_for_finalization=False,
         )
-        
+
         # Handle both bool and ExtrinsicResponse return types
-        success = bool(result) if not hasattr(result, 'is_success') else result.is_success
+        success = bool(result) if not hasattr(result, "is_success") else result.is_success
         if success:
             logger.info(
                 "commitment_submitted",

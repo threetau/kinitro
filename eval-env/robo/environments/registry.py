@@ -1,7 +1,8 @@
 """Environment registry for loading robotics environments."""
 
+from collections.abc import Callable
+
 import structlog
-from typing import Callable
 
 from robo.environments.base import RoboticsEnvironment
 

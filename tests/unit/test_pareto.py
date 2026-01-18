@@ -1,7 +1,6 @@
 """Tests for Pareto scoring."""
 
 import numpy as np
-import pytest
 
 from robo.scoring.pareto import (
     compute_epsilon,
@@ -11,7 +10,6 @@ from robo.scoring.pareto import (
 from robo.scoring.winners_take_all import (
     compute_full_scoring,
     compute_subset_scores,
-    find_subset_winner,
     scores_to_weights,
 )
 
