@@ -83,34 +83,38 @@ This separation allows:
 # Clone and install
 git clone https://github.com/your-org/robo-subnet.git
 cd robo-subnet
-pip install -e .
 
-# Or with uv
+# Install with uv (recommended)
 uv sync
+
+# Or with pip
+pip install -e .
 ```
 
-### Running the Backend
+### For Validators
 
-The backend runs evaluations and exposes a REST API:
+See the full [Validator Guide](docs/validator-guide.md) for detailed instructions.
 
 ```bash
-# Create and initialize database
-robo db create --database-url postgresql://user:pass@localhost/robo
-robo db init --database-url postgresql://user:pass@localhost/robo
+# 1. Start PostgreSQL
+docker run -d --name robo-postgres \
+  -e POSTGRES_USER=robo -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=robo \
+  -p 5432:5432 postgres:15
 
-# Start the backend
-robo backend \
+# 2. Build the evaluation environment
+uv run robo build-eval-env --tag robo-subnet/eval-env:v1
+
+# 3. Initialize database
+uv run robo db init --database-url postgresql://robo:secret@localhost/robo
+
+# 4. Start the backend (runs evaluations)
+uv run robo backend \
   --netuid YOUR_NETUID \
   --network finney \
-  --database-url postgresql://user:pass@localhost/robo
-```
+  --database-url postgresql://robo:secret@localhost/robo
 
-### Running a Validator
-
-Validators poll the backend and submit weights to chain:
-
-```bash
-robo validate \
+# 5. Start the validator (submits weights to chain)
+uv run robo validate \
   --backend-url http://localhost:8000 \
   --netuid YOUR_NETUID \
   --network finney \
@@ -118,38 +122,30 @@ robo validate \
   --hotkey-name your-hotkey
 ```
 
-### Docker Deployment
-
-```bash
-cp env.example .env
-# Edit .env with your settings
-
-# Start everything (postgres + backend + validator)
-docker-compose up -d
-```
-
 ### For Miners
 
-1. Initialize a policy template:
+See the full [Miner Guide](docs/miner-guide.md) for detailed instructions.
+
 ```bash
-robo init-miner ./my-policy
+# 1. Initialize a policy template
+uv run robo init-miner ./my-policy
 cd my-policy
-```
 
-2. Implement your policy in `env.py` (see Miner Policy Interface below)
+# 2. Implement your policy in policy.py
 
-3. Build and push:
-```bash
-robo build . --tag your-user/robo-policy:v1 --push
-```
+# 3. Test locally
+uvicorn server:app --port 8001
 
-4. Register on chain:
-```bash
-robo commit \
+# 4. Deploy to Chutes (or self-host)
+chutes deploy chute:chute
+
+# 5. Register on chain
+uv run robo commit \
   --repo your-user/robo-policy \
-  --revision YOUR_COMMIT_SHA \
-  --chute-id YOUR_CHUTE_ID \
-  --netuid YOUR_NETUID
+  --revision $(git rev-parse HEAD) \
+  --chute-id YOUR_CHUTE_ENDPOINT \
+  --netuid YOUR_NETUID \
+  --network finney
 ```
 
 ## CLI Reference
@@ -247,31 +243,36 @@ Use `robo list-envs` to see available environments.
 
 ## Miner Policy Interface
 
-Your policy must implement the `RobotActor` class:
+Miners deploy a FastAPI server with these endpoints:
 
 ```python
-class RobotActor:
-    async def reset(self, task_config: dict) -> None:
-        """Called at start of each episode with task info."""
-        pass
+# POST /reset - Reset for new episode
+async def reset(task_config: dict) -> str:
+    """Called at start of each episode. Returns episode_id."""
+    pass
+
+# POST /act - Get action for observation
+async def act(observation: np.ndarray, images: dict | None) -> np.ndarray:
+    """
+    Return action for observation. Must respond within 500ms.
     
-    async def act(self, observation: dict) -> list[float]:
-        """
-        Return action for observation. Must respond within 100ms.
-        
-        Args:
-            observation: Dict with keys:
-                - end_effector_pos: [x, y, z] position
-                - gripper_state: float (0=closed, 1=open)
-                - camera_images: {camera_name: base64_png_string}
-        
-        Returns:
-            Action as list of floats in [-1, 1] range
-        """
-        return action
+    Args:
+        observation: Proprioceptive state [ee_x, ee_y, ee_z, gripper_state]
+        images: Optional camera images {"corner": (84,84,3), "gripper": (84,84,3)}
+    
+    Returns:
+        Action as numpy array in [-1, 1] range
+    """
+    return action
 ```
 
-See `robo/miner/template/env.py` for a complete example with vision processing.
+See the [Miner Guide](docs/miner-guide.md) and `robo/miner/template/` for complete examples.
+
+## Documentation
+
+- [Miner Guide](docs/miner-guide.md) - How to train and deploy a policy
+- [Validator Guide](docs/validator-guide.md) - How to run a validator (lightweight)
+- [Backend Guide](docs/backend-guide.md) - How to run the evaluation backend (subnet operators only)
 
 ## Development
 

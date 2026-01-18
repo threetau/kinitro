@@ -607,10 +607,12 @@ def build_eval_env(
         help="Docker tag for eval environment image",
     ),
     push: bool = typer.Option(False, help="Push to registry after building"),
+    registry: Optional[str] = typer.Option(None, help="Registry URL for pushing (e.g., docker.io/myuser)"),
     no_cache: bool = typer.Option(False, help="Build without using cache"),
+    quiet: bool = typer.Option(False, help="Suppress build output"),
 ):
     """
-    Build the evaluation environment Docker image.
+    Build the evaluation environment Docker image using affinetes.
 
     This image is used by affinetes to run evaluations. It contains:
     - MuJoCo + MetaWorld simulation environment
@@ -618,56 +620,57 @@ def build_eval_env(
     - The robo package for environment management
 
     The built image is used by the backend scheduler when running evaluations.
+
+    Examples:
+        # Build locally
+        robo build-eval-env --tag robo-subnet/eval-env:v1
+
+        # Build and push to Docker Hub
+        robo build-eval-env --tag eval-env:v1 --push --registry docker.io/myuser
     """
-    import subprocess
     from pathlib import Path
 
-    # Find the robo-subnet root directory
+    import affinetes
+
+    # Find the eval-env directory
     robo_package_dir = Path(__file__).parent
     root_dir = robo_package_dir.parent
-    dockerfile_path = root_dir / "eval-env" / "Dockerfile"
+    eval_env_path = root_dir / "eval-env"
 
-    if not dockerfile_path.exists():
-        typer.echo(f"Dockerfile not found at {dockerfile_path}", err=True)
+    if not (eval_env_path / "env.py").exists():
+        typer.echo(f"env.py not found at {eval_env_path}", err=True)
         typer.echo("Make sure you're running from within the robo-subnet package.")
         raise typer.Exit(1)
 
-    typer.echo(f"Building eval environment image: {tag}")
-    typer.echo(f"  Dockerfile: {dockerfile_path}")
-    typer.echo(f"  Context: {root_dir}")
-
-    # Build command
-    cmd = [
-        "docker", "build",
-        "-t", tag,
-        "-f", str(dockerfile_path),
-    ]
-    if no_cache:
-        cmd.append("--no-cache")
-    cmd.append(str(root_dir))
-
-    # Stream output instead of capturing
-    result = subprocess.run(cmd)
-
-    if result.returncode != 0:
-        typer.echo("Build failed!", err=True)
+    if not (eval_env_path / "Dockerfile").exists():
+        typer.echo(f"Dockerfile not found at {eval_env_path}", err=True)
         raise typer.Exit(1)
 
-    typer.echo(f"\nBuild successful: {tag}")
-
-    # Push if requested
+    typer.echo(f"Building eval environment image: {tag}")
+    typer.echo(f"  Environment path: {eval_env_path}")
     if push:
-        typer.echo(f"Pushing to registry: {tag}")
-        result = subprocess.run(["docker", "push", tag])
+        typer.echo(f"  Push: True (registry: {registry or 'from tag'})")
 
-        if result.returncode != 0:
-            typer.echo("Push failed!", err=True)
-            raise typer.Exit(1)
+    try:
+        result_tag = affinetes.build_image_from_env(
+            env_path=str(eval_env_path),
+            image_tag=tag,
+            nocache=no_cache,
+            quiet=quiet,
+            push=push,
+            registry=registry,
+        )
+        typer.echo(f"\nBuild successful: {result_tag}")
 
-        typer.echo("Push successful!")
+        if push:
+            typer.echo(f"Pushed to: {result_tag}")
+
+    except Exception as e:
+        typer.echo(f"Build failed: {e}", err=True)
+        raise typer.Exit(1)
 
     typer.echo("\nTo use this image in the backend, ensure your config has:")
-    typer.echo(f"  eval_image: {tag}")
+    typer.echo(f"  eval_image: {result_tag}")
 
 
 @app.command()
@@ -705,8 +708,361 @@ def init_miner(
     typer.echo("  1. Edit policy.py to implement your policy")
     typer.echo("  2. Add your model weights to the directory")
     typer.echo("  3. Test locally: uvicorn server:app --port 8001")
-    typer.echo("  4. Deploy to Chutes (see Chutes documentation)")
-    typer.echo("  5. Commit to chain: robo commit --repo ... --revision ... --chute-id ...")
+    typer.echo("  4. Upload to HuggingFace: huggingface-cli upload user/repo .")
+    typer.echo("  5. Deploy to Chutes: robo chutes-push --repo user/repo --revision SHA")
+    typer.echo("  6. Commit to chain: robo commit --repo ... --revision ... --chute-id ...")
+
+
+@app.command("chutes-push")
+def chutes_push(
+    repo: str = typer.Option(..., "--repo", "-r", help="HuggingFace repository ID"),
+    revision: str = typer.Option(..., "--revision", help="HuggingFace commit SHA"),
+    chutes_api_key: Optional[str] = typer.Option(None, "--api-key", envvar="CHUTES_API_KEY", help="Chutes API key"),
+    chute_user: Optional[str] = typer.Option(None, "--user", envvar="CHUTE_USER", help="Chutes username"),
+    gpu_count: int = typer.Option(1, "--gpu-count", help="Number of GPUs"),
+    min_vram_gb: int = typer.Option(8, "--min-vram", help="Minimum VRAM in GB"),
+):
+    """
+    Deploy policy to Chutes.
+
+    Generates a Chute configuration and deploys your policy server.
+    Requires CHUTES_API_KEY and CHUTE_USER environment variables.
+
+    Example:
+        robo chutes-push --repo user/robo-policy --revision abc123
+    """
+    import os
+    import subprocess
+    import textwrap
+    from pathlib import Path
+
+    # Validate required credentials
+    api_key = chutes_api_key or os.environ.get("CHUTES_API_KEY")
+    user = chute_user or os.environ.get("CHUTE_USER")
+
+    if not api_key:
+        typer.echo("Error: CHUTES_API_KEY not configured", err=True)
+        typer.echo("Set it via --api-key or CHUTES_API_KEY environment variable")
+        raise typer.Exit(1)
+
+    if not user:
+        typer.echo("Error: CHUTE_USER not configured", err=True)
+        typer.echo("Set it via --user or CHUTE_USER environment variable")
+        raise typer.Exit(1)
+
+    typer.echo(f"Deploying to Chutes:")
+    typer.echo(f"  Repo: {repo}")
+    typer.echo(f"  Revision: {revision[:12]}...")
+    typer.echo(f"  User: {user}")
+    typer.echo(f"  GPU: {gpu_count}x (min {min_vram_gb}GB VRAM)")
+
+    # Generate Chute configuration for robotics policy server
+    chute_config = textwrap.dedent(f'''
+import os
+from chutes import Chute
+from chutes.chute import NodeSelector
+
+os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+
+chute = Chute(
+    name="{repo.replace("/", "-")}",
+    readme="{repo}",
+    node_selector=NodeSelector(
+        gpu_count={gpu_count},
+        min_vram_gb={min_vram_gb},
+    ),
+)
+
+# The policy server files are loaded from HuggingFace
+chute.from_huggingface("{repo}", revision="{revision}")
+
+# Install dependencies
+chute.add_pip_requirements("requirements.txt")
+
+# Set the entrypoint for the FastAPI policy server
+chute.entrypoint = "uvicorn server:app --host 0.0.0.0 --port 8000"
+''')
+
+    tmp_file = Path("tmp_robo_chute.py")
+    tmp_file.write_text(chute_config)
+
+    try:
+        # Deploy to Chutes
+        cmd = ["chutes", "deploy", f"{tmp_file.stem}:chute", "--accept-fee"]
+        env = {**os.environ, "CHUTES_API_KEY": api_key}
+
+        typer.echo("\nDeploying...")
+        result = subprocess.run(cmd, env=env)
+
+        if result.returncode != 0:
+            typer.echo("Chutes deployment failed!", err=True)
+            raise typer.Exit(1)
+
+        typer.echo("\nDeployment submitted!")
+        typer.echo("Check the Chutes dashboard for your chute_id")
+        typer.echo("\nNext step:")
+        typer.echo(f"  robo commit --repo {repo} --revision {revision} --chute-id YOUR_CHUTE_ID --netuid ...")
+
+    finally:
+        tmp_file.unlink(missing_ok=True)
+
+
+@app.command("miner-deploy")
+def miner_deploy(
+    repo: str = typer.Option(..., "--repo", "-r", help="HuggingFace repository ID"),
+    policy_path: Optional[str] = typer.Option(None, "--path", "-p", help="Path to local policy directory"),
+    revision: Optional[str] = typer.Option(None, "--revision", help="HuggingFace commit SHA (required if --skip-upload)"),
+    chute_id: Optional[str] = typer.Option(None, "--chute-id", help="Chutes deployment ID (required if --skip-chutes)"),
+    message: str = typer.Option("Model update", "--message", "-m", help="Commit message for HuggingFace upload"),
+    skip_upload: bool = typer.Option(False, "--skip-upload", help="Skip HuggingFace upload"),
+    skip_chutes: bool = typer.Option(False, "--skip-chutes", help="Skip Chutes deployment"),
+    skip_commit: bool = typer.Option(False, "--skip-commit", help="Skip on-chain commit"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be done without executing"),
+    network: str = typer.Option("finney", "--network", help="Bittensor network"),
+    netuid: int = typer.Option(..., "--netuid", help="Subnet UID"),
+    wallet_name: str = typer.Option("default", "--wallet-name", help="Wallet name"),
+    hotkey_name: str = typer.Option("default", "--hotkey-name", help="Hotkey name"),
+    chutes_api_key: Optional[str] = typer.Option(None, "--chutes-api-key", envvar="CHUTES_API_KEY"),
+    chute_user: Optional[str] = typer.Option(None, "--chute-user", envvar="CHUTE_USER"),
+    hf_token: Optional[str] = typer.Option(None, "--hf-token", envvar="HF_TOKEN"),
+):
+    """
+    One-command deployment: Upload -> Deploy -> Commit.
+
+    Combines the miner deployment workflow into a single command:
+    1. Upload policy to HuggingFace (skip with --skip-upload)
+    2. Deploy to Chutes (skip with --skip-chutes)
+    3. Commit on-chain (skip with --skip-commit)
+
+    Examples:
+        # Full deployment
+        robo miner-deploy -r user/policy -p ./my-policy --netuid 123
+
+        # Skip upload (already on HuggingFace)
+        robo miner-deploy -r user/policy --skip-upload --revision abc123 --netuid 123
+
+        # Dry run to see what would happen
+        robo miner-deploy -r user/policy -p ./my-policy --netuid 123 --dry-run
+    """
+    import json
+    import os
+    import subprocess
+    import textwrap
+    from pathlib import Path
+
+    # Validate arguments
+    if not skip_upload and not policy_path:
+        typer.echo("Error: --path is required unless --skip-upload is set", err=True)
+        raise typer.Exit(1)
+
+    if skip_upload and not revision:
+        typer.echo("Error: --revision is required when --skip-upload is set", err=True)
+        raise typer.Exit(1)
+
+    if skip_chutes and not chute_id:
+        typer.echo("Error: --chute-id is required when --skip-chutes is set", err=True)
+        raise typer.Exit(1)
+
+    # Get credentials from env if not provided
+    api_key = chutes_api_key or os.environ.get("CHUTES_API_KEY")
+    user = chute_user or os.environ.get("CHUTE_USER")
+    hf = hf_token or os.environ.get("HF_TOKEN")
+
+    # Validate credentials
+    if not dry_run:
+        if not skip_upload and not hf:
+            typer.echo("Error: HF_TOKEN not configured", err=True)
+            raise typer.Exit(1)
+        if not skip_chutes and not api_key:
+            typer.echo("Error: CHUTES_API_KEY not configured", err=True)
+            raise typer.Exit(1)
+        if not skip_chutes and not user:
+            typer.echo("Error: CHUTE_USER not configured", err=True)
+            raise typer.Exit(1)
+
+    # Determine steps
+    steps = []
+    if not skip_upload:
+        steps.append("upload")
+    if not skip_chutes:
+        steps.append("chutes")
+    if not skip_commit:
+        steps.append("commit")
+
+    typer.echo("=" * 60)
+    typer.echo("ROBOTICS SUBNET DEPLOYMENT")
+    typer.echo("=" * 60)
+    typer.echo(f"  Repository: {repo}")
+    if policy_path:
+        typer.echo(f"  Policy Path: {policy_path}")
+    if revision:
+        typer.echo(f"  Revision: {revision}")
+    if chute_id:
+        typer.echo(f"  Chute ID: {chute_id}")
+    typer.echo(f"  Steps: {' -> '.join(steps) if steps else 'none'}")
+    if dry_run:
+        typer.echo("  Mode: DRY RUN")
+    typer.echo("=" * 60)
+
+    # Step 1: Upload to HuggingFace
+    if not skip_upload:
+        typer.echo(f"\n[1/{len(steps)}] Uploading to HuggingFace ({repo})...")
+
+        if dry_run:
+            typer.echo(f"  [DRY RUN] Would upload {policy_path} to {repo}")
+            revision = "dry-run-revision"
+        else:
+            try:
+                from huggingface_hub import HfApi
+
+                api = HfApi(token=hf)
+
+                # Create repo if it doesn't exist
+                try:
+                    api.create_repo(repo, exist_ok=True, repo_type="model")
+                except Exception:
+                    pass  # Repo may already exist
+
+                # Upload folder
+                typer.echo(f"  Uploading {policy_path}...")
+                api.upload_folder(
+                    folder_path=policy_path,
+                    repo_id=repo,
+                    commit_message=message,
+                )
+
+                # Get latest commit SHA
+                info = api.repo_info(repo, repo_type="model")
+                revision = info.sha
+
+                typer.echo(f"  Upload complete. Revision: {revision[:12]}...")
+
+            except Exception as e:
+                typer.echo(f"HuggingFace upload failed: {e}", err=True)
+                raise typer.Exit(1)
+    else:
+        typer.echo(f"\nSkipping upload, using revision: {revision[:12]}...")
+
+    # Step 2: Deploy to Chutes
+    if not skip_chutes:
+        step_num = 2 if not skip_upload else 1
+        typer.echo(f"\n[{step_num}/{len(steps)}] Deploying to Chutes...")
+
+        if dry_run:
+            typer.echo(f"  [DRY RUN] Would deploy {repo}@{revision[:12]}...")
+            chute_id = "dry-run-chute-id"
+        else:
+            # Generate Chute config
+            chute_config = textwrap.dedent(f'''
+import os
+from chutes import Chute
+from chutes.chute import NodeSelector
+
+os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+
+chute = Chute(
+    name="{repo.replace("/", "-")}",
+    readme="{repo}",
+    node_selector=NodeSelector(gpu_count=1, min_vram_gb=8),
+)
+
+chute.from_huggingface("{repo}", revision="{revision}")
+chute.add_pip_requirements("requirements.txt")
+chute.entrypoint = "uvicorn server:app --host 0.0.0.0 --port 8000"
+''')
+
+            tmp_file = Path("tmp_robo_chute.py")
+            tmp_file.write_text(chute_config)
+
+            try:
+                cmd = ["chutes", "deploy", f"{tmp_file.stem}:chute", "--accept-fee"]
+                env = {**os.environ, "CHUTES_API_KEY": api_key}
+
+                result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+
+                if result.returncode != 0:
+                    typer.echo(f"Chutes deployment failed: {result.stderr}", err=True)
+                    raise typer.Exit(1)
+
+                # Try to get chute_id from Chutes API
+                try:
+                    import aiohttp
+
+                    async def get_chute():
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(
+                                "https://api.chutes.ai/chutes/",
+                                headers={"Authorization": api_key}
+                            ) as r:
+                                if r.status == 200:
+                                    data = await r.json()
+                                    chutes = data.get("items", data) if isinstance(data, dict) else data
+                                    for c in reversed(chutes):
+                                        if c.get("readme") == repo or c.get("model_name") == repo:
+                                            return c.get("chute_id")
+                        return None
+
+                    chute_id = asyncio.run(get_chute())
+                except Exception:
+                    chute_id = None
+
+                if chute_id:
+                    typer.echo(f"  Chute ID: {chute_id}")
+                else:
+                    typer.echo("  Deployment submitted. Check Chutes dashboard for chute_id.")
+                    typer.echo("  You may need to run commit separately with --chute-id")
+                    if not skip_commit:
+                        typer.echo("  Skipping commit step (no chute_id)")
+                        skip_commit = True
+
+            finally:
+                tmp_file.unlink(missing_ok=True)
+    else:
+        typer.echo(f"\nSkipping Chutes deployment, using chute_id: {chute_id}")
+
+    # Step 3: Commit on-chain
+    if not skip_commit and chute_id:
+        step_num = len(steps)
+        typer.echo(f"\n[{step_num}/{len(steps)}] Committing on-chain...")
+
+        if dry_run:
+            typer.echo(f"  [DRY RUN] Would commit {repo}@{revision[:12]}... with chute {chute_id}")
+        else:
+            import bittensor as bt
+
+            from robo.chain.commitments import commit_model
+
+            subtensor = bt.Subtensor(network=network)
+            wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)
+
+            typer.echo(f"  Wallet: {wallet.hotkey.ss58_address[:16]}...")
+
+            success = commit_model(
+                subtensor=subtensor,
+                wallet=wallet,
+                netuid=netuid,
+                repo=repo,
+                revision=revision,
+                chute_id=chute_id,
+            )
+
+            if success:
+                typer.echo("  Commit successful!")
+            else:
+                typer.echo("  Commit failed!", err=True)
+                raise typer.Exit(1)
+
+    # Summary
+    typer.echo("\n" + "=" * 60)
+    if dry_run:
+        typer.echo("DRY RUN COMPLETE - No changes were made")
+    else:
+        typer.echo("DEPLOYMENT COMPLETE")
+    typer.echo("=" * 60)
+    typer.echo(f"  Repository: {repo}")
+    typer.echo(f"  Revision: {revision[:12] if revision else 'N/A'}...")
+    typer.echo(f"  Chute ID: {chute_id or 'N/A'}")
+    typer.echo("=" * 60)
 
 
 # =============================================================================
