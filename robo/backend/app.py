@@ -82,9 +82,11 @@ def run_server(config: BackendConfig | None = None) -> None:
 
     app = create_app(config)
 
+    # Use asyncio loop instead of uvloop to allow nest_asyncio (required by affinetes)
     uvicorn.run(
         app,
         host=config.host,
         port=config.port,
         log_level=config.log_level.lower(),
+        loop="asyncio",
     )
