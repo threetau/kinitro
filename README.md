@@ -4,11 +4,7 @@ A Bittensor subnet for evaluating generalist robotics policies across diverse si
 
 ## Overview
 
-This subnet incentivizes the development of **generalist robotics policies** - AI systems that can control robots across multiple different tasks and environments. Unlike narrow RL policies trained for single tasks, miners must submit policies that perform well across:
-
-- **Manipulation** (MetaWorld): Pick-and-place, pushing, drawer opening, etc.
-- **Locomotion** (DM Control): Walking, running, balancing
-- **Dexterous manipulation** (ManiSkill): Complex object manipulation
+This subnet incentivizes the development of **generalist robotics policies** - AI systems that can control robots across multiple different tasks and environments. Unlike narrow RL policies trained for single tasks, miners must submit policies that perform well across multiple **MetaWorld manipulation tasks**: pick-and-place, pushing, drawer opening, button pressing, and more.
 
 Only policies that **generalize across ALL environments** earn rewards, using ε-Pareto dominance scoring.
 
@@ -202,9 +198,7 @@ robo-subnet/
 │   │   ├── storage.py    # PostgreSQL storage layer
 │   │   └── models.py     # Database & API models
 │   ├── environments/     # Robotics environment wrappers
-│   │   ├── metaworld_env.py
-│   │   ├── dm_control_env.py
-│   │   └── maniskill_env.py
+│   │   └── metaworld_env.py
 │   ├── evaluation/       # Episode rollout and parallel evaluation
 │   ├── scoring/          # ε-Pareto dominance and weights
 │   ├── chain/            # Bittensor chain integration
@@ -219,27 +213,18 @@ robo-subnet/
 
 ## Environments
 
-### MetaWorld (Manipulation) - Core, always available
+### MetaWorld (Manipulation)
+
 - `metaworld/pick-place-v3`
 - `metaworld/push-v3`
 - `metaworld/drawer-open-v3`
-- `metaworld/peg-insert-side-v3`
+- `metaworld/peg-insert-v3`
 - `metaworld/reach-v3`
 - `metaworld/door-open-v3`
 - `metaworld/drawer-close-v3`
-- `metaworld/button-press-topdown-v3`
+- `metaworld/button-press-v3`
 
-### DM Control (Locomotion) - Optional
-```bash
-pip install -e ".[dm-control]"
-```
-
-### ManiSkill (Dexterous) - Optional
-```bash
-pip install -e ".[maniskill]"
-```
-
-Use `robo list-envs` to see available environments.
+Use `robo list-envs` to see all available environments.
 
 ## Miner Policy Interface
 
@@ -317,5 +302,3 @@ MIT
 
 - [Bittensor](https://bittensor.com/) - Decentralized AI network
 - [MetaWorld](https://github.com/Farama-Foundation/Metaworld) - Manipulation benchmark
-- [DM Control](https://github.com/google-deepmind/dm_control) - Locomotion benchmark
-- [ManiSkill2](https://github.com/haosulab/ManiSkill2) - Dexterous manipulation

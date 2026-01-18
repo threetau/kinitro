@@ -415,37 +415,17 @@ def validate(
 @app.command()
 def list_envs():
     """List all available robotics environments."""
-    from robo.environments.registry import (
-        get_all_environment_ids,
-        get_available_families,
-        get_environments_by_family,
-        is_family_available,
-    )
+    from robo.environments.registry import get_all_environment_ids
 
     typer.echo("Available Robotics Environments:\n")
 
-    all_families = ["metaworld", "dm_control", "maniskill"]
-    available_families = get_available_families()
+    typer.echo("  METAWORLD (Manipulation):")
+    for env_id in get_all_environment_ids():
+        typer.echo(f"    - {env_id}")
 
-    for family in all_families:
-        if is_family_available(family):
-            envs = get_environments_by_family(family)
-            if envs:
-                typer.echo(f"  {family.upper()} (installed):")
-                for env_id in envs:
-                    typer.echo(f"    - {env_id}")
-                typer.echo()
-        else:
-            typer.echo(f"  {family.upper()} (not installed):")
-            if family == "dm_control":
-                typer.echo("    Install with: pip install robo-subnet[dm-control]")
-            elif family == "maniskill":
-                typer.echo("    Install with: pip install robo-subnet[maniskill]")
-            typer.echo()
-
+    typer.echo()
     total = len(get_all_environment_ids())
     typer.echo(f"Total: {total} environments available")
-    typer.echo(f"Families: {', '.join(available_families)}")
 
 
 # =============================================================================

@@ -413,7 +413,7 @@ The `images` field is optional and contains camera images as nested lists (84x84
 
 Your policy is evaluated using **epsilon-Pareto dominance**:
 
-1. **Multi-Environment Evaluation**: Your policy runs on all environments (MetaWorld, DM Control, ManiSkill)
+1. **Multi-Environment Evaluation**: Your policy runs on all MetaWorld environments
 2. **Success Rate**: For each environment, we measure task success rate
 3. **Pareto Frontier**: Miners that dominate on subsets of environments earn points
 4. **Generalists Win**: Larger subsets give more points - you must perform well everywhere

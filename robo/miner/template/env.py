@@ -10,7 +10,7 @@ Your policy must implement the RobotActor class with:
 - cleanup(): Called when evaluation is complete
 
 The policy will be run inside a container and queried by validators
-across multiple robotics environments (MetaWorld, DM Control, ManiSkill).
+across multiple MetaWorld robotics environments.
 
 IMPORTANT: Observations are LIMITED to prevent overfitting:
 - Proprioceptive: End-effector XYZ position + gripper state (4 values)
@@ -72,8 +72,6 @@ class RobotActor:
         # Track action dimensions per environment
         self._action_dims = {
             "metaworld": 4,
-            "dm_control": 6,  # Varies by task
-            "maniskill": 7,
         }
 
         # Image preprocessing settings
@@ -89,7 +87,7 @@ class RobotActor:
 
         Args:
             task_config: Dict containing:
-                - env_name: Environment family (metaworld, dm_control, maniskill)
+                - env_name: Environment family (metaworld)
                 - task_name: Specific task (e.g., pick-place-v3)
                 - seed: Random seed for this episode
                 - object_positions: Procedural object positions (for env setup only)
