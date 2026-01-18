@@ -41,34 +41,73 @@ This rewards true generalists over specialists.
 
 ## Architecture
 
-The subnet uses a **separated backend/validator architecture**:
+The subnet uses a **separated backend/validator architecture** with miners deployed on **Chutes**:
 
 ```
-┌─────────────────────────────────────┐
-│         EVALUATION BACKEND          │
-│       (Compute-heavy, GPU)          │
-├─────────────────────────────────────┤
-│  - PostgreSQL database              │
-│  - Background evaluation scheduler  │
-│  - REST API for weights/scores      │
-│  - Miner discovery from chain       │
-│  - MuJoCo simulation (GPU)          │
-└──────────────┬──────────────────────┘
-               │ HTTP API
-               ▼
-┌─────────────────────────────────────┐
-│         VALIDATOR(S)                │
-│       (Lightweight)                 │
-├─────────────────────────────────────┤
-│  - Polls backend for weights        │
-│  - Submits weights to chain         │
-│  - No GPU required                  │
-└─────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              BITTENSOR CHAIN                                 │
+│  - Miner commitments (HuggingFace repo + Chutes endpoint)                    │
+│  - Validator weight submissions                                              │
+└───────────────────────────────┬──────────────────────────────────────────────┘
+                                │
+        ┌───────────────────────┴───────────────────────┐
+        │                                               │
+        ▼                                               ▼
+┌───────────────────────────────────┐   ┌───────────────────────────────────┐
+│       EVALUATION BACKEND          │   │          VALIDATOR(S)             │
+│      (Compute-heavy, GPU)         │   │         (Lightweight)             │
+├───────────────────────────────────┤   ├───────────────────────────────────┤
+│  - PostgreSQL database            │   │  - Polls backend for weights      │
+│  - Background eval scheduler      │   │  - Submits weights to chain       │
+│  - REST API for weights/scores    │   │  - No GPU required                │
+│  - Reads miner commits from chain │   └───────────────┬───────────────────┘
+│  - Runs MuJoCo simulation (GPU)   │                   │
+└───────────────┬───────────────────┘                   │
+                │                                       │
+                │ HTTP (get actions)          HTTP (get weights)
+                ▼                                       │
+┌───────────────────────────────────┐                   │
+│             CHUTES                │                   │
+│    (Decentralized GPU Cloud)      │                   │
+├───────────────────────────────────┤                   │
+│  ┌─────────────────────────────┐  │                   │
+│  │  Miner Policy Server (GPU)  │  │                   │
+│  │  - /reset: Start episode    │  │                   │
+│  │  - /act: Return action      │  │                   │
+│  │  - Runs inference on GPU    │  │                   │
+│  └─────────────────────────────┘  │                   │
+│                                   │                   │
+│  (Multiple miners, each with     │                   │
+│   their own policy deployment)   │                   │
+└───────────────────────────────────┘                   │
+                                                        │
+                    ┌───────────────────────────────────┘
+                    ▼
+        ┌───────────────────────┐
+        │   WEIGHT SUBMISSION   │
+        │   (to Bittensor)      │
+        └───────────────────────┘
 ```
+
+### Evaluation Flow
+
+1. **Miners** deploy their policy servers to **Chutes** and commit their endpoint on-chain
+2. **Backend** reads miner commitments from chain, discovers Chutes endpoints
+3. **Backend** runs MuJoCo simulation and calls miner endpoints for actions
+4. **Backend** computes ε-Pareto scores and exposes weights via REST API
+5. **Validators** poll the backend and submit weights to chain
+
+### Why Chutes?
+
+- **Decentralized**: No single point of failure for miner policies
+- **GPU access**: Miners can run large vision models for inference
+- **Verifiable**: Endpoint tied to HuggingFace repo + commit SHA
+- **Scalable**: Automatic scaling based on evaluation load
 
 This separation allows:
 - Heavy evaluation to run on dedicated GPU hardware
-- Multiple validators to share evaluation infrastructure
+- Multiple validators to share evaluation infrastructure  
+- Miners to run GPU inference without hosting their own servers
 - Easier scaling and debugging
 
 ## Quick Start
