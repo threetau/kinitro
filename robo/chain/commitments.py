@@ -31,15 +31,38 @@ def parse_commitment(raw: str) -> dict:
     """
     Parse raw commitment string from chain.
 
-    Expected format: "huggingface_repo:revision_sha:chute_id"
-    Or extended format with docker: "hf_repo:rev:chute:docker_image"
+    Supports two formats:
+    1. JSON (preferred, Affine-compatible): {"model": "user/repo", "revision": "sha", "chute_id": "id"}
+    2. Legacy colon-separated: "huggingface_repo:revision_sha:chute_id[:docker_image]"
 
     Args:
         raw: Raw commitment string
 
     Returns:
-        Dict with parsed fields
+        Dict with parsed fields: huggingface_repo, revision_sha, chute_id, docker_image
     """
+    import json
+
+    # Try JSON format first (Affine-compatible)
+    if raw.strip().startswith("{"):
+        try:
+            data = json.loads(raw)
+            hf_repo = data.get("model", "")
+            revision = data.get("revision", "")
+            chute_id = data.get("chute_id", "")
+            docker_image = data.get("docker_image", "") or f"{hf_repo}:{revision}" if hf_repo else ""
+
+            if hf_repo and revision:
+                return {
+                    "huggingface_repo": hf_repo,
+                    "revision_sha": revision,
+                    "chute_id": chute_id,
+                    "docker_image": docker_image,
+                }
+        except json.JSONDecodeError:
+            pass
+
+    # Fallback to legacy colon-separated format
     parts = raw.split(":")
 
     if len(parts) >= 3:
@@ -208,13 +231,11 @@ def commit_model(
     repo: str,
     revision: str,
     chute_id: str,
-    docker_image: str | None = None,
 ) -> bool:
     """
-    Commit model info to chain.
+    Commit model info to chain using JSON format (Affine-compatible).
 
     This is called by miners to register their model.
-    Rate limited to ~1 per 100 blocks (~20 minutes).
 
     Args:
         subtensor: Bittensor subtensor connection
@@ -223,25 +244,28 @@ def commit_model(
         repo: HuggingFace repository (user/model)
         revision: Commit SHA
         chute_id: Chutes deployment ID
-        docker_image: Optional Docker image URL
 
     Returns:
         True if commitment succeeded
     """
-    if docker_image:
-        commitment = f"{repo}:{revision}:{chute_id}:{docker_image}"
-    else:
-        commitment = f"{repo}:{revision}:{chute_id}"
+    import json
+    
+    # Use JSON format compatible with Affine
+    commitment_data = json.dumps({
+        "model": repo,
+        "revision": revision,
+        "chute_id": chute_id,
+    })
 
     try:
         result = subtensor.set_commitment(
             wallet=wallet,
             netuid=netuid,
-            data=commitment,
+            data=commitment_data,
             wait_for_inclusion=True,
             wait_for_finalization=False,
-            wait_for_revealed_execution=False,  # Don't wait for reveal phase
         )
+        
         # Handle both bool and ExtrinsicResponse return types
         success = bool(result) if not hasattr(result, 'is_success') else result.is_success
         if success:

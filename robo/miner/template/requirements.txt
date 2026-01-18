@@ -1,7 +1,12 @@
-# Core requirements for robotics policy
+# Core requirements for robotics policy server
 numpy>=1.24.0
 
-# Add your ML framework
+# FastAPI server
+fastapi>=0.115.0
+uvicorn>=0.34.0
+pydantic>=2.0.0
+
+# Add your ML framework (uncomment as needed)
 # torch>=2.0.0        # For PyTorch policies
 # jax>=0.4.0          # For JAX policies
 # tensorflow>=2.0.0   # For TensorFlow policies
@@ -9,3 +14,6 @@ numpy>=1.24.0
 # Optional: For loading HuggingFace models
 # transformers>=4.30.0
 # huggingface_hub>=0.16.0
+
+# Optional: Image processing
+# Pillow>=10.0.0

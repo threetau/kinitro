@@ -7,12 +7,11 @@ from typing import Any
 import structlog
 
 from robo.backend.config import BackendConfig
+from robo.backend.evaluator import EvaluatorConfig, RoboticsEvaluator
 from robo.backend.storage import Storage
 from robo.chain.commitments import MinerCommitment, read_miner_commitments
 from robo.chain.weights import weights_to_u16
 from robo.environments import get_all_environment_ids
-from robo.evaluation.parallel import evaluate_all_miners
-from robo.evaluation.rollout import RolloutConfig
 from robo.scoring.pareto import compute_pareto_frontier
 from robo.scoring.winners_take_all import compute_subset_scores, scores_to_weights
 
@@ -44,6 +43,9 @@ class EvaluationScheduler:
         # Lazy-loaded bittensor connection
         self._subtensor = None
 
+        # Lazy-loaded robotics evaluator
+        self._evaluator: RoboticsEvaluator | None = None
+
     @property
     def subtensor(self):
         """Lazy-load subtensor connection."""
@@ -52,6 +54,21 @@ class EvaluationScheduler:
 
             self._subtensor = bt.Subtensor(network=self.config.network)
         return self._subtensor
+
+    @property
+    def evaluator(self) -> RoboticsEvaluator:
+        """Lazy-load robotics evaluator."""
+        if self._evaluator is None:
+            eval_config = EvaluatorConfig(
+                eval_image=self.config.eval_image,
+                mode=self.config.eval_mode,
+                mem_limit=self.config.eval_mem_limit,
+                hosts=self.config.eval_hosts,
+                max_timesteps=self.config.max_timesteps_per_episode,
+                action_timeout=self.config.action_timeout_ms / 1000.0,
+            )
+            self._evaluator = RoboticsEvaluator(eval_config)
+        return self._evaluator
 
     async def start(self) -> None:
         """Start the background evaluation loop."""
@@ -85,6 +102,10 @@ class EvaluationScheduler:
         self._running = False
         if self._current_task:
             self._current_task.cancel()
+        # Cleanup evaluator resources
+        if self._evaluator is not None:
+            await self._evaluator.cleanup()
+            self._evaluator = None
         logger.info("scheduler_stopped")
 
     @property
@@ -132,47 +153,34 @@ class EvaluationScheduler:
 
             logger.info("found_miners", count=len(miners))
 
-            # 2. Run evaluations
-            rollout_config = RolloutConfig(
-                max_timesteps=self.config.max_timesteps_per_episode,
-                action_timeout_ms=self.config.action_timeout_ms,
-            )
-
-            # Note: Using a dummy validator hotkey since backend doesn't have one
-            # This is fine since seeds are deterministic per block anyway
-            evaluation_result = await evaluate_all_miners(
+            # 2. Run evaluations using RoboticsEvaluator (via affinetes)
+            # This runs evaluations in a containerized environment that
+            # calls miner policy endpoints (Chutes) for actions
+            miner_scores_dict = await self.evaluator.evaluate_all_miners(
                 miners=miners,
-                environment_ids=self.env_ids,
-                block_number=block_number,
-                validator_hotkey="backend-evaluator",
+                env_ids=self.env_ids,
                 episodes_per_env=self.config.episodes_per_env,
-                rollout_config=rollout_config,
-                use_basilica=bool(self.config.basilica_api_token),
-                basilica_api_token=self.config.basilica_api_token,
+                block_number=block_number,
             )
 
             # 3. Store scores in database
             scores_data = []
-            miner_scores_dict: dict[int, dict[str, float]] = {}
-
-            for uid, env_results in evaluation_result.miner_results.items():
-                miner_scores_dict[uid] = {}
+            for uid, env_scores in miner_scores_dict.items():
                 # Find hotkey for this miner
                 hotkey = next((m.hotkey for m in miners if m.uid == uid), "unknown")
 
-                for env_id, result in env_results.items():
+                for env_id, success_rate in env_scores.items():
                     scores_data.append(
                         {
                             "uid": uid,
                             "hotkey": hotkey,
                             "env_id": env_id,
-                            "success_rate": result.success_rate,
-                            "mean_reward": result.mean_reward,
-                            "episodes_completed": result.episodes_completed,
-                            "episodes_failed": result.episodes_failed,
+                            "success_rate": success_rate,
+                            "mean_reward": 0.0,  # Not tracked in new evaluator
+                            "episodes_completed": self.config.episodes_per_env,
+                            "episodes_failed": 0,
                         }
                     )
-                    miner_scores_dict[uid][env_id] = result.success_rate
 
             async with self.storage.session() as session:
                 await self.storage.add_miner_scores_bulk(session, cycle_id, scores_data)

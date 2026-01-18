@@ -9,6 +9,8 @@ license = {text = "MIT"}
 dependencies = [
     # Bittensor
     "bittensor>=8.0.0",
+    # Container execution (for running eval environments)
+    "affinetes @ git+https://github.com/AffineFoundation/affinetes.git",
     # Robotics simulation (core - MetaWorld only)
     "mujoco>=3.0.0",
     "metaworld @ git+https://github.com/Farama-Foundation/Metaworld.git@master",

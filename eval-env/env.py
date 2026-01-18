@@ -1,0 +1,350 @@
+"""
+Affinetes-compatible robotics evaluation environment.
+
+This Actor class runs inside an affinetes-managed container and:
+1. Manages MuJoCo/MetaWorld simulation
+2. Queries miner policy endpoints (on Chutes or self-hosted) for actions
+3. Returns evaluation scores
+
+Usage (from backend):
+    import affinetes as af_env
+    
+    env = af_env.load_env(image="robo-subnet/eval-env:v1")
+    result = await env.evaluate(
+        task_id=123,
+        base_url="https://miner-policy.chutes.ai",
+        task_name="pick-place-v3"
+    )
+"""
+
+import os
+import sys
+import time
+import asyncio
+from typing import Optional
+
+import httpx
+import numpy as np
+
+# Add parent directory to path to import robo package
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from robo.environments import get_environment
+from robo.environments.registry import get_all_environment_ids
+
+
+class Actor:
+    """
+    Robotics evaluation actor for affinetes.
+    
+    Runs MuJoCo/MetaWorld simulation and queries miner policy endpoints
+    to get actions, matching the Affine (SN120) evaluation pattern.
+    """
+    
+    def __init__(self):
+        """Initialize the evaluation actor."""
+        self._env_cache = {}
+        self._http_client = None
+    
+    def _get_env(self, env_id: str):
+        """Get or create a robotics environment."""
+        if env_id not in self._env_cache:
+            self._env_cache[env_id] = get_environment(env_id)
+        return self._env_cache[env_id]
+    
+    async def _get_http_client(self, timeout: float = 30.0) -> httpx.AsyncClient:
+        """Get or create HTTP client for miner requests."""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout, connect=5.0)
+            )
+        return self._http_client
+    
+    async def _call_miner(
+        self,
+        base_url: str,
+        endpoint: str,
+        payload: dict,
+        timeout: float = 0.5,
+    ) -> dict:
+        """
+        Call miner's policy endpoint.
+        
+        Args:
+            base_url: Miner's base URL (e.g., https://slug.chutes.ai)
+            endpoint: Endpoint path (e.g., "act" or "reset")
+            payload: JSON payload to send
+            timeout: Request timeout in seconds
+            
+        Returns:
+            JSON response from miner
+        """
+        client = await self._get_http_client(timeout)
+        url = f"{base_url.rstrip('/')}/{endpoint}"
+        
+        resp = await client.post(url, json=payload)
+        resp.raise_for_status()
+        return resp.json()
+    
+    async def list_environments(self) -> list[str]:
+        """List available robotics environments."""
+        return get_all_environment_ids()
+    
+    async def evaluate(
+        self,
+        task_id: int,
+        seed: int = None,
+        model: str = None,
+        base_url: str = None,
+        env_id: str = "metaworld/pick-place-v3",
+        max_timesteps: int = 500,
+        action_timeout: float = 0.5,
+        use_images: bool = True,
+        timeout: int = 300,
+        **kwargs,
+    ) -> dict:
+        """
+        Evaluate a miner's policy on a robotics task.
+        
+        This method:
+        1. Resets the simulation environment
+        2. Calls the miner's /reset endpoint
+        3. Loops: get observation → call miner's /act → step simulation
+        4. Returns success/failure score
+        
+        Args:
+            task_id: Task identifier for reproducibility
+            seed: Random seed (defaults to task_id)
+            model: Miner's model name (for logging)
+            base_url: Miner's policy endpoint URL (required)
+                      e.g., "https://miner-policy.chutes.ai"
+            env_id: Environment ID (e.g., "metaworld/pick-place-v3")
+            max_timesteps: Maximum steps per episode
+            action_timeout: Timeout for each action request (seconds)
+            use_images: Whether to send camera images to miner
+            timeout: Overall evaluation timeout (seconds)
+            
+        Returns:
+            Evaluation result dict with:
+            - task_name: Environment identifier
+            - score: 1.0 for success, 0.0 for failure
+            - success: Boolean success flag
+            - time_taken: Total evaluation time
+            - extra: Additional metrics and metadata
+            - error: Error message if evaluation failed
+        """
+        if base_url is None:
+            raise ValueError("base_url (miner endpoint) is required")
+        
+        if seed is None:
+            seed = task_id
+        
+        start_time = time.time()
+        
+        try:
+            return await asyncio.wait_for(
+                self._run_evaluation(
+                    task_id=task_id,
+                    seed=seed,
+                    model=model,
+                    base_url=base_url,
+                    env_id=env_id,
+                    max_timesteps=max_timesteps,
+                    action_timeout=action_timeout,
+                    use_images=use_images,
+                    start_time=start_time,
+                ),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            return self._build_error_result(
+                env_id=env_id,
+                task_id=task_id,
+                seed=seed,
+                start_time=start_time,
+                error=f"Evaluation timeout after {timeout}s",
+            )
+        except Exception as e:
+            import traceback
+            return self._build_error_result(
+                env_id=env_id,
+                task_id=task_id,
+                seed=seed,
+                start_time=start_time,
+                error=f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}",
+            )
+    
+    async def _run_evaluation(
+        self,
+        task_id: int,
+        seed: int,
+        model: Optional[str],
+        base_url: str,
+        env_id: str,
+        max_timesteps: int,
+        action_timeout: float,
+        use_images: bool,
+        start_time: float,
+    ) -> dict:
+        """Internal evaluation loop."""
+        
+        # Get environment
+        env = self._get_env(env_id)
+        
+        # Generate task configuration
+        task_config = env.generate_task(seed=seed)
+        task_config_dict = {
+            "env_id": env_id,
+            "env_name": task_config.env_name,
+            "task_name": task_config.task_name,
+            "seed": seed,
+            "task_id": task_id,
+        }
+        
+        # Reset miner policy
+        try:
+            await self._call_miner(
+                base_url=base_url,
+                endpoint="reset",
+                payload={"task_config": task_config_dict},
+                timeout=5.0,
+            )
+        except Exception as e:
+            return self._build_error_result(
+                env_id=env_id,
+                task_id=task_id,
+                seed=seed,
+                start_time=start_time,
+                error=f"Miner reset failed: {type(e).__name__}: {str(e)}",
+            )
+        
+        # Reset simulation environment
+        obs = env.reset(task_config)
+        
+        total_reward = 0.0
+        timesteps = 0
+        action_times = []
+        
+        for t in range(max_timesteps):
+            # Build request payload
+            payload = {"observation": obs.tolist()}
+            
+            # Add images if available and requested
+            if use_images and hasattr(env, "get_images"):
+                try:
+                    images = env.get_images()
+                    payload["images"] = {k: v.tolist() for k, v in images.items()}
+                except Exception:
+                    pass  # Skip images if rendering fails
+            
+            # Get action from miner
+            action_start = time.time()
+            try:
+                response = await self._call_miner(
+                    base_url=base_url,
+                    endpoint="act",
+                    payload=payload,
+                    timeout=action_timeout,
+                )
+                action = np.array(response.get("action", []))
+            except httpx.TimeoutException:
+                return self._build_error_result(
+                    env_id=env_id,
+                    task_id=task_id,
+                    seed=seed,
+                    start_time=start_time,
+                    error=f"Miner action timeout at step {t}",
+                    extra={"timesteps_completed": t},
+                )
+            except Exception as e:
+                return self._build_error_result(
+                    env_id=env_id,
+                    task_id=task_id,
+                    seed=seed,
+                    start_time=start_time,
+                    error=f"Miner action failed at step {t}: {type(e).__name__}: {str(e)}",
+                    extra={"timesteps_completed": t},
+                )
+            
+            action_times.append(time.time() - action_start)
+            
+            # Validate action shape
+            expected_shape = env.action_shape
+            if action.shape != expected_shape:
+                # Try to fix common issues
+                if action.ndim == 0:
+                    action = np.array([float(action)])
+                action = action.flatten()[:expected_shape[0]]
+                if len(action) < expected_shape[0]:
+                    action = np.pad(action, (0, expected_shape[0] - len(action)))
+            
+            # Step environment
+            obs, reward, done, info = env.step(action)
+            total_reward += reward
+            timesteps = t + 1
+            
+            if done:
+                break
+        
+        # Get success status
+        success = env.get_success()
+        score = 1.0 if success else 0.0
+        
+        return {
+            "task_name": f"robotics:{env_id}",
+            "score": score,
+            "success": success,
+            "time_taken": time.time() - start_time,
+            "extra": {
+                "task_id": task_id,
+                "seed": seed,
+                "env_id": env_id,
+                "timesteps": timesteps,
+                "total_reward": float(total_reward),
+                "mean_action_time": float(np.mean(action_times)) if action_times else 0.0,
+                "max_action_time": float(np.max(action_times)) if action_times else 0.0,
+                "model": model,
+                "base_url": base_url,
+            },
+        }
+    
+    def _build_error_result(
+        self,
+        env_id: str,
+        task_id: int,
+        seed: int,
+        start_time: float,
+        error: str,
+        extra: dict = None,
+    ) -> dict:
+        """Build error result dict."""
+        result = {
+            "task_name": f"robotics:{env_id}",
+            "score": 0.0,
+            "success": False,
+            "error": error,
+            "time_taken": time.time() - start_time,
+            "extra": {
+                "task_id": task_id,
+                "seed": seed,
+                "env_id": env_id,
+            },
+        }
+        if extra:
+            result["extra"].update(extra)
+        return result
+    
+    async def cleanup(self):
+        """Cleanup resources."""
+        # Close HTTP client
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+        
+        # Close environments
+        for env in self._env_cache.values():
+            try:
+                env.close()
+            except Exception:
+                pass
+        self._env_cache.clear()

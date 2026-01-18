@@ -1,0 +1,20 @@
+# Requirements for robotics evaluation environment
+# These are installed in the Docker container
+
+# HTTP client for calling miner endpoints
+httpx>=0.25.0
+
+# MuJoCo simulation
+mujoco>=3.0.0
+
+# MetaWorld environments
+metaworld @ git+https://github.com/Farama-Foundation/Metaworld.git
+
+# Image processing for camera rendering
+Pillow>=10.0.0
+
+# Numerics
+numpy>=1.24.0
+
+# Logging
+structlog>=23.0.0

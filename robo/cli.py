@@ -498,6 +498,65 @@ def commit(
 
 
 @app.command()
+def show_commitment(
+    network: str = typer.Option("finney", help="Network"),
+    netuid: int = typer.Option(..., help="Subnet UID"),
+    wallet_name: str = typer.Option("default", help="Wallet name"),
+    hotkey_name: str = typer.Option("default", help="Hotkey name"),
+    uid: int = typer.Option(None, help="UID to query (if not using wallet)"),
+    hotkey: str = typer.Option(None, help="Hotkey address to query (if not using wallet)"),
+):
+    """
+    Show commitment for a miner.
+    
+    Query by wallet (default), UID, or hotkey address.
+    """
+    import bittensor as bt
+    
+    from robo.chain.commitments import _query_commitment_by_hotkey, parse_commitment
+    
+    subtensor = bt.Subtensor(network=network)
+    
+    # Determine which hotkey to query
+    if hotkey:
+        query_hotkey = hotkey
+        typer.echo(f"Querying commitment for hotkey: {hotkey[:16]}...")
+    elif uid is not None:
+        neurons = subtensor.neurons(netuid=netuid)
+        if uid >= len(neurons):
+            typer.echo(f"UID {uid} not found on subnet {netuid}", err=True)
+            raise typer.Exit(1)
+        query_hotkey = neurons[uid].hotkey
+        typer.echo(f"Querying commitment for UID {uid} ({query_hotkey[:16]}...)")
+    else:
+        wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)
+        query_hotkey = wallet.hotkey.ss58_address
+        typer.echo(f"Querying commitment for wallet {wallet_name}/{hotkey_name}")
+        typer.echo(f"  Hotkey: {query_hotkey}")
+    
+    # Query the commitment
+    raw = _query_commitment_by_hotkey(subtensor, netuid, query_hotkey)
+    
+    if not raw:
+        typer.echo("\nNo commitment found.")
+        raise typer.Exit(0)
+    
+    typer.echo(f"\nRaw commitment: {raw[:100]}{'...' if len(raw) > 100 else ''}")
+    
+    # Parse the commitment (supports both JSON and legacy formats)
+    parsed = parse_commitment(raw)
+    if parsed["huggingface_repo"]:
+        typer.echo("\nParsed commitment:")
+        typer.echo(f"  Repo: {parsed['huggingface_repo']}")
+        typer.echo(f"  Revision: {parsed['revision_sha']}")
+        typer.echo(f"  Chute ID: {parsed['chute_id']}")
+        if parsed['docker_image']:
+            typer.echo(f"  Docker Image: {parsed['docker_image']}")
+    else:
+        typer.echo("\nCould not parse commitment format.")
+
+
+@app.command()
 def build(
     env_path: str = typer.Argument(..., help="Path to env directory"),
     tag: str = typer.Option(..., help="Docker tag (e.g., user/repo:v1)"),
@@ -542,6 +601,76 @@ def build(
 
 
 @app.command()
+def build_eval_env(
+    tag: str = typer.Option(
+        "robo-subnet/eval-env:v1",
+        help="Docker tag for eval environment image",
+    ),
+    push: bool = typer.Option(False, help="Push to registry after building"),
+    no_cache: bool = typer.Option(False, help="Build without using cache"),
+):
+    """
+    Build the evaluation environment Docker image.
+
+    This image is used by affinetes to run evaluations. It contains:
+    - MuJoCo + MetaWorld simulation environment
+    - HTTP client for calling miner policy endpoints
+    - The robo package for environment management
+
+    The built image is used by the backend scheduler when running evaluations.
+    """
+    import subprocess
+    from pathlib import Path
+
+    # Find the robo-subnet root directory
+    robo_package_dir = Path(__file__).parent
+    root_dir = robo_package_dir.parent
+    dockerfile_path = root_dir / "eval-env" / "Dockerfile"
+
+    if not dockerfile_path.exists():
+        typer.echo(f"Dockerfile not found at {dockerfile_path}", err=True)
+        typer.echo("Make sure you're running from within the robo-subnet package.")
+        raise typer.Exit(1)
+
+    typer.echo(f"Building eval environment image: {tag}")
+    typer.echo(f"  Dockerfile: {dockerfile_path}")
+    typer.echo(f"  Context: {root_dir}")
+
+    # Build command
+    cmd = [
+        "docker", "build",
+        "-t", tag,
+        "-f", str(dockerfile_path),
+    ]
+    if no_cache:
+        cmd.append("--no-cache")
+    cmd.append(str(root_dir))
+
+    # Stream output instead of capturing
+    result = subprocess.run(cmd)
+
+    if result.returncode != 0:
+        typer.echo("Build failed!", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"\nBuild successful: {tag}")
+
+    # Push if requested
+    if push:
+        typer.echo(f"Pushing to registry: {tag}")
+        result = subprocess.run(["docker", "push", tag])
+
+        if result.returncode != 0:
+            typer.echo("Push failed!", err=True)
+            raise typer.Exit(1)
+
+        typer.echo("Push successful!")
+
+    typer.echo("\nTo use this image in the backend, ensure your config has:")
+    typer.echo(f"  eval_image: {tag}")
+
+
+@app.command()
 def init_miner(
     output_dir: str = typer.Argument(".", help="Directory to create template in"),
 ):
@@ -573,10 +702,11 @@ def init_miner(
 
     typer.echo("\nMiner template initialized!")
     typer.echo("Next steps:")
-    typer.echo("  1. Edit env.py to implement your policy")
-    typer.echo("  2. Add your model weights")
-    typer.echo("  3. Run: robo build . --tag your-user/robo-policy:v1 --push")
-    typer.echo("  4. Run: robo commit --repo ... --revision ... --chute-id ...")
+    typer.echo("  1. Edit policy.py to implement your policy")
+    typer.echo("  2. Add your model weights to the directory")
+    typer.echo("  3. Test locally: uvicorn server:app --port 8001")
+    typer.echo("  4. Deploy to Chutes (see Chutes documentation)")
+    typer.echo("  5. Commit to chain: robo commit --repo ... --revision ... --chute-id ...")
 
 
 # =============================================================================

@@ -53,5 +53,23 @@ class BackendConfig(BaseSettings):
         description="Basilica API token for container execution",
     )
 
+    # Affinetes settings
+    eval_mode: str = Field(
+        default="docker",
+        description="Evaluation mode: 'docker' or 'basilica'",
+    )
+    eval_image: str = Field(
+        default="robo-subnet/eval-env:v1",
+        description="Docker image for evaluation environment",
+    )
+    eval_mem_limit: str = Field(
+        default="8g",
+        description="Memory limit for evaluation container",
+    )
+    eval_hosts: list[str] = Field(
+        default_factory=lambda: ["localhost"],
+        description="Docker hosts for evaluation (can include SSH remotes)",
+    )
+
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
