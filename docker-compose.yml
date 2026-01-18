@@ -1,0 +1,77 @@
+version: "3.8"
+
+services:
+  # ==========================================================================
+  # VALIDATOR
+  # ==========================================================================
+  validator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      robo validate
+      --network ${NETWORK:-finney}
+      --netuid ${NETUID}
+      --wallet-name ${WALLET_NAME:-default}
+      --hotkey-name ${HOTKEY_NAME:-default}
+      --episodes-per-env ${EPISODES_PER_ENV:-50}
+      --eval-interval ${EVAL_INTERVAL:-3600}
+      --log-level ${LOG_LEVEL:-INFO}
+    environment:
+      - ROBO_NETWORK=${NETWORK:-finney}
+      - ROBO_NETUID=${NETUID}
+      - ROBO_WALLET_NAME=${WALLET_NAME:-default}
+      - ROBO_HOTKEY_NAME=${HOTKEY_NAME:-default}
+      - ROBO_BASILICA_API_TOKEN=${BASILICA_API_TOKEN:-}
+      - ROBO_CHUTES_API_KEY=${CHUTES_API_KEY:-}
+    volumes:
+      # Mount wallet for signing
+      - ${HOME}/.bittensor:/root/.bittensor:ro
+      # Mount Docker socket for Basilica local mode
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 16G
+
+  # ==========================================================================
+  # PROMETHEUS (Optional - Metrics)
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # ==========================================================================
+  # GRAFANA (Optional - Dashboards)
+  # ==========================================================================
+  grafana:
+    image: grafana/grafana:10.0.0
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+volumes:
+  prometheus_data:
+  grafana_data:

@@ -1,0 +1,11 @@
+# Core requirements for robotics policy
+numpy>=1.24.0
+
+# Add your ML framework
+# torch>=2.0.0        # For PyTorch policies
+# jax>=0.4.0          # For JAX policies
+# tensorflow>=2.0.0   # For TensorFlow policies
+
+# Optional: For loading HuggingFace models
+# transformers>=4.30.0
+# huggingface_hub>=0.16.0
