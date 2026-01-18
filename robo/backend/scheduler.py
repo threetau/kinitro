@@ -86,6 +86,9 @@ class EvaluationScheduler:
         while self._running:
             try:
                 await self._run_evaluation_cycle()
+            except asyncio.CancelledError:
+                logger.info("evaluation_cycle_cancelled")
+                raise  # Re-raise to exit the loop
             except Exception as e:
                 logger.error("evaluation_cycle_error", error=str(e))
 
@@ -95,17 +98,34 @@ class EvaluationScheduler:
                     "waiting_for_next_cycle",
                     seconds=self.config.eval_interval_seconds,
                 )
-                await asyncio.sleep(self.config.eval_interval_seconds)
+                try:
+                    await asyncio.sleep(self.config.eval_interval_seconds)
+                except asyncio.CancelledError:
+                    logger.info("sleep_cancelled")
+                    break
 
     async def stop(self) -> None:
         """Stop the scheduler."""
         self._running = False
         if self._current_task:
             self._current_task.cancel()
+            try:
+                await self._current_task
+            except asyncio.CancelledError:
+                pass
+        
         # Cleanup evaluator resources
         if self._evaluator is not None:
-            await self._evaluator.cleanup()
+            try:
+                await asyncio.wait_for(self._evaluator.cleanup(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("evaluator_cleanup_timeout")
+                # Force cleanup by killing docker container
+                self._evaluator.force_cleanup()
+            except Exception as e:
+                logger.warning("evaluator_cleanup_error", error=str(e))
             self._evaluator = None
+        
         logger.info("scheduler_stopped")
 
     @property

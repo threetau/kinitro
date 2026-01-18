@@ -23,6 +23,20 @@ from ..environments.registry import get_all_environment_ids
 
 logger = structlog.get_logger()
 
+# Global flag for shutdown - checked by evaluator
+_shutdown_requested = False
+
+
+def request_shutdown():
+    """Signal that shutdown has been requested."""
+    global _shutdown_requested
+    _shutdown_requested = True
+
+
+def is_shutdown_requested() -> bool:
+    """Check if shutdown has been requested."""
+    return _shutdown_requested
+
 
 @dataclass
 class EvaluatorConfig:
@@ -71,6 +85,13 @@ class RoboticsEvaluator:
         self._env = None
         self._env_lock = asyncio.Lock()
     
+    def _load_env_sync(self, load_kwargs: dict):
+        """Synchronous wrapper for affinetes load_env (runs in thread)."""
+        if is_shutdown_requested():
+            raise asyncio.CancelledError("Shutdown requested")
+        import affinetes as af_env
+        return af_env.load_env(**load_kwargs)
+    
     async def _get_eval_environment(self):
         """Get or create the affinetes-managed eval environment."""
         async with self._env_lock:
@@ -84,7 +105,7 @@ class RoboticsEvaluator:
                 self._env = None
             
             try:
-                import affinetes as af_env
+                import affinetes as af_env  # noqa: F401
             except ImportError:
                 raise ImportError(
                     "affinetes is required for evaluation. "
@@ -120,7 +141,8 @@ class RoboticsEvaluator:
                     "ttl_buffer": self.config.eval_timeout + 60,
                 })
             
-            self._env = af_env.load_env(**load_kwargs)
+            # Run in thread so it can be cancelled
+            self._env = await asyncio.to_thread(self._load_env_sync, load_kwargs)
             logger.info("eval_environment_loaded")
             return self._env
     
@@ -299,6 +321,40 @@ class RoboticsEvaluator:
                 except Exception as e:
                     logger.warning("cleanup_error", error=str(e))
                 self._env = None
+    
+    def force_cleanup(self):
+        """Force cleanup by killing docker container directly."""
+        import subprocess
+        
+        container_name = "robo-eval-env"
+        logger.info("force_cleanup_container", container=container_name)
+        
+        try:
+            # Kill the container
+            result = subprocess.run(
+                ["docker", "kill", container_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            logger.info("docker_kill_result", returncode=result.returncode, stderr=result.stderr.strip() if result.stderr else "")
+        except Exception as e:
+            logger.warning("docker_kill_failed", error=str(e))
+        
+        try:
+            # Remove the container
+            result = subprocess.run(
+                ["docker", "rm", "-f", container_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            logger.info("docker_rm_result", returncode=result.returncode, stderr=result.stderr.strip() if result.stderr else "")
+        except Exception as e:
+            logger.warning("docker_rm_failed", error=str(e))
+        
+        self._env = None
+        logger.info("force_cleanup_complete")
 
 
 def get_default_environment_ids() -> list[str]:
