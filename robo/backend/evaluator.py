@@ -152,10 +152,14 @@ class RoboticsEvaluator:
         
         Miners can deploy to:
         1. Chutes: chute_id -> https://{slug}.chutes.ai
-        2. Self-hosted: docker_image contains URL info
+        2. Self-hosted: chute_id can be a full URL (http://... or https://...)
         """
         if miner.chute_id:
-            # Extract slug from chute_id
+            # If chute_id is already a URL, use it directly (for testing/self-hosted)
+            if miner.chute_id.startswith("http://") or miner.chute_id.startswith("https://"):
+                return miner.chute_id.rstrip("/")
+            
+            # Otherwise, build Chutes URL from slug
             # Chute IDs are typically in format: username-modelname-version
             slug = miner.chute_id.replace("_", "-").lower()
             return f"https://{slug}.chutes.ai"

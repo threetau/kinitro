@@ -3,8 +3,9 @@
 # This container runs MuJoCo/MetaWorld simulation and queries miner
 # policy endpoints to get actions. Used by validators via affinetes.
 #
-# Build:
-#   docker build -t robo-subnet/eval-env:v1 -f eval-env/Dockerfile .
+# Build with affinetes:
+#   import affinetes as af
+#   af.build_image_from_env('eval-env', 'robo-subnet/eval-env:v1')
 #
 # The container will be managed by affinetes, which injects its HTTP
 # server to expose the Actor class methods.
@@ -30,24 +31,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set MuJoCo rendering to use EGL (for headless GPU rendering)
 ENV MUJOCO_GL=egl
 
-# Copy requirements first for better caching
-COPY eval-env/requirements.txt /app/eval-env/
-RUN pip install --no-cache-dir -r /app/eval-env/requirements.txt
+# Copy requirements and install dependencies
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy the robo package
+# Copy the robo environments package (subset needed for eval)
 COPY robo /app/robo
-COPY pyproject.toml /app/
-
-# Install minimal dependencies needed for robo package
-RUN pip install --no-cache-dir pydantic pydantic-settings
 
 # Set PYTHONPATH so robo package is importable
 ENV PYTHONPATH="/app:${PYTHONPATH}"
 
 # Copy the eval environment Actor
-COPY eval-env/env.py /app/eval-env/
-
-# Set working directory to eval-env so affinetes finds env.py
-WORKDIR /app/eval-env
+COPY env.py /app/
 
 # Affinetes will inject its HTTP server - do not set CMD/ENTRYPOINT

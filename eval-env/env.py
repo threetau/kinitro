@@ -26,9 +26,7 @@ from typing import Optional
 import httpx
 import numpy as np
 
-# Add parent directory to path to import robo package
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+# Import from robo package (installed in container via PYTHONPATH)
 from robo.environments import get_environment
 from robo.environments.registry import get_all_environment_ids
 
