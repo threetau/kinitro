@@ -8,7 +8,7 @@ import structlog
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from robo.backend.models import (
+from kinitro.backend.models import (
     Base,
     ComputedWeightsORM,
     EvaluationCycleORM,

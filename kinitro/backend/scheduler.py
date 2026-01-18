@@ -5,14 +5,14 @@ import time
 
 import structlog
 
-from robo.backend.config import BackendConfig
-from robo.backend.evaluator import EvaluatorConfig, RoboticsEvaluator
-from robo.backend.storage import Storage
-from robo.chain.commitments import read_miner_commitments
-from robo.chain.weights import weights_to_u16
-from robo.environments import get_all_environment_ids
-from robo.scoring.pareto import compute_pareto_frontier
-from robo.scoring.winners_take_all import compute_subset_scores, scores_to_weights
+from kinitro.backend.config import BackendConfig
+from kinitro.backend.evaluator import EvaluatorConfig, RoboticsEvaluator
+from kinitro.backend.storage import Storage
+from kinitro.chain.commitments import read_miner_commitments
+from kinitro.chain.weights import weights_to_u16
+from kinitro.environments import get_all_environment_ids
+from kinitro.scoring.pareto import compute_pareto_frontier
+from kinitro.scoring.winners_take_all import compute_subset_scores, scores_to_weights
 
 logger = structlog.get_logger()
 

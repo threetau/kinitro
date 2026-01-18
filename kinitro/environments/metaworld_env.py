@@ -13,8 +13,8 @@ from typing import Any
 
 import numpy as np
 
-from robo.environments.base import RoboticsEnvironment, TaskConfig
-from robo.environments.procedural import ProceduralTaskGenerator
+from kinitro.environments.base import RoboticsEnvironment, TaskConfig
+from kinitro.environments.procedural import ProceduralTaskGenerator
 
 # Lazy import to avoid import errors if metaworld not installed
 _metaworld = None

@@ -1,11 +1,11 @@
-# Robotics Evaluation Environment for Affinetes
+# Kinitro Evaluation Environment for Affinetes
 #
 # This container runs MuJoCo/MetaWorld simulation and queries miner
 # policy endpoints to get actions. Used by validators via affinetes.
 #
 # Build with affinetes:
 #   import affinetes as af
-#   af.build_image_from_env('eval-env', 'robo-subnet/eval-env:v1')
+#   af.build_image_from_env('eval-env', 'kinitro/eval-env:v1')
 #
 # The container will be managed by affinetes, which injects its HTTP
 # server to expose the Actor class methods.
@@ -35,10 +35,10 @@ ENV MUJOCO_GL=egl
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy the robo environments package (subset needed for eval)
-COPY robo /app/robo
+# Copy the kinitro environments package (subset needed for eval)
+COPY kinitro /app/kinitro
 
-# Set PYTHONPATH so robo package is importable
+# Set PYTHONPATH so kinitro package is importable
 ENV PYTHONPATH="/app:${PYTHONPATH}"
 
 # Copy the eval environment Actor

@@ -5,8 +5,8 @@ Provides a unified interface for loading and interacting with various
 robotics simulation environments (MetaWorld, DM Control, ManiSkill).
 """
 
-from robo.environments.base import EpisodeResult, RoboticsEnvironment, TaskConfig
-from robo.environments.registry import ENVIRONMENTS, get_all_environment_ids, get_environment
+from kinitro.environments.base import EpisodeResult, RoboticsEnvironment, TaskConfig
+from kinitro.environments.registry import ENVIRONMENTS, get_all_environment_ids, get_environment
 
 __all__ = [
     "RoboticsEnvironment",

@@ -2,12 +2,12 @@
 
 import numpy as np
 
-from robo.scoring.pareto import (
+from kinitro.scoring.pareto import (
     compute_epsilon,
     compute_pareto_frontier,
     epsilon_dominates,
 )
-from robo.scoring.winners_take_all import (
+from kinitro.scoring.winners_take_all import (
     compute_full_scoring,
     compute_subset_scores,
     scores_to_weights,

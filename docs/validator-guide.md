@@ -37,15 +37,15 @@ The backend handles all the heavy computation (running simulations, evaluating m
 ### 1. Install the Package
 
 ```bash
-git clone https://github.com/your-org/robo-subnet.git
-cd robo-subnet
+git clone https://github.com/AffineFoundation/kinitro.git
+cd kinitro
 uv sync
 ```
 
 ### 2. Start the Validator
 
 ```bash
-uv run robo validate \
+uv run kinitro validate \
   --backend-url BACKEND_URL \
   --netuid YOUR_SUBNET_ID \
   --network finney \
@@ -76,16 +76,16 @@ That's it! The validator will:
 For production, run the validator as a systemd service:
 
 ```bash
-# /etc/systemd/system/robo-validator.service
+# /etc/systemd/system/kinitro-validator.service
 [Unit]
-Description=Robotics Subnet Validator
+Description=Kinitro Subnet Validator
 After=network.target
 
 [Service]
 Type=simple
 User=validator
-WorkingDirectory=/home/validator/robo-subnet
-ExecStart=/home/validator/.local/bin/uv run robo validate \
+WorkingDirectory=/home/validator/kinitro
+ExecStart=/home/validator/.local/bin/uv run kinitro validate \
   --backend-url BACKEND_URL \
   --netuid YOUR_NETUID \
   --network finney \
@@ -100,9 +100,9 @@ WantedBy=multi-user.target
 
 Enable and start:
 ```bash
-sudo systemctl enable robo-validator
-sudo systemctl start robo-validator
-sudo journalctl -u robo-validator -f  # View logs
+sudo systemctl enable kinitro-validator
+sudo systemctl start kinitro-validator
+sudo journalctl -u kinitro-validator -f  # View logs
 ```
 
 ## Docker Deployment
@@ -116,7 +116,7 @@ RUN pip install uv
 COPY . .
 RUN uv sync
 
-CMD ["uv", "run", "robo", "validate", \
+CMD ["uv", "run", "kinitro", "validate", \
      "--backend-url", "${BACKEND_URL}", \
      "--netuid", "${NETUID}", \
      "--network", "${NETWORK}", \
@@ -127,13 +127,13 @@ CMD ["uv", "run", "robo", "validate", \
 Run with:
 ```bash
 docker run -d \
-  -e BACKEND_URL=https://backend.robo-subnet.ai \
+  -e BACKEND_URL=https://backend.kinitro.ai \
   -e NETUID=123 \
   -e NETWORK=finney \
   -e WALLET_NAME=validator \
   -e HOTKEY_NAME=default \
   -v ~/.bittensor:/root/.bittensor:ro \
-  robo-validator
+  kinitro-validator
 ```
 
 ## Troubleshooting
@@ -158,7 +158,7 @@ docker run -d \
 Check validator status:
 ```bash
 # View logs
-uv run robo validate --log-level DEBUG ...
+uv run kinitro validate --log-level DEBUG ...
 
 # Check if backend is healthy
 curl BACKEND_URL/health

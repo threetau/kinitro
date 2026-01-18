@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from robo.backend.models import (
+from kinitro.backend.models import (
     EnvironmentInfo,
     EvaluationCycle,
     HealthResponse,
@@ -14,8 +14,8 @@ from robo.backend.models import (
     WeightsResponse,
     WeightsU16,
 )
-from robo.backend.storage import Storage
-from robo.environments import get_all_environment_ids
+from kinitro.backend.storage import Storage
+from kinitro.environments import get_all_environment_ids
 
 router = APIRouter()
 

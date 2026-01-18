@@ -24,8 +24,8 @@ import httpx
 import numpy as np
 
 # Import from robo package (installed in container via PYTHONPATH)
-from robo.environments import get_environment
-from robo.environments.registry import get_all_environment_ids
+from kinitro.environments import get_environment
+from kinitro.environments.registry import get_all_environment_ids
 
 
 class Actor:

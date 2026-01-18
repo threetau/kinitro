@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from robo.environments.procedural import (
+from kinitro.environments.procedural import (
     ProceduralTaskGenerator,
     generate_seed_from_block,
     randomize_physics,

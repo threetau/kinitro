@@ -25,7 +25,7 @@ The evaluation flow:
 
 ```bash
 # 1. Initialize policy from template
-uv run robo init-miner ./my-policy
+uv run kinitro init-miner ./my-policy
 cd my-policy
 
 # 2. Implement your policy in policy.py
@@ -38,8 +38,8 @@ export HF_TOKEN="your-huggingface-token"
 export CHUTES_API_KEY="your-chutes-api-key"
 export CHUTE_USER="your-chutes-username"
 
-uv run robo miner-deploy \
-  --repo your-username/robo-policy \
+uv run kinitro miner-deploy \
+  --repo your-username/kinitro-policy \
   --path ./my-policy \
   --netuid YOUR_NETUID \
   --network finney
@@ -49,14 +49,14 @@ Or do each step separately:
 
 ```bash
 # Upload to HuggingFace
-huggingface-cli upload your-username/robo-policy .
+huggingface-cli upload your-username/kinitro-policy .
 
 # Deploy to Chutes
-uv run robo chutes-push --repo your-username/robo-policy --revision YOUR_HF_SHA
+uv run kinitro chutes-push --repo your-username/kinitro-policy --revision YOUR_HF_SHA
 
 # Commit on-chain
-uv run robo commit \
-  --repo your-username/robo-policy \
+uv run kinitro commit \
+  --repo your-username/kinitro-policy \
   --revision YOUR_HF_COMMIT_SHA \
   --chute-id YOUR_CHUTE_ID \
   --netuid YOUR_NETUID
@@ -68,7 +68,7 @@ Use the CLI to create a new policy from the template:
 
 ```bash
 # Create a new directory with the miner template
-uv run robo init-miner ./my-policy
+uv run kinitro init-miner ./my-policy
 cd my-policy
 ```
 
@@ -185,13 +185,13 @@ pip install huggingface_hub
 huggingface-cli login
 
 # Create a new model repository
-huggingface-cli repo create your-username/robo-policy --type model
+huggingface-cli repo create your-username/kinitro-policy --type model
 
 # Upload your model files
-huggingface-cli upload your-username/robo-policy ./my-policy
+huggingface-cli upload your-username/kinitro-policy ./my-policy
 
 # Note the commit SHA for the on-chain commitment
-git ls-remote https://huggingface.co/your-username/robo-policy HEAD
+git ls-remote https://huggingface.co/your-username/kinitro-policy HEAD
 ```
 
 ## Step 6: Deploy to Chutes (Required for Mainnet)
@@ -214,7 +214,7 @@ from chutes import Chute
 from chutes.chute import NodeSelector
 
 chute = Chute(
-    "robo-policy",
+    "kinitro-policy",
     # Specify GPU requirements
     node_selector=NodeSelector(min_vram_gb=8),
 )
@@ -241,8 +241,8 @@ export CHUTES_API_KEY="your-api-key"
 export CHUTE_USER="your-username"
 
 # Deploy using CLI
-uv run robo chutes-push \
-  --repo your-username/robo-policy \
+uv run kinitro chutes-push \
+  --repo your-username/kinitro-policy \
   --revision YOUR_HUGGINGFACE_COMMIT_SHA
 ```
 
@@ -277,8 +277,8 @@ You can then test with a local validator backend by committing your local endpoi
 
 ```bash
 # For LOCAL TESTING ONLY - not valid for mainnet
-uv run robo commit \
-  --repo your-username/robo-policy \
+uv run kinitro commit \
+  --repo your-username/kinitro-policy \
   --revision $(git rev-parse HEAD) \
   --chute-id http://localhost:8001 \
   --netuid 2 \
@@ -294,13 +294,13 @@ uv run robo commit \
 Register your policy endpoint on-chain so validators can find and evaluate you.
 
 The commitment includes three pieces of information:
-- **model**: Your HuggingFace repository (e.g., `your-username/robo-policy`)
+- **model**: Your HuggingFace repository (e.g., `your-username/kinitro-policy`)
 - **revision**: The HuggingFace commit SHA of your model
 - **chute_id**: Your Chutes deployment ID
 
 ```bash
-uv run robo commit \
-  --repo your-username/robo-policy \
+uv run kinitro commit \
+  --repo your-username/kinitro-policy \
   --revision YOUR_HUGGINGFACE_COMMIT_SHA \
   --chute-id YOUR_CHUTE_DEPLOYMENT_ID \
   --netuid YOUR_SUBNET_ID \
@@ -315,7 +315,7 @@ The commitment is stored on-chain as JSON (compatible with Affine SN120):
 
 ```json
 {
-  "model": "your-username/robo-policy",
+  "model": "your-username/kinitro-policy",
   "revision": "abc123def456...",
   "chute_id": "chute_xyz789..."
 }
@@ -324,7 +324,7 @@ The commitment is stored on-chain as JSON (compatible with Affine SN120):
 ### Verify Your Commitment
 
 ```bash
-uv run robo show-commitment \
+uv run kinitro show-commitment \
   --netuid YOUR_SUBNET_ID \
   --network finney \
   --wallet-name your-wallet \
@@ -427,7 +427,7 @@ Key implications:
 
 ### Policy not being evaluated
 
-1. Check your on-chain commitment: `uv run robo show-commitment --netuid ... --wallet-name ...`
+1. Check your on-chain commitment: `uv run kinitro show-commitment --netuid ... --wallet-name ...`
 2. Verify your Chutes deployment is "hot" (running) - check the Chutes dashboard
 3. Verify your endpoint is accessible: `curl YOUR_CHUTE_ENDPOINT/health`
 4. Ensure the revision in your commitment matches the deployed model
@@ -494,4 +494,4 @@ for name, env_cls in mt.train_classes.items():
 - [MetaWorld Documentation](https://github.com/Farama-Foundation/Metaworld)
 - [Bittensor Docs](https://docs.bittensor.com/)
 - [Chutes Documentation](https://docs.chutes.ai/)
-- Template code in `/robo/miner/template/`
+- Template code in `/kinitro/miner/template/`

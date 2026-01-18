@@ -9,7 +9,7 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-robo}
+      POSTGRES_DB: ${POSTGRES_DB:-kinitro}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -29,20 +29,20 @@ services:
       context: .
       dockerfile: Dockerfile
     command: >
-      robo backend
+      kinitro backend
       --host 0.0.0.0
       --port 8000
-      --database-url postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-robo}
+      --database-url postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-kinitro}
       --network ${NETWORK:-finney}
       --netuid ${NETUID}
       --eval-interval ${EVAL_INTERVAL:-3600}
       --episodes-per-env ${EPISODES_PER_ENV:-50}
       --log-level ${LOG_LEVEL:-INFO}
     environment:
-      - ROBO_BACKEND_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-robo}
-      - ROBO_BACKEND_NETWORK=${NETWORK:-finney}
-      - ROBO_BACKEND_NETUID=${NETUID}
-      - ROBO_BACKEND_BASILICA_API_TOKEN=${BASILICA_API_TOKEN:-}
+      - KINITRO_BACKEND_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-kinitro}
+      - KINITRO_BACKEND_NETWORK=${NETWORK:-finney}
+      - KINITRO_BACKEND_NETUID=${NETUID}
+      - KINITRO_BACKEND_BASILICA_API_TOKEN=${BASILICA_API_TOKEN:-}
       - MUJOCO_GL=egl
     volumes:
       # Mount Docker socket for Basilica local mode
@@ -72,7 +72,7 @@ services:
       context: .
       dockerfile: Dockerfile
     command: >
-      robo validate
+      kinitro validate
       --backend-url http://backend:8000
       --network ${NETWORK:-finney}
       --netuid ${NETUID}
@@ -80,10 +80,10 @@ services:
       --hotkey-name ${HOTKEY_NAME:-default}
       --log-level ${LOG_LEVEL:-INFO}
     environment:
-      - ROBO_NETWORK=${NETWORK:-finney}
-      - ROBO_NETUID=${NETUID}
-      - ROBO_WALLET_NAME=${WALLET_NAME:-default}
-      - ROBO_HOTKEY_NAME=${HOTKEY_NAME:-default}
+      - KINITRO_NETWORK=${NETWORK:-finney}
+      - KINITRO_NETUID=${NETUID}
+      - KINITRO_WALLET_NAME=${WALLET_NAME:-default}
+      - KINITRO_HOTKEY_NAME=${HOTKEY_NAME:-default}
     volumes:
       # Mount wallet for signing
       - ${HOME}/.bittensor:/root/.bittensor:ro

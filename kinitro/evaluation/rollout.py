@@ -7,7 +7,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from robo.environments.base import EpisodeResult, RoboticsEnvironment, TaskConfig
+from kinitro.environments.base import EpisodeResult, RoboticsEnvironment, TaskConfig
 
 
 @dataclass

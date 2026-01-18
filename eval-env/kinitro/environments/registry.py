@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 import structlog
 
-from robo.environments.base import RoboticsEnvironment
+from kinitro.environments.base import RoboticsEnvironment
 
 logger = structlog.get_logger()
 
@@ -16,7 +16,7 @@ def _make_metaworld_env(task: str) -> EnvFactory:
     """Create factory for MetaWorld environment."""
 
     def factory() -> RoboticsEnvironment:
-        from robo.environments.metaworld_env import MetaWorldEnvironment
+        from kinitro.environments.metaworld_env import MetaWorldEnvironment
 
         return MetaWorldEnvironment(task)
 

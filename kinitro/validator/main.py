@@ -4,9 +4,9 @@ import asyncio
 
 import structlog
 
-from robo.chain.weights import set_weights, verify_weight_setting_eligibility
-from robo.config import ValidatorConfig
-from robo.validator.client import BackendClient
+from kinitro.chain.weights import set_weights, verify_weight_setting_eligibility
+from kinitro.config import ValidatorConfig
+from kinitro.validator.client import BackendClient
 
 logger = structlog.get_logger()
 

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from robo.evaluation.rollout import (
+from kinitro.evaluation.rollout import (
     ObservationData,
     RolloutConfig,
     decode_image_base64,

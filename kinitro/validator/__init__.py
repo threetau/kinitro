@@ -8,6 +8,6 @@ Orchestrates the evaluation cycle:
 4. Set weights on chain
 """
 
-from robo.validator.main import Validator
+from kinitro.validator.main import Validator
 
 __all__ = ["Validator"]

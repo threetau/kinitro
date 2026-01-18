@@ -1,5 +1,5 @@
 [project]
-name = "robo-subnet"
+name = "kinitro"
 version = "0.1.0"
 description = "Bittensor subnet for evaluating generalist robotics policies across diverse environments"
 readme = "README.md"
@@ -59,7 +59,7 @@ dev = [
 ]
 
 [project.scripts]
-robo = "robo.cli:app"
+kinitro = "kinitro.cli:app"
 
 [build-system]
 requires = ["hatchling"]
@@ -69,7 +69,7 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["robo"]
+packages = ["kinitro"]
 
 [tool.ruff]
 line-length = 100

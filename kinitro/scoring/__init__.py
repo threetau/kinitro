@@ -5,13 +5,13 @@ Implements the multi-environment scoring mechanism where only
 policies on the Pareto frontier earn rewards.
 """
 
-from robo.scoring.pareto import (
+from kinitro.scoring.pareto import (
     ParetoResult,
     compute_epsilon,
     compute_pareto_frontier,
     epsilon_dominates,
 )
-from robo.scoring.winners_take_all import (
+from kinitro.scoring.winners_take_all import (
     compute_subset_scores,
     find_subset_winner,
     scores_to_weights,

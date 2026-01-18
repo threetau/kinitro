@@ -7,10 +7,10 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 
-from robo.backend.config import BackendConfig
-from robo.backend.routes import router, set_scheduler, set_storage
-from robo.backend.scheduler import EvaluationScheduler
-from robo.backend.storage import Storage
+from kinitro.backend.config import BackendConfig
+from kinitro.backend.routes import router, set_scheduler, set_storage
+from kinitro.backend.scheduler import EvaluationScheduler
+from kinitro.backend.storage import Storage
 
 logger = structlog.get_logger()
 

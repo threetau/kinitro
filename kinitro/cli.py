@@ -5,8 +5,8 @@ import asyncio
 import typer
 
 app = typer.Typer(
-    name="robo",
-    help="Robotics Generalization Subnet CLI",
+    name="kinitro",
+    help="Kinitro - Robotics Generalization Subnet CLI",
     add_completion=False,
 )
 
@@ -77,7 +77,7 @@ def _parse_database_url(database_url: str) -> tuple[str, str, str, int, str]:
 @db_app.command("init")
 def db_init(
     database_url: str = typer.Option(
-        "postgresql://postgres:postgres@localhost:5432/robo",
+        "postgresql://postgres:postgres@localhost:5432/kinitro",
         help="PostgreSQL connection URL",
     ),
 ):
@@ -90,7 +90,7 @@ def db_init(
     normalized_url = _normalize_database_url(database_url)
 
     async def _init():
-        from robo.backend.storage import Storage
+        from kinitro.backend.storage import Storage
 
         storage = Storage(normalized_url)
         await storage.initialize()
@@ -104,7 +104,7 @@ def db_init(
 @db_app.command("create")
 def db_create(
     database_url: str = typer.Option(
-        "postgresql://postgres:postgres@localhost:5432/robo",
+        "postgresql://postgres:postgres@localhost:5432/kinitro",
         help="PostgreSQL connection URL",
     ),
 ):
@@ -154,7 +154,7 @@ def db_create(
 @db_app.command("drop")
 def db_drop(
     database_url: str = typer.Option(
-        "postgresql://postgres:postgres@localhost:5432/robo",
+        "postgresql://postgres:postgres@localhost:5432/kinitro",
         help="PostgreSQL connection URL",
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
@@ -211,7 +211,7 @@ def db_drop(
 @db_app.command("reset")
 def db_reset(
     database_url: str = typer.Option(
-        "postgresql://postgres:postgres@localhost:5432/robo",
+        "postgresql://postgres:postgres@localhost:5432/kinitro",
         help="PostgreSQL connection URL",
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
@@ -244,7 +244,7 @@ def db_reset(
 @db_app.command("status")
 def db_status(
     database_url: str = typer.Option(
-        "postgresql://postgres:postgres@localhost:5432/robo",
+        "postgresql://postgres:postgres@localhost:5432/kinitro",
         help="PostgreSQL connection URL",
     ),
 ):
@@ -255,7 +255,7 @@ def db_status(
     normalized_url = _normalize_database_url(database_url)
 
     async def _status():
-        from robo.backend.storage import Storage
+        from kinitro.backend.storage import Storage
 
         storage = Storage(normalized_url)
 
@@ -316,7 +316,7 @@ def backend(
     host: str = typer.Option("0.0.0.0", help="Host to bind to"),
     port: int = typer.Option(8000, help="Port to bind to"),
     database_url: str = typer.Option(
-        "postgresql://postgres:postgres@localhost:5432/robo",
+        "postgresql://postgres:postgres@localhost:5432/kinitro",
         help="PostgreSQL connection URL",
     ),
     network: str = typer.Option("finney", help="Bittensor network"),
@@ -342,8 +342,8 @@ def backend(
         ),
     )
 
-    from robo.backend.app import run_server
-    from robo.backend.config import BackendConfig
+    from kinitro.backend.app import run_server
+    from kinitro.backend.config import BackendConfig
 
     # Normalize database URL to use asyncpg driver
     normalized_db_url = _normalize_database_url(database_url)
@@ -396,8 +396,8 @@ def validate(
         ),
     )
 
-    from robo.config import ValidatorConfig
-    from robo.validator.main import run_validator
+    from kinitro.config import ValidatorConfig
+    from kinitro.validator.main import run_validator
 
     config = ValidatorConfig(
         network=network,
@@ -415,7 +415,7 @@ def validate(
 @app.command()
 def list_envs():
     """List all available robotics environments."""
-    from robo.environments.registry import get_all_environment_ids
+    from kinitro.environments.registry import get_all_environment_ids
 
     typer.echo("Available Robotics Environments:\n")
 
@@ -450,7 +450,7 @@ def commit(
     """
     import bittensor as bt
 
-    from robo.chain.commitments import commit_model
+    from kinitro.chain.commitments import commit_model
 
     subtensor = bt.Subtensor(network=network)
     wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)
@@ -492,7 +492,7 @@ def show_commitment(
     """
     import bittensor as bt
 
-    from robo.chain.commitments import _query_commitment_by_hotkey, parse_commitment
+    from kinitro.chain.commitments import _query_commitment_by_hotkey, parse_commitment
 
     subtensor = bt.Subtensor(network=network)
 
@@ -582,7 +582,7 @@ def build(
 @app.command()
 def build_eval_env(
     tag: str = typer.Option(
-        "robo-subnet/eval-env:v1",
+        "kinitro/eval-env:v1",
         help="Docker tag for eval environment image",
     ),
     push: bool = typer.Option(False, help="Push to registry after building"),
@@ -598,29 +598,29 @@ def build_eval_env(
     This image is used by affinetes to run evaluations. It contains:
     - MuJoCo + MetaWorld simulation environment
     - HTTP client for calling miner policy endpoints
-    - The robo package for environment management
+    - The kinitro package for environment management
 
     The built image is used by the backend scheduler when running evaluations.
 
     Examples:
         # Build locally
-        robo build-eval-env --tag robo-subnet/eval-env:v1
+        kinitro build-eval-env --tag kinitro/eval-env:v1
 
         # Build and push to Docker Hub
-        robo build-eval-env --tag eval-env:v1 --push --registry docker.io/myuser
+        kinitro build-eval-env --tag eval-env:v1 --push --registry docker.io/myuser
     """
     from pathlib import Path
 
     import affinetes
 
     # Find the eval-env directory
-    robo_package_dir = Path(__file__).parent
-    root_dir = robo_package_dir.parent
+    kinitro_package_dir = Path(__file__).parent
+    root_dir = kinitro_package_dir.parent
     eval_env_path = root_dir / "eval-env"
 
     if not (eval_env_path / "env.py").exists():
         typer.echo(f"env.py not found at {eval_env_path}", err=True)
-        typer.echo("Make sure you're running from within the robo-subnet package.")
+        typer.echo("Make sure you're running from within the kinitro package.")
         raise typer.Exit(1)
 
     if not (eval_env_path / "Dockerfile").exists():
@@ -690,8 +690,8 @@ def init_miner(
     typer.echo("  2. Add your model weights to the directory")
     typer.echo("  3. Test locally: uvicorn server:app --port 8001")
     typer.echo("  4. Upload to HuggingFace: huggingface-cli upload user/repo .")
-    typer.echo("  5. Deploy to Chutes: robo chutes-push --repo user/repo --revision SHA")
-    typer.echo("  6. Commit to chain: robo commit --repo ... --revision ... --chute-id ...")
+    typer.echo("  5. Deploy to Chutes: kinitro chutes-push --repo user/repo --revision SHA")
+    typer.echo("  6. Commit to chain: kinitro commit --repo ... --revision ... --chute-id ...")
 
 
 @app.command("chutes-push")
@@ -768,7 +768,7 @@ chute.add_pip_requirements("requirements.txt")
 chute.entrypoint = "uvicorn server:app --host 0.0.0.0 --port 8000"
 ''')
 
-    tmp_file = Path("tmp_robo_chute.py")
+    tmp_file = Path("tmp_kinitro_chute.py")
     tmp_file.write_text(chute_config)
 
     try:
@@ -787,7 +787,7 @@ chute.entrypoint = "uvicorn server:app --host 0.0.0.0 --port 8000"
         typer.echo("Check the Chutes dashboard for your chute_id")
         typer.echo("\nNext step:")
         typer.echo(
-            f"  robo commit --repo {repo} --revision {revision} --chute-id YOUR_CHUTE_ID --netuid ..."
+            f"  kinitro commit --repo {repo} --revision {revision} --chute-id YOUR_CHUTE_ID --netuid ..."
         )
 
     finally:
@@ -833,13 +833,13 @@ def miner_deploy(
 
     Examples:
         # Full deployment
-        robo miner-deploy -r user/policy -p ./my-policy --netuid 123
+        kinitro miner-deploy -r user/policy -p ./my-policy --netuid 123
 
         # Skip upload (already on HuggingFace)
-        robo miner-deploy -r user/policy --skip-upload --revision abc123 --netuid 123
+        kinitro miner-deploy -r user/policy --skip-upload --revision abc123 --netuid 123
 
         # Dry run to see what would happen
-        robo miner-deploy -r user/policy -p ./my-policy --netuid 123 --dry-run
+        kinitro miner-deploy -r user/policy -p ./my-policy --netuid 123 --dry-run
     """
     import os
     import subprocess
@@ -886,7 +886,7 @@ def miner_deploy(
         steps.append("commit")
 
     typer.echo("=" * 60)
-    typer.echo("ROBOTICS SUBNET DEPLOYMENT")
+    typer.echo("KINITRO DEPLOYMENT")
     typer.echo("=" * 60)
     typer.echo(f"  Repository: {repo}")
     if policy_path:
@@ -967,7 +967,7 @@ chute.add_pip_requirements("requirements.txt")
 chute.entrypoint = "uvicorn server:app --host 0.0.0.0 --port 8000"
 ''')
 
-            tmp_file = Path("tmp_robo_chute.py")
+            tmp_file = Path("tmp_kinitro_chute.py")
             tmp_file.write_text(chute_config)
 
             try:
@@ -1027,7 +1027,7 @@ chute.entrypoint = "uvicorn server:app --host 0.0.0.0 --port 8000"
         else:
             import bittensor as bt
 
-            from robo.chain.commitments import commit_model
+            from kinitro.chain.commitments import commit_model
 
             subtensor = bt.Subtensor(network=network)
             wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)
@@ -1080,7 +1080,7 @@ def test_env(
     """
     import numpy as np
 
-    from robo.environments import get_environment
+    from kinitro.environments import get_environment
 
     typer.echo(f"Testing environment: {env_id}")
 
@@ -1140,8 +1140,8 @@ def test_scoring(
     """
     import numpy as np
 
-    from robo.scoring.pareto import compute_pareto_frontier
-    from robo.scoring.winners_take_all import compute_full_scoring
+    from kinitro.scoring.pareto import compute_pareto_frontier
+    from kinitro.scoring.winners_take_all import compute_full_scoring
 
     typer.echo(f"Testing Pareto scoring with {n_miners} miners, {n_envs} environments\n")
 
@@ -1184,10 +1184,10 @@ def mock_miner(
 
     Examples:
         # Start mock miner on default port
-        robo mock-miner
+        kinitro mock-miner
 
         # Start on specific port
-        robo mock-miner --port 8002
+        kinitro mock-miner --port 8002
     """
     import numpy as np
     import uvicorn

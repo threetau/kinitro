@@ -1,4 +1,4 @@
-# Robotics Generalization Subnet
+# Kinitro - Robotics Generalization Subnet
 
 A Bittensor subnet for evaluating generalist robotics policies across diverse simulated environments.
 
@@ -77,8 +77,8 @@ This separation allows:
 
 ```bash
 # Clone and install
-git clone https://github.com/your-org/robo-subnet.git
-cd robo-subnet
+git clone https://github.com/AffineFoundation/kinitro.git
+cd kinitro
 
 # Install with uv (recommended)
 uv sync
@@ -93,24 +93,24 @@ See the full [Validator Guide](docs/validator-guide.md) for detailed instruction
 
 ```bash
 # 1. Start PostgreSQL
-docker run -d --name robo-postgres \
-  -e POSTGRES_USER=robo -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=robo \
+docker run -d --name kinitro-postgres \
+  -e POSTGRES_USER=kinitro -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=kinitro \
   -p 5432:5432 postgres:15
 
 # 2. Build the evaluation environment
-uv run robo build-eval-env --tag robo-subnet/eval-env:v1
+uv run kinitro build-eval-env --tag kinitro/eval-env:v1
 
 # 3. Initialize database
-uv run robo db init --database-url postgresql://robo:secret@localhost/robo
+uv run kinitro db init --database-url postgresql://kinitro:secret@localhost/kinitro
 
 # 4. Start the backend (runs evaluations)
-uv run robo backend \
+uv run kinitro backend \
   --netuid YOUR_NETUID \
   --network finney \
-  --database-url postgresql://robo:secret@localhost/robo
+  --database-url postgresql://kinitro:secret@localhost/kinitro
 
 # 5. Start the validator (submits weights to chain)
-uv run robo validate \
+uv run kinitro validate \
   --backend-url http://localhost:8000 \
   --netuid YOUR_NETUID \
   --network finney \
@@ -124,7 +124,7 @@ See the full [Miner Guide](docs/miner-guide.md) for detailed instructions.
 
 ```bash
 # 1. Initialize a policy template
-uv run robo init-miner ./my-policy
+uv run kinitro init-miner ./my-policy
 cd my-policy
 
 # 2. Implement your policy in policy.py
@@ -136,8 +136,8 @@ uvicorn server:app --port 8001
 chutes deploy chute:chute
 
 # 5. Register on chain
-uv run robo commit \
-  --repo your-user/robo-policy \
+uv run kinitro commit \
+  --repo your-user/kinitro-policy \
   --revision $(git rev-parse HEAD) \
   --chute-id YOUR_CHUTE_ENDPOINT \
   --netuid YOUR_NETUID \
@@ -148,27 +148,27 @@ uv run robo commit \
 
 ```bash
 # Database commands
-robo db create         # Create database
-robo db init           # Initialize schema
-robo db status         # Show database statistics
-robo db reset          # Drop and recreate database
-robo db drop           # Drop database
+kinitro db create         # Create database
+kinitro db init           # Initialize schema
+kinitro db status         # Show database statistics
+kinitro db reset          # Drop and recreate database
+kinitro db drop           # Drop database
 
 # Backend commands
-robo backend           # Run evaluation backend service
+kinitro backend           # Run evaluation backend service
 
 # Validator commands
-robo validate          # Run validator (polls backend, sets weights)
+kinitro validate          # Run validator (polls backend, sets weights)
 
 # Environment commands
-robo list-envs         # List available environments
-robo test-env ENV_ID   # Test an environment locally
-robo test-scoring      # Test the scoring mechanism
+kinitro list-envs         # List available environments
+kinitro test-env ENV_ID   # Test an environment locally
+kinitro test-scoring      # Test the scoring mechanism
 
 # Miner commands
-robo init-miner DIR    # Initialize miner template
-robo build PATH --tag TAG [--push]  # Build Docker image
-robo commit            # Commit model to chain
+kinitro init-miner DIR    # Initialize miner template
+kinitro build PATH --tag TAG [--push]  # Build Docker image
+kinitro commit            # Commit model to chain
 ```
 
 ## Backend API
@@ -189,8 +189,8 @@ The backend exposes a REST API:
 ## Project Structure
 
 ```
-robo-subnet/
-├── robo/
+kinitro/
+├── kinitro/
 │   ├── backend/          # Evaluation backend service
 │   │   ├── app.py        # FastAPI application
 │   │   ├── routes.py     # REST API endpoints
@@ -224,7 +224,7 @@ robo-subnet/
 - `metaworld/drawer-close-v3`
 - `metaworld/button-press-v3`
 
-Use `robo list-envs` to see all available environments.
+Use `kinitro list-envs` to see all available environments.
 
 ## Miner Policy Interface
 
@@ -251,7 +251,7 @@ async def act(observation: np.ndarray, images: dict | None) -> np.ndarray:
     return action
 ```
 
-See the [Miner Guide](docs/miner-guide.md) and `robo/miner/template/` for complete examples.
+See the [Miner Guide](docs/miner-guide.md) and `kinitro/miner/template/` for complete examples.
 
 ## Documentation
 
@@ -272,10 +272,10 @@ pytest tests/
 MUJOCO_GL=egl pytest tests/
 
 # Type checking
-mypy robo/
+mypy kinitro/
 
 # Linting
-ruff check robo/
+ruff check kinitro/
 ```
 
 ## Configuration
@@ -290,7 +290,7 @@ Environment variables (or `.env` file):
 | `HOTKEY_NAME` | Hotkey name | `default` |
 | `POSTGRES_USER` | Database user | `postgres` |
 | `POSTGRES_PASSWORD` | Database password | `postgres` |
-| `POSTGRES_DB` | Database name | `robo` |
+| `POSTGRES_DB` | Database name | `kinitro` |
 | `EVAL_INTERVAL` | Seconds between evals | `3600` |
 | `EPISODES_PER_ENV` | Episodes per environment | `50` |
 

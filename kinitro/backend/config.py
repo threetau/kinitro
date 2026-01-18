@@ -7,11 +7,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class BackendConfig(BaseSettings):
     """Backend service configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="ROBO_BACKEND_")
+    model_config = SettingsConfigDict(env_prefix="KINITRO_BACKEND_")
 
     # Database
     database_url: str = Field(
-        default="postgresql+asyncpg://postgres:postgres@localhost:5432/robo",
+        default="postgresql+asyncpg://postgres:postgres@localhost:5432/kinitro",
         description="PostgreSQL connection URL",
     )
 
@@ -59,7 +59,7 @@ class BackendConfig(BaseSettings):
         description="Evaluation mode: 'docker' or 'basilica'",
     )
     eval_image: str = Field(
-        default="robo-subnet/eval-env:v1",
+        default="kinitro/eval-env:v1",
         description="Docker image for evaluation environment",
     )
     eval_mem_limit: str = Field(

@@ -39,8 +39,8 @@ This guide explains how to run the evaluation backend for the Robotics Generaliz
 ### 1. Install the Package
 
 ```bash
-git clone https://github.com/your-org/robo-subnet.git
-cd robo-subnet
+git clone https://github.com/AffineFoundation/kinitro.git
+cd kinitro
 uv sync
 ```
 
@@ -49,20 +49,20 @@ uv sync
 Option A - Docker (recommended):
 ```bash
 docker run -d \
-  --name robo-postgres \
-  -e POSTGRES_USER=robo \
+  --name kinitro-postgres \
+  -e POSTGRES_USER=kinitro \
   -e POSTGRES_PASSWORD=your-secure-password \
-  -e POSTGRES_DB=robo \
+  -e POSTGRES_DB=kinitro \
   -p 5432:5432 \
-  -v robo_postgres_data:/var/lib/postgresql/data \
+  -v kinitro_postgres_data:/var/lib/postgresql/data \
   postgres:15
 ```
 
 Option B - System PostgreSQL:
 ```bash
-sudo -u postgres createuser robo
-sudo -u postgres createdb robo -O robo
-sudo -u postgres psql -c "ALTER USER robo PASSWORD 'your-secure-password';"
+sudo -u postgres createuser kinitro
+sudo -u postgres createdb kinitro -O kinitro
+sudo -u postgres psql -c "ALTER USER kinitro PASSWORD 'your-secure-password';"
 ```
 
 ### 3. Build the Evaluation Environment
@@ -70,7 +70,7 @@ sudo -u postgres psql -c "ALTER USER robo PASSWORD 'your-secure-password';"
 The evaluation runs in Docker containers managed by affinetes:
 
 ```bash
-uv run robo build-eval-env --tag robo-subnet/eval-env:v1
+uv run kinitro build-eval-env --tag kinitro/eval-env:v1
 ```
 
 This builds a self-contained image with:
@@ -82,19 +82,19 @@ This builds a self-contained image with:
 
 ```bash
 # Create database (skip if using Docker - already created)
-uv run robo db create --database-url postgresql://robo:your-secure-password@localhost/robo
+uv run kinitro db create --database-url postgresql://kinitro:your-secure-password@localhost/kinitro
 
 # Initialize schema
-uv run robo db init --database-url postgresql://robo:your-secure-password@localhost/robo
+uv run kinitro db init --database-url postgresql://kinitro:your-secure-password@localhost/kinitro
 ```
 
 ### 5. Start the Backend
 
 ```bash
-uv run robo backend \
+uv run kinitro backend \
   --netuid YOUR_SUBNET_ID \
   --network finney \
-  --database-url postgresql://robo:your-secure-password@localhost/robo \
+  --database-url postgresql://kinitro:your-secure-password@localhost/kinitro \
   --eval-interval 3600 \
   --episodes-per-env 50
 ```
@@ -113,24 +113,24 @@ The backend will:
 
 | Flag | Environment Variable | Default | Description |
 |------|---------------------|---------|-------------|
-| `--host` | `ROBO_BACKEND_HOST` | `0.0.0.0` | API server bind address |
-| `--port` | `ROBO_BACKEND_PORT` | `8000` | API server port |
-| `--database-url` | `ROBO_BACKEND_DATABASE_URL` | - | PostgreSQL connection URL |
-| `--network` | `ROBO_BACKEND_NETWORK` | `finney` | Bittensor network |
-| `--netuid` | `ROBO_BACKEND_NETUID` | - | Subnet UID |
-| `--eval-interval` | `ROBO_BACKEND_EVAL_INTERVAL_SECONDS` | `3600` | Seconds between eval cycles |
-| `--episodes-per-env` | `ROBO_BACKEND_EPISODES_PER_ENV` | `50` | Episodes per environment |
-| `--log-level` | `ROBO_BACKEND_LOG_LEVEL` | `INFO` | Logging level |
+| `--host` | `KINITRO_BACKEND_HOST` | `0.0.0.0` | API server bind address |
+| `--port` | `KINITRO_BACKEND_PORT` | `8000` | API server port |
+| `--database-url` | `KINITRO_BACKEND_DATABASE_URL` | - | PostgreSQL connection URL |
+| `--network` | `KINITRO_BACKEND_NETWORK` | `finney` | Bittensor network |
+| `--netuid` | `KINITRO_BACKEND_NETUID` | - | Subnet UID |
+| `--eval-interval` | `KINITRO_BACKEND_EVAL_INTERVAL_SECONDS` | `3600` | Seconds between eval cycles |
+| `--episodes-per-env` | `KINITRO_BACKEND_EPISODES_PER_ENV` | `50` | Episodes per environment |
+| `--log-level` | `KINITRO_BACKEND_LOG_LEVEL` | `INFO` | Logging level |
 
 ### Advanced Settings (Environment Variables)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ROBO_BACKEND_EVAL_IMAGE` | `robo-subnet/eval-env:v1` | Docker image for evaluation |
-| `ROBO_BACKEND_EVAL_MEM_LIMIT` | `8g` | Memory limit for eval container |
-| `ROBO_BACKEND_ACTION_TIMEOUT_MS` | `100` | Timeout for miner responses |
-| `ROBO_BACKEND_MAX_TIMESTEPS_PER_EPISODE` | `500` | Max steps per episode |
-| `ROBO_BACKEND_PARETO_TEMPERATURE` | `1.0` | Softmax temperature for weights |
+| `KINITRO_BACKEND_EVAL_IMAGE` | `kinitro/eval-env:v1` | Docker image for evaluation |
+| `KINITRO_BACKEND_EVAL_MEM_LIMIT` | `8g` | Memory limit for eval container |
+| `KINITRO_BACKEND_ACTION_TIMEOUT_MS` | `100` | Timeout for miner responses |
+| `KINITRO_BACKEND_MAX_TIMESTEPS_PER_EPISODE` | `500` | Max steps per episode |
+| `KINITRO_BACKEND_PARETO_TEMPERATURE` | `1.0` | Softmax temperature for weights |
 
 ## API Reference
 
@@ -235,7 +235,7 @@ List enabled evaluation environments.
 ### View Status
 
 ```bash
-uv run robo db status --database-url postgresql://robo:pass@localhost/robo
+uv run kinitro db status --database-url postgresql://kinitro:pass@localhost/kinitro
 ```
 
 Shows:
@@ -249,19 +249,19 @@ Shows:
 
 ```bash
 # WARNING: Destroys all data
-uv run robo db reset --database-url postgresql://robo:pass@localhost/robo --force
+uv run kinitro db reset --database-url postgresql://kinitro:pass@localhost/kinitro --force
 ```
 
 ### Backup
 
 ```bash
-pg_dump -h localhost -U robo robo > backup_$(date +%Y%m%d).sql
+pg_dump -h localhost -U kinitro kinitro > backup_$(date +%Y%m%d).sql
 ```
 
 ### Restore
 
 ```bash
-psql -h localhost -U robo robo < backup_20240115.sql
+psql -h localhost -U kinitro kinitro < backup_20240115.sql
 ```
 
 ## Production Deployment
@@ -277,13 +277,13 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_USER: robo
+      POSTGRES_USER: kinitro
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: robo
+      POSTGRES_DB: kinitro
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U robo"]
+      test: ["CMD-SHELL", "pg_isready -U kinitro"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -292,10 +292,10 @@ services:
   backend:
     build: .
     command: >
-      robo backend
+      kinitro backend
       --netuid ${NETUID}
       --network ${NETWORK}
-      --database-url postgresql://robo:${POSTGRES_PASSWORD}@postgres/robo
+      --database-url postgresql://kinitro:${POSTGRES_PASSWORD}@postgres/kinitro
       --eval-interval ${EVAL_INTERVAL:-3600}
       --episodes-per-env ${EPISODES_PER_ENV:-50}
     depends_on:
@@ -306,7 +306,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock  # Required for affinetes
     environment:
-      - ROBO_BACKEND_EVAL_IMAGE=robo-subnet/eval-env:v1
+      - KINITRO_BACKEND_EVAL_IMAGE=kinitro/eval-env:v1
     restart: always
 
 volumes:
@@ -330,17 +330,17 @@ docker-compose -f docker-compose.backend.yml up -d
 ### Systemd Service
 
 ```bash
-# /etc/systemd/system/robo-backend.service
+# /etc/systemd/system/kinitro-backend.service
 [Unit]
-Description=Robotics Subnet Backend
+Description=Kinitro Subnet Backend
 After=network.target postgresql.service docker.service
 
 [Service]
 Type=simple
-User=robo
-WorkingDirectory=/opt/robo-subnet
-Environment=ROBO_BACKEND_DATABASE_URL=postgresql://robo:password@localhost/robo
-ExecStart=/opt/robo-subnet/.venv/bin/python -m robo.cli backend \
+User=kinitro
+WorkingDirectory=/opt/kinitro
+Environment=KINITRO_BACKEND_DATABASE_URL=postgresql://kinitro:password@localhost/kinitro
+ExecStart=/opt/kinitro/.venv/bin/python -m kinitro.cli backend \
   --netuid 123 \
   --network finney \
   --eval-interval 3600
@@ -356,10 +356,10 @@ WantedBy=multi-user.target
 ```nginx
 server {
     listen 443 ssl;
-    server_name backend.robo-subnet.ai;
+    server_name backend.kinitro.ai;
 
-    ssl_certificate /etc/letsencrypt/live/backend.robo-subnet.ai/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/backend.robo-subnet.ai/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/backend.kinitro.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/backend.kinitro.ai/privkey.pem;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -377,7 +377,7 @@ server {
 
 ```bash
 # Increase verbosity
-uv run robo backend --log-level DEBUG ...
+uv run kinitro backend --log-level DEBUG ...
 
 # View structured logs
 uv run robo backend ... 2>&1 | jq .
@@ -386,10 +386,10 @@ uv run robo backend ... 2>&1 | jq .
 ### Prometheus Metrics
 
 The backend exposes metrics at `/metrics`:
-- `robo_eval_cycles_total` - Total evaluation cycles
-- `robo_eval_duration_seconds` - Evaluation duration histogram
-- `robo_miners_active` - Currently active miners
-- `robo_miner_scores` - Per-miner scores by environment
+- `kinitro_eval_cycles_total` - Total evaluation cycles
+- `kinitro_eval_duration_seconds` - Evaluation duration histogram
+- `kinitro_miners_active` - Currently active miners
+- `kinitro_miner_scores` - Per-miner scores by environment
 
 ### Health Checks
 
@@ -398,7 +398,7 @@ The backend exposes metrics at `/metrics`:
 curl http://localhost:8000/health
 
 # Database status
-uv run robo db status --database-url postgresql://...
+uv run kinitro db status --database-url postgresql://...
 
 # Check evaluation status
 curl http://localhost:8000/v1/status
@@ -437,12 +437,12 @@ Monitor these conditions:
 
 ### "Container failed to start"
 - Check Docker logs: `docker logs <container_id>`
-- Verify image exists: `docker images | grep robo-subnet`
+- Verify image exists: `docker images | grep kinitro`
 - Check memory limits aren't too restrictive
 - Ensure Docker socket is accessible
 
 ### Memory issues
-- Increase `ROBO_BACKEND_EVAL_MEM_LIMIT`
+- Increase `KINITRO_BACKEND_EVAL_MEM_LIMIT`
 - Monitor container memory: `docker stats`
 - Consider running fewer concurrent evaluations
 
