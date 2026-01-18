@@ -65,10 +65,49 @@ def parse_commitment(raw: str) -> dict:
     }
 
 
+def _query_commitment_by_hotkey(subtensor, netuid: int, hotkey: str) -> str | None:
+    """
+    Query commitment directly from chain storage by hotkey.
+
+    This bypasses the broken get_commitment API in bittensor SDK.
+
+    Args:
+        subtensor: Bittensor subtensor connection
+        netuid: Subnet UID
+        hotkey: Hotkey SS58 address
+
+    Returns:
+        Commitment string or None
+    """
+    try:
+        result = subtensor.substrate.query("Commitments", "CommitmentOf", [netuid, hotkey])
+        if result and result.value:
+            # The commitment is stored as bytes, decode to string
+            if isinstance(result.value, dict) and "info" in result.value:
+                # Handle structured commitment format
+                info = result.value.get("info", {})
+                fields = info.get("fields", [])
+                if fields and len(fields) > 0:
+                    # Extract the data field
+                    data = fields[0].get("Data", b"")
+                    if isinstance(data, bytes):
+                        return data.decode("utf-8", errors="ignore")
+                    elif isinstance(data, str):
+                        return data
+            elif isinstance(result.value, (bytes, bytearray)):
+                return result.value.decode("utf-8", errors="ignore")
+            elif isinstance(result.value, str):
+                return result.value
+        return None
+    except Exception as e:
+        logger.debug("commitment_query_failed", hotkey=hotkey[:16], error=str(e))
+        return None
+
+
 def read_miner_commitments(
     subtensor,  # bt.Subtensor
     netuid: int,
-    metagraph=None,  # bt.Metagraph (optional, will fetch if not provided)
+    neurons: list | None = None,  # List of NeuronInfo (optional, will fetch if not provided)
 ) -> list[MinerCommitment]:
     """
     Read all miner commitments from chain.
@@ -76,29 +115,40 @@ def read_miner_commitments(
     Args:
         subtensor: Bittensor subtensor connection
         netuid: Subnet UID
-        metagraph: Optional pre-fetched metagraph
+        neurons: Optional pre-fetched neurons list (from subtensor.neurons())
 
     Returns:
         List of MinerCommitment for miners with valid commitments
     """
-    if metagraph is None:
-        metagraph = subtensor.metagraph(netuid)
+    # Use neurons() instead of metagraph() for compatibility with various substrate versions
+    if neurons is None:
+        neurons = subtensor.neurons(netuid=netuid)
+
+    if not neurons:
+        logger.warning("no_neurons_on_subnet", netuid=netuid)
+        return []
 
     commitments = []
+    n_neurons = len(neurons)
 
-    for uid in range(metagraph.n):
+    for neuron in neurons:
+        uid = neuron.uid
+        hotkey = neuron.hotkey
+
         try:
-            raw = subtensor.get_commitment(netuid, uid)
+            # Query commitment directly by hotkey to avoid broken SDK API
+            raw = _query_commitment_by_hotkey(subtensor, netuid, hotkey)
+
             if raw:
                 parsed = parse_commitment(raw)
                 commitment = MinerCommitment(
                     uid=uid,
-                    hotkey=metagraph.hotkeys[uid],
+                    hotkey=hotkey,
                     huggingface_repo=parsed["huggingface_repo"],
                     revision_sha=parsed["revision_sha"],
                     chute_id=parsed["chute_id"],
                     docker_image=parsed["docker_image"],
-                    committed_block=metagraph.last_update[uid],
+                    committed_block=neuron.last_update,
                 )
                 if commitment.is_valid:
                     commitments.append(commitment)
@@ -110,7 +160,7 @@ def read_miner_commitments(
         except Exception as e:
             logger.warning("commitment_read_failed", uid=uid, error=str(e))
 
-    logger.info("commitments_loaded", count=len(commitments), total_miners=metagraph.n)
+    logger.info("commitments_loaded", count=len(commitments), total_miners=n_neurons)
     return commitments
 
 

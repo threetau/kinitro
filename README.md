@@ -14,6 +14,13 @@ Only policies that **generalize across ALL environments** earn rewards, using ε
 
 ## Key Features
 
+### Vision-Based Observations
+
+Miners receive **limited observations** to prevent overfitting:
+- **Proprioceptive**: End-effector XYZ position + gripper state (4 values)
+- **Visual**: RGB camera images from corner cameras (84x84)
+- Object positions are **NOT exposed** - miners must learn from visual input
+
 ### Anti-Overfitting by Design
 
 - **Procedural task generation**: Every evaluation uses fresh, procedurally-generated task instances
@@ -36,30 +43,89 @@ Miners are scored using winners-take-all over environment subsets:
 
 This rewards true generalists over specialists.
 
+## Architecture
+
+The subnet uses a **separated backend/validator architecture**:
+
+```
+┌─────────────────────────────────────┐
+│         EVALUATION BACKEND          │
+│       (Compute-heavy, GPU)          │
+├─────────────────────────────────────┤
+│  - PostgreSQL database              │
+│  - Background evaluation scheduler  │
+│  - REST API for weights/scores      │
+│  - Miner discovery from chain       │
+│  - MuJoCo simulation (GPU)          │
+└──────────────┬──────────────────────┘
+               │ HTTP API
+               ▼
+┌─────────────────────────────────────┐
+│         VALIDATOR(S)                │
+│       (Lightweight)                 │
+├─────────────────────────────────────┤
+│  - Polls backend for weights        │
+│  - Submits weights to chain         │
+│  - No GPU required                  │
+└─────────────────────────────────────┘
+```
+
+This separation allows:
+- Heavy evaluation to run on dedicated GPU hardware
+- Multiple validators to share evaluation infrastructure
+- Easier scaling and debugging
+
 ## Quick Start
 
 ### Installation
 
 ```bash
-# Clone and install (core - MetaWorld only)
+# Clone and install
 git clone https://github.com/your-org/robo-subnet.git
 cd robo-subnet
 pip install -e .
+
+# Or with uv
+uv sync
 ```
 
-### For Validators
+### Running the Backend
+
+The backend runs evaluations and exposes a REST API:
 
 ```bash
-# Run validator
-robo validate --netuid YOUR_NETUID --network finney
+# Create and initialize database
+robo db create --database-url postgresql://user:pass@localhost/robo
+robo db init --database-url postgresql://user:pass@localhost/robo
+
+# Start the backend
+robo backend \
+  --netuid YOUR_NETUID \
+  --network finney \
+  --database-url postgresql://user:pass@localhost/robo
 ```
 
-Or with Docker:
+### Running a Validator
+
+Validators poll the backend and submit weights to chain:
+
+```bash
+robo validate \
+  --backend-url http://localhost:8000 \
+  --netuid YOUR_NETUID \
+  --network finney \
+  --wallet-name your-wallet \
+  --hotkey-name your-hotkey
+```
+
+### Docker Deployment
 
 ```bash
 cp env.example .env
 # Edit .env with your settings
-docker-compose up -d validator
+
+# Start everything (postgres + backend + validator)
+docker-compose up -d
 ```
 
 ### For Miners
@@ -70,7 +136,7 @@ robo init-miner ./my-policy
 cd my-policy
 ```
 
-2. Implement your policy in `env.py`
+2. Implement your policy in `env.py` (see Miner Policy Interface below)
 
 3. Build and push:
 ```bash
@@ -89,8 +155,20 @@ robo commit \
 ## CLI Reference
 
 ```bash
+# Database commands
+robo db create         # Create database
+robo db init           # Initialize schema
+robo db status         # Show database statistics
+robo db reset          # Drop and recreate database
+robo db drop           # Drop database
+
+# Backend commands
+robo backend           # Run evaluation backend service
+
 # Validator commands
-robo validate          # Run validator
+robo validate          # Run validator (polls backend, sets weights)
+
+# Environment commands
 robo list-envs         # List available environments
 robo test-env ENV_ID   # Test an environment locally
 robo test-scoring      # Test the scoring mechanism
@@ -101,11 +179,32 @@ robo build PATH --tag TAG [--push]  # Build Docker image
 robo commit            # Commit model to chain
 ```
 
-## Architecture
+## Backend API
+
+The backend exposes a REST API:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Health check |
+| `GET /v1/status` | Current backend status |
+| `GET /v1/weights/latest` | Latest computed weights |
+| `GET /v1/weights/{block}` | Weights for specific block |
+| `GET /v1/scores/latest` | Latest evaluation scores |
+| `GET /v1/scores/{cycle_id}` | Scores for specific cycle |
+| `GET /v1/miners` | List evaluated miners |
+| `GET /v1/environments` | List environments |
+
+## Project Structure
 
 ```
 robo-subnet/
 ├── robo/
+│   ├── backend/          # Evaluation backend service
+│   │   ├── app.py        # FastAPI application
+│   │   ├── routes.py     # REST API endpoints
+│   │   ├── scheduler.py  # Background evaluation loop
+│   │   ├── storage.py    # PostgreSQL storage layer
+│   │   └── models.py     # Database & API models
 │   ├── environments/     # Robotics environment wrappers
 │   │   ├── metaworld_env.py
 │   │   ├── dm_control_env.py
@@ -113,7 +212,9 @@ robo-subnet/
 │   ├── evaluation/       # Episode rollout and parallel evaluation
 │   ├── scoring/          # ε-Pareto dominance and weights
 │   ├── chain/            # Bittensor chain integration
-│   ├── validator/        # Main validator loop
+│   ├── validator/        # Lightweight validator client
+│   │   ├── main.py       # Polls backend, sets weights
+│   │   └── client.py     # HTTP client for backend API
 │   └── miner/            # Miner templates
 ├── tests/
 ├── docker-compose.yml
@@ -126,26 +227,23 @@ robo-subnet/
 - `metaworld/pick-place-v3`
 - `metaworld/push-v3`
 - `metaworld/drawer-open-v3`
-- `metaworld/peg-insert-v3`
+- `metaworld/peg-insert-side-v3`
 - `metaworld/reach-v3`
 - `metaworld/door-open-v3`
 - `metaworld/drawer-close-v3`
-- `metaworld/button-press-v3`
+- `metaworld/button-press-topdown-v3`
 
-### DM Control (Locomotion) - Optional: `pip install -e ".[dm-control]"`
-- `dm_control/walker-walk`
-- `dm_control/walker-run`
-- `dm_control/cheetah-run`
-- `dm_control/humanoid-walk`
-- ... and more
+### DM Control (Locomotion) - Optional
+```bash
+pip install -e ".[dm-control]"
+```
 
-### ManiSkill (Dexterous) - Optional: `pip install -e ".[maniskill]"`
-- `maniskill/PickCube-v1`
-- `maniskill/StackCube-v1`
-- `maniskill/PegInsertionSide-v1`
-- ... and more
+### ManiSkill (Dexterous) - Optional
+```bash
+pip install -e ".[maniskill]"
+```
 
-Use `robo list-envs` to see which environments are available in your installation.
+Use `robo list-envs` to see available environments.
 
 ## Miner Policy Interface
 
@@ -157,12 +255,23 @@ class RobotActor:
         """Called at start of each episode with task info."""
         pass
     
-    async def act(self, observation: list[float]) -> list[float]:
-        """Return action for observation. Must respond within 50ms."""
+    async def act(self, observation: dict) -> list[float]:
+        """
+        Return action for observation. Must respond within 100ms.
+        
+        Args:
+            observation: Dict with keys:
+                - end_effector_pos: [x, y, z] position
+                - gripper_state: float (0=closed, 1=open)
+                - camera_images: {camera_name: base64_png_string}
+        
+        Returns:
+            Action as list of floats in [-1, 1] range
+        """
         return action
 ```
 
-See `robo/miner/template/env.py` for a complete example.
+See `robo/miner/template/env.py` for a complete example with vision processing.
 
 ## Development
 
@@ -173,6 +282,9 @@ pip install -e ".[dev]"
 # Run tests
 pytest tests/
 
+# Run tests with MuJoCo
+MUJOCO_GL=egl pytest tests/
+
 # Type checking
 mypy robo/
 
@@ -180,13 +292,29 @@ mypy robo/
 ruff check robo/
 ```
 
+## Configuration
+
+Environment variables (or `.env` file):
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `NETWORK` | Bittensor network | `finney` |
+| `NETUID` | Subnet UID | (required) |
+| `WALLET_NAME` | Wallet name | `default` |
+| `HOTKEY_NAME` | Hotkey name | `default` |
+| `POSTGRES_USER` | Database user | `postgres` |
+| `POSTGRES_PASSWORD` | Database password | `postgres` |
+| `POSTGRES_DB` | Database name | `robo` |
+| `EVAL_INTERVAL` | Seconds between evals | `3600` |
+| `EPISODES_PER_ENV` | Episodes per environment | `50` |
+
 ## License
 
 MIT
 
 ## References
 
-- [Affine (SN120)](https://github.com/AffineFoundation/affine-cortex) - Original architecture
+- [Bittensor](https://bittensor.com/) - Decentralized AI network
 - [MetaWorld](https://github.com/Farama-Foundation/Metaworld) - Manipulation benchmark
 - [DM Control](https://github.com/google-deepmind/dm_control) - Locomotion benchmark
 - [ManiSkill2](https://github.com/haosulab/ManiSkill2) - Dexterous manipulation

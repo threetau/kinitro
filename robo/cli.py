@@ -11,6 +11,362 @@ app = typer.Typer(
     add_completion=False,
 )
 
+# Subcommand group for database management
+db_app = typer.Typer(help="Database management commands")
+app.add_typer(db_app, name="db")
+
+
+def _normalize_database_url(database_url: str) -> str:
+    """
+    Normalize database URL to use asyncpg driver.
+
+    Converts:
+    - postgresql://... -> postgresql+asyncpg://...
+    - postgres://... -> postgresql+asyncpg://...
+    """
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif database_url.startswith("postgres://"):
+        return database_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    return database_url
+
+
+def _parse_database_url(database_url: str) -> tuple[str, str, str, int, str]:
+    """
+    Parse a PostgreSQL database URL into components.
+
+    Supports formats:
+    - postgresql+asyncpg://user:password@host:port/dbname
+    - postgresql+asyncpg://user:password@host/dbname (default port 5432)
+    - postgresql://... (auto-converted to +asyncpg)
+    - postgres://... (auto-converted to +asyncpg)
+
+    Returns:
+        Tuple of (user, password, host, port, dbname)
+    """
+    import re
+
+    # Normalize URL to use asyncpg
+    database_url = _normalize_database_url(database_url)
+
+    # Try with explicit port first
+    pattern_with_port = r"postgresql\+asyncpg://([^:]+):([^@]+)@([^:/]+):(\d+)/(.+)"
+    match = re.match(pattern_with_port, database_url)
+
+    if match:
+        user, password, host, port, dbname = match.groups()
+        return user, password, host, int(port), dbname
+
+    # Try without port (default to 5432)
+    pattern_no_port = r"postgresql\+asyncpg://([^:]+):([^@]+)@([^:/]+)/(.+)"
+    match = re.match(pattern_no_port, database_url)
+
+    if match:
+        user, password, host, dbname = match.groups()
+        return user, password, host, 5432, dbname
+
+    raise ValueError(
+        "Invalid database URL format. Expected: postgresql://user:password@host[:port]/dbname"
+    )
+
+
+# =============================================================================
+# DATABASE COMMANDS
+# =============================================================================
+
+
+@db_app.command("init")
+def db_init(
+    database_url: str = typer.Option(
+        "postgresql://postgres:postgres@localhost:5432/robo",
+        help="PostgreSQL connection URL",
+    ),
+):
+    """
+    Initialize the database schema.
+
+    Creates all tables if they don't exist.
+    """
+    # Normalize URL to use asyncpg driver
+    normalized_url = _normalize_database_url(database_url)
+
+    async def _init():
+        from robo.backend.storage import Storage
+
+        storage = Storage(normalized_url)
+        await storage.initialize()
+        await storage.close()
+
+    typer.echo(f"Initializing database: {database_url.split('@')[-1]}")
+    asyncio.run(_init())
+    typer.echo("Database initialized successfully!")
+
+
+@db_app.command("create")
+def db_create(
+    database_url: str = typer.Option(
+        "postgresql://postgres:postgres@localhost:5432/robo",
+        help="PostgreSQL connection URL",
+    ),
+):
+    """
+    Create the database if it doesn't exist.
+
+    Connects to the PostgreSQL server and creates the database.
+    """
+    try:
+        user, password, host, port, dbname = _parse_database_url(database_url)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
+
+    async def _create():
+        import asyncpg
+
+        # Connect to the default 'postgres' database to create our database
+        conn = await asyncpg.connect(
+            user=user,
+            password=password,
+            host=host,
+            port=port,
+            database="postgres",
+        )
+
+        try:
+            # Check if database exists
+            exists = await conn.fetchval(
+                "SELECT 1 FROM pg_database WHERE datname = $1",
+                dbname,
+            )
+
+            if exists:
+                typer.echo(f"Database '{dbname}' already exists.")
+            else:
+                # Create the database
+                await conn.execute(f'CREATE DATABASE "{dbname}"')
+                typer.echo(f"Database '{dbname}' created successfully!")
+        finally:
+            await conn.close()
+
+    typer.echo(f"Creating database '{dbname}' on {host}:{port}...")
+    asyncio.run(_create())
+
+
+@db_app.command("drop")
+def db_drop(
+    database_url: str = typer.Option(
+        "postgresql://postgres:postgres@localhost:5432/robo",
+        help="PostgreSQL connection URL",
+    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+):
+    """
+    Drop the database.
+
+    WARNING: This will delete all data!
+    """
+    try:
+        user, password, host, port, dbname = _parse_database_url(database_url)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
+
+    if not force:
+        confirm = typer.confirm(
+            f"Are you sure you want to drop database '{dbname}'? This cannot be undone!"
+        )
+        if not confirm:
+            typer.echo("Aborted.")
+            raise typer.Exit(0)
+
+    async def _drop():
+        import asyncpg
+
+        conn = await asyncpg.connect(
+            user=user,
+            password=password,
+            host=host,
+            port=port,
+            database="postgres",
+        )
+
+        try:
+            # Terminate existing connections
+            await conn.execute(f"""
+                SELECT pg_terminate_backend(pg_stat_activity.pid)
+                FROM pg_stat_activity
+                WHERE pg_stat_activity.datname = '{dbname}'
+                AND pid <> pg_backend_pid()
+            """)
+
+            # Drop the database
+            await conn.execute(f'DROP DATABASE IF EXISTS "{dbname}"')
+            typer.echo(f"Database '{dbname}' dropped successfully!")
+        finally:
+            await conn.close()
+
+    typer.echo(f"Dropping database '{dbname}'...")
+    asyncio.run(_drop())
+
+
+@db_app.command("reset")
+def db_reset(
+    database_url: str = typer.Option(
+        "postgresql://postgres:postgres@localhost:5432/robo",
+        help="PostgreSQL connection URL",
+    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+):
+    """
+    Reset the database (drop and recreate).
+
+    WARNING: This will delete all data!
+    """
+    if not force:
+        confirm = typer.confirm(
+            "Are you sure you want to reset the database? All data will be lost!"
+        )
+        if not confirm:
+            typer.echo("Aborted.")
+            raise typer.Exit(0)
+
+    # Drop
+    db_drop(database_url=database_url, force=True)
+
+    # Create
+    db_create(database_url=database_url)
+
+    # Init schema
+    db_init(database_url=database_url)
+
+    typer.echo("Database reset complete!")
+
+
+@db_app.command("status")
+def db_status(
+    database_url: str = typer.Option(
+        "postgresql://postgres:postgres@localhost:5432/robo",
+        help="PostgreSQL connection URL",
+    ),
+):
+    """
+    Show database status and statistics.
+    """
+    # Normalize URL to use asyncpg driver
+    normalized_url = _normalize_database_url(database_url)
+
+    async def _status():
+        from robo.backend.storage import Storage
+
+        storage = Storage(normalized_url)
+
+        try:
+            async with storage.session() as session:
+                total_cycles = await storage.count_cycles(session)
+                total_miners = await storage.count_unique_miners(session)
+                latest_cycle = await storage.get_latest_cycle(session, completed_only=True)
+                running_cycle = await storage.get_running_cycle(session)
+                latest_weights = await storage.get_latest_weights(session)
+
+                typer.echo("Database Status:")
+                typer.echo(f"  Total evaluation cycles: {total_cycles}")
+                typer.echo(f"  Unique miners evaluated: {total_miners}")
+
+                if latest_cycle:
+                    typer.echo(f"\nLatest completed cycle:")
+                    typer.echo(f"  ID: {latest_cycle.id}")
+                    typer.echo(f"  Block: {latest_cycle.block_number}")
+                    typer.echo(f"  Status: {latest_cycle.status}")
+                    typer.echo(f"  Miners: {latest_cycle.n_miners}")
+                    typer.echo(
+                        f"  Duration: {latest_cycle.duration_seconds:.1f}s"
+                        if latest_cycle.duration_seconds
+                        else "  Duration: N/A"
+                    )
+                else:
+                    typer.echo("\nNo completed evaluation cycles yet.")
+
+                if running_cycle:
+                    typer.echo(f"\nCurrently running cycle:")
+                    typer.echo(f"  ID: {running_cycle.id}")
+                    typer.echo(f"  Block: {running_cycle.block_number}")
+                    typer.echo(f"  Started: {running_cycle.started_at}")
+
+                if latest_weights:
+                    typer.echo(f"\nLatest weights:")
+                    typer.echo(f"  Block: {latest_weights.block_number}")
+                    typer.echo(f"  Miners: {len(latest_weights.weights_json)}")
+                    typer.echo(f"  Created: {latest_weights.created_at}")
+
+        except Exception as e:
+            typer.echo(f"Error connecting to database: {e}", err=True)
+            raise typer.Exit(1)
+        finally:
+            await storage.close()
+
+    asyncio.run(_status())
+
+
+# =============================================================================
+# BACKEND COMMANDS
+# =============================================================================
+
+
+@app.command()
+def backend(
+    host: str = typer.Option("0.0.0.0", help="Host to bind to"),
+    port: int = typer.Option(8000, help="Port to bind to"),
+    database_url: str = typer.Option(
+        "postgresql://postgres:postgres@localhost:5432/robo",
+        help="PostgreSQL connection URL",
+    ),
+    network: str = typer.Option("finney", help="Bittensor network"),
+    netuid: int = typer.Option(..., help="Subnet UID"),
+    eval_interval: int = typer.Option(3600, help="Seconds between evaluation cycles"),
+    episodes_per_env: int = typer.Option(50, help="Episodes per environment"),
+    log_level: str = typer.Option("INFO", help="Logging level"),
+):
+    """
+    Run the evaluation backend service.
+
+    This service:
+    - Discovers miners from the chain
+    - Runs evaluations on robotics environments
+    - Computes Pareto-based weights
+    - Exposes REST API for validators to fetch weights
+    """
+    import structlog
+
+    structlog.configure(
+        wrapper_class=structlog.make_filtering_bound_logger(
+            getattr(__import__("logging"), log_level)
+        ),
+    )
+
+    from robo.backend.app import run_server
+    from robo.backend.config import BackendConfig
+
+    # Normalize database URL to use asyncpg driver
+    normalized_db_url = _normalize_database_url(database_url)
+
+    config = BackendConfig(
+        host=host,
+        port=port,
+        database_url=normalized_db_url,
+        network=network,
+        netuid=netuid,
+        eval_interval_seconds=eval_interval,
+        episodes_per_env=episodes_per_env,
+        log_level=log_level,
+    )
+
+    typer.echo(f"Starting backend on {host}:{port}")
+    typer.echo(f"  Network: {network} (netuid={netuid})")
+    typer.echo(f"  Database: {database_url.split('@')[-1]}")
+    typer.echo(f"  Eval interval: {eval_interval}s")
+
+    run_server(config)
+
 
 # =============================================================================
 # VALIDATOR COMMANDS
@@ -19,18 +375,19 @@ app = typer.Typer(
 
 @app.command()
 def validate(
+    backend_url: str = typer.Option(..., help="URL of the evaluation backend"),
     network: str = typer.Option("finney", help="Network: finney, test, or local"),
     netuid: int = typer.Option(..., help="Subnet UID"),
     wallet_name: str = typer.Option("default", help="Wallet name"),
     hotkey_name: str = typer.Option("default", help="Hotkey name"),
-    episodes_per_env: int = typer.Option(50, help="Episodes per environment"),
-    eval_interval: int = typer.Option(3600, help="Seconds between evaluation cycles"),
     log_level: str = typer.Option("INFO", help="Logging level"),
 ):
     """
     Run the validator.
 
-    Evaluates miner policies across robotics environments and sets weights.
+    Polls the backend for weights and submits them to the chain.
+
+    The validator is lightweight - all evaluation is done by the backend.
     """
     import structlog
 
@@ -48,13 +405,12 @@ def validate(
         netuid=netuid,
         wallet_name=wallet_name,
         hotkey_name=hotkey_name,
-        episodes_per_env=episodes_per_env,
-        eval_interval_seconds=eval_interval,
         log_level=log_level,
     )
 
     typer.echo(f"Starting validator on {network} (netuid={netuid})")
-    asyncio.run(run_validator(config))
+    typer.echo(f"  Backend: {backend_url}")
+    asyncio.run(run_validator(config, backend_url))
 
 
 @app.command()

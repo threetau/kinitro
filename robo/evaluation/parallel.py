@@ -6,25 +6,13 @@ from typing import Any
 
 import structlog
 
+from robo.chain.commitments import MinerCommitment
 from robo.environments import get_environment
 from robo.environments.base import EpisodeResult, RoboticsEnvironment
 from robo.environments.procedural import generate_seed_from_block
 from robo.evaluation.rollout import PolicyInterface, RolloutConfig, run_episode
 
 logger = structlog.get_logger()
-
-
-@dataclass
-class MinerCommitment:
-    """Miner's on-chain commitment information."""
-
-    uid: int
-    hotkey: str
-    huggingface_repo: str
-    revision_sha: str
-    chute_id: str
-    docker_image: str
-    committed_block: int
 
 
 @dataclass

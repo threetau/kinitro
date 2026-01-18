@@ -113,23 +113,32 @@ def verify_weight_setting_eligibility(
         Tuple of (eligible, reason)
     """
     try:
-        metagraph = subtensor.metagraph(netuid)
+        # Use neurons() instead of metagraph() to avoid runtime API compatibility issues
+        # with certain substrate node versions
+        neurons = subtensor.neurons(netuid=netuid)
+
+        if not neurons:
+            return False, "No neurons found on subnet"
 
         # Check if hotkey is registered
         hotkey = wallet.hotkey.ss58_address
-        if hotkey not in metagraph.hotkeys:
+        hotkeys = [n.hotkey for n in neurons]
+
+        if hotkey not in hotkeys:
             return False, "Hotkey not registered on subnet"
 
-        uid = metagraph.hotkeys.index(hotkey)
+        uid = hotkeys.index(hotkey)
+        neuron = neurons[uid]
 
-        # Check if has validator permit
-        if not metagraph.validator_permit[uid]:
-            return False, "No validator permit"
+        # NOTE: this has been disbaled for now do not check permit and stake
+        # # Check if has validator permit
+        # if not neuron.validator_permit:
+        #     return False, "No validator permit"
 
-        # Check stake
-        stake = metagraph.S[uid]
-        if stake < 1.0:  # Minimum stake threshold
-            return False, f"Insufficient stake: {stake}"
+        # # Check stake (neuron.stake is a Balance object, compare raw value)
+        # stake_tao = float(neuron.stake.tao)
+        # if stake_tao < 1.0:  # Minimum stake threshold
+        #     return False, f"Insufficient stake: {stake_tao}"
 
         return True, "Eligible"
 

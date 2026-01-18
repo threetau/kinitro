@@ -1,58 +1,53 @@
-"""Main validator loop for the robotics subnet."""
+"""Simplified validator that polls backend for weights and submits to chain."""
 
 import asyncio
-import time
 
 import structlog
 
-from robo.chain.commitments import read_miner_commitments
 from robo.chain.weights import set_weights, verify_weight_setting_eligibility
 from robo.config import ValidatorConfig
-from robo.environments import get_all_environment_ids
-from robo.evaluation.metrics import extract_score_matrix
-from robo.evaluation.parallel import evaluate_all_miners
-from robo.evaluation.rollout import RolloutConfig
-from robo.scoring.pareto import compute_pareto_frontier
-from robo.scoring.winners_take_all import compute_subset_scores, scores_to_weights
+from robo.validator.client import BackendClient
 
 logger = structlog.get_logger()
 
 
 class Validator:
     """
-    Main validator class for the robotics subnet.
+    Simplified validator that:
+    1. Polls the evaluation backend for computed weights
+    2. Submits weights to the Bittensor chain
 
-    Runs the evaluation cycle:
-    1. Fetch miner commitments from chain
-    2. Evaluate all miners on all environments
-    3. Compute ε-Pareto dominance scores
-    4. Set weights on chain
+    The heavy lifting (evaluation, scoring) is done by the backend service.
     """
 
-    def __init__(self, config: ValidatorConfig):
+    def __init__(
+        self,
+        config: ValidatorConfig,
+        backend_url: str,
+    ):
         """
         Initialize validator.
 
         Args:
             config: Validator configuration
+            backend_url: URL of the evaluation backend
         """
         self.config = config
-        self.env_ids = get_all_environment_ids()
+        self.backend_url = backend_url
+        self.client = BackendClient(backend_url)
 
         # Lazy-loaded Bittensor objects
         self._subtensor = None
         self._wallet = None
-        self._metagraph = None
 
         # State
-        self._last_evaluation_block = 0
-        self._evaluation_results = {}
+        self._last_submitted_block = 0
 
         logger.info(
             "validator_initialized",
             network=config.network,
             netuid=config.netuid,
-            n_environments=len(self.env_ids),
+            backend_url=backend_url,
         )
 
     @property
@@ -76,22 +71,11 @@ class Validator:
             )
         return self._wallet
 
-    @property
-    def metagraph(self):
-        """Get current metagraph (refreshed each cycle)."""
-        if self._metagraph is None:
-            self._metagraph = self.subtensor.metagraph(self.config.netuid)
-        return self._metagraph
-
-    def refresh_metagraph(self):
-        """Force refresh metagraph."""
-        self._metagraph = self.subtensor.metagraph(self.config.netuid)
-
-    async def run(self):
+    async def run(self) -> None:
         """
         Main validator loop.
 
-        Runs evaluation cycles at configured intervals.
+        Polls backend for weights and submits to chain.
         """
         logger.info("starting_validator_loop")
 
@@ -103,152 +87,89 @@ class Validator:
             logger.error("validator_not_eligible", reason=reason)
             return
 
+        logger.info("validator_eligible", hotkey=self.wallet.hotkey.ss58_address)
+
+        # Check backend health
+        if not await self.client.health_check():
+            logger.error("backend_not_reachable", url=self.backend_url)
+            return
+
+        logger.info("backend_connected", url=self.backend_url)
+
+        # Main loop
         while True:
             try:
-                cycle_start = time.time()
-                await self.evaluation_cycle()
-                cycle_duration = time.time() - cycle_start
-
-                logger.info(
-                    "evaluation_cycle_complete",
-                    duration_seconds=cycle_duration,
-                )
-
-                # Wait for next cycle
-                wait_time = max(0, self.config.eval_interval_seconds - cycle_duration)
-                if wait_time > 0:
-                    logger.info("waiting_for_next_cycle", seconds=wait_time)
-                    await asyncio.sleep(wait_time)
-
+                await self._weight_setting_cycle()
             except KeyboardInterrupt:
                 logger.info("validator_interrupted")
                 break
             except Exception as e:
-                logger.error("evaluation_cycle_failed", error=str(e))
-                # Wait before retrying
-                await asyncio.sleep(60)
+                logger.error("weight_setting_cycle_failed", error=str(e))
 
-    async def evaluation_cycle(self):
-        """
-        Run a single evaluation cycle.
+            # Poll interval (shorter than evaluation interval since we're just checking)
+            await asyncio.sleep(60)  # Check every minute
 
-        Steps:
-        1. Refresh metagraph
-        2. Fetch miner commitments
-        3. Evaluate all miners
-        4. Compute scores
-        5. Set weights
-        """
-        block = self.subtensor.block
-        logger.info("starting_evaluation_cycle", block=block)
+    async def _weight_setting_cycle(self) -> None:
+        """Single cycle: fetch weights from backend and submit if new."""
+        # Get latest weights from backend
+        weights_data = await self.client.get_latest_weights()
 
-        # Refresh metagraph
-        self.refresh_metagraph()
-
-        # 1. Fetch miner commitments
-        miners = read_miner_commitments(
-            self.subtensor,
-            self.config.netuid,
-            self.metagraph,
-        )
-
-        if not miners:
-            logger.warning("no_miners_with_commitments")
+        if weights_data is None:
+            logger.debug("no_weights_available")
             return
 
-        logger.info("found_miners", count=len(miners))
-
-        # 2. Evaluate all miners
-        rollout_config = RolloutConfig(
-            max_timesteps=self.config.max_timesteps_per_episode,
-            action_timeout_ms=self.config.action_timeout_ms,
-        )
-
-        evaluation_result = await evaluate_all_miners(
-            miners=miners,
-            environment_ids=self.env_ids,
-            block_number=block,
-            validator_hotkey=self.wallet.hotkey.ss58_address,
-            episodes_per_env=self.config.episodes_per_env,
-            rollout_config=rollout_config,
-            use_basilica=bool(self.config.basilica_api_token),
-            basilica_api_token=self.config.basilica_api_token,
-        )
-
-        self._evaluation_results = evaluation_result.miner_results
-        self._last_evaluation_block = block
-
-        # 3. Extract scores for Pareto computation
-        uids, score_matrix = extract_score_matrix(evaluation_result, self.env_ids)
-
-        # Convert to dict format for scoring functions
-        miner_scores = {
-            uid: {
-                env_id: evaluation_result.miner_results[uid][env_id].success_rate
-                for env_id in self.env_ids
-                if env_id in evaluation_result.miner_results.get(uid, {})
-            }
-            for uid in uids
-        }
-
-        # 4. Compute Pareto frontier
-        pareto_result = compute_pareto_frontier(
-            miner_scores=miner_scores,
-            env_ids=self.env_ids,
-            n_samples_per_env=self.config.episodes_per_env,
-        )
+        # Check if we already submitted these weights
+        if weights_data.block_number <= self._last_submitted_block:
+            logger.debug(
+                "weights_already_submitted",
+                weights_block=weights_data.block_number,
+                last_submitted=self._last_submitted_block,
+            )
+            return
 
         logger.info(
-            "pareto_frontier_computed",
-            frontier_size=len(pareto_result.frontier_uids),
-            frontier_uids=pareto_result.frontier_uids,
+            "new_weights_available",
+            block=weights_data.block_number,
+            cycle_id=weights_data.cycle_id,
+            n_miners=len(weights_data.weights),
         )
 
-        # 5. Compute winners-take-all scores
-        epsilons = {
-            env_id: float(pareto_result.epsilons[i]) for i, env_id in enumerate(self.env_ids)
-        }
-
-        subset_scores = compute_subset_scores(
-            miner_scores=miner_scores,
-            env_ids=self.env_ids,
-            epsilons=epsilons,
-        )
-
-        # 6. Convert to weights
-        weights = scores_to_weights(
-            subset_scores,
-            temperature=self.config.pareto_temperature,
-        )
-
-        # Log top weights
-        sorted_weights = sorted(weights.items(), key=lambda x: x[1], reverse=True)
-        logger.info(
-            "weights_computed",
-            top_5=sorted_weights[:5],
-            total_miners=len(weights),
-        )
-
-        # 7. Set weights on chain
+        # Submit weights to chain
         success = set_weights(
             subtensor=self.subtensor,
             wallet=self.wallet,
             netuid=self.config.netuid,
-            weights=weights,
+            weights=weights_data.weights,
         )
 
         if success:
-            logger.info("weights_set_successfully", block=block)
+            self._last_submitted_block = weights_data.block_number
+            logger.info(
+                "weights_submitted",
+                block=weights_data.block_number,
+                n_miners=len(weights_data.weights),
+            )
         else:
-            logger.error("weights_set_failed", block=block)
+            logger.error("weights_submission_failed", block=weights_data.block_number)
+
+    async def close(self) -> None:
+        """Clean up resources."""
+        await self.client.close()
 
 
-async def run_validator(config: ValidatorConfig):
+async def run_validator(
+    config: ValidatorConfig,
+    backend_url: str,
+) -> None:
     """
     Entry point for running the validator.
 
     Args:
         config: Validator configuration
+        backend_url: URL of the evaluation backend
     """
-    validator = Validator(config)
-    await validator.run()
+    validator = Validator(config, backend_url)
+    try:
+        await validator.run()
+    finally:
+        await validator.close()

@@ -2,7 +2,70 @@ version: "3.8"
 
 services:
   # ==========================================================================
-  # VALIDATOR
+  # POSTGRESQL DATABASE
+  # ==========================================================================
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-robo}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================================================
+  # EVALUATION BACKEND
+  # ==========================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      robo backend
+      --host 0.0.0.0
+      --port 8000
+      --database-url postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-robo}
+      --network ${NETWORK:-finney}
+      --netuid ${NETUID}
+      --eval-interval ${EVAL_INTERVAL:-3600}
+      --episodes-per-env ${EPISODES_PER_ENV:-50}
+      --log-level ${LOG_LEVEL:-INFO}
+    environment:
+      - ROBO_BACKEND_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-robo}
+      - ROBO_BACKEND_NETWORK=${NETWORK:-finney}
+      - ROBO_BACKEND_NETUID=${NETUID}
+      - ROBO_BACKEND_BASILICA_API_TOKEN=${BASILICA_API_TOKEN:-}
+      - MUJOCO_GL=egl
+    volumes:
+      # Mount Docker socket for Basilica local mode
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "8"
+          memory: 32G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ==========================================================================
+  # VALIDATOR (Lightweight - just sets weights)
   # ==========================================================================
   validator:
     build:
@@ -10,31 +73,28 @@ services:
       dockerfile: Dockerfile
     command: >
       robo validate
+      --backend-url http://backend:8000
       --network ${NETWORK:-finney}
       --netuid ${NETUID}
       --wallet-name ${WALLET_NAME:-default}
       --hotkey-name ${HOTKEY_NAME:-default}
-      --episodes-per-env ${EPISODES_PER_ENV:-50}
-      --eval-interval ${EVAL_INTERVAL:-3600}
       --log-level ${LOG_LEVEL:-INFO}
     environment:
       - ROBO_NETWORK=${NETWORK:-finney}
       - ROBO_NETUID=${NETUID}
       - ROBO_WALLET_NAME=${WALLET_NAME:-default}
       - ROBO_HOTKEY_NAME=${HOTKEY_NAME:-default}
-      - ROBO_BASILICA_API_TOKEN=${BASILICA_API_TOKEN:-}
-      - ROBO_CHUTES_API_KEY=${CHUTES_API_KEY:-}
     volumes:
       # Mount wallet for signing
       - ${HOME}/.bittensor:/root/.bittensor:ro
-      # Mount Docker socket for Basilica local mode
-      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - backend
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: "4"
-          memory: 16G
+          cpus: "1"
+          memory: 2G
 
   # ==========================================================================
   # PROMETHEUS (Optional - Metrics)
@@ -73,5 +133,6 @@ services:
       - monitoring
 
 volumes:
+  postgres_data:
   prometheus_data:
   grafana_data:
