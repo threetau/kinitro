@@ -147,6 +147,22 @@ class RoboticsEvaluator:
 
             # Run in thread so it can be cancelled
             self._env = await asyncio.to_thread(self._load_env_sync, load_kwargs)
+
+            # Warm-up call to initialize the Actor's event loop context.
+            # The first call to affinetes often fails with "Event bound to different
+            # event loop" due to asyncio initialization timing. This is expected and
+            # harmless - subsequent calls will work correctly.
+            logger.info("warmup_call_starting", reason="absorb potential asyncio init error")
+            try:
+                await self._env.list_environments()
+                logger.info("warmup_call_succeeded")
+            except Exception as e:
+                logger.info(
+                    "warmup_call_absorbed_expected_error",
+                    error=str(e)[:100],
+                    note="This is expected on first call and does not affect evaluations",
+                )
+
             logger.info("eval_environment_loaded")
             return self._env
 

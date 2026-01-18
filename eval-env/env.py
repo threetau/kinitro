@@ -17,7 +17,6 @@ Usage (from backend):
     )
 """
 
-import asyncio
 import time
 
 import httpx
@@ -39,19 +38,15 @@ class Actor:
     def __init__(self):
         """Initialize the evaluation actor."""
         self._env_cache = {}
-        self._http_client = None
+        # Don't cache the HTTP client - create fresh for each evaluation
+        # to avoid event loop binding issues when affinetes calls methods
+        # from different event loops
 
     def _get_env(self, env_id: str):
         """Get or create a robotics environment."""
         if env_id not in self._env_cache:
             self._env_cache[env_id] = get_environment(env_id)
         return self._env_cache[env_id]
-
-    async def _get_http_client(self, timeout: float = 30.0) -> httpx.AsyncClient:
-        """Get or create HTTP client for miner requests."""
-        if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=5.0))
-        return self._http_client
 
     async def _call_miner(
         self,
@@ -72,12 +67,13 @@ class Actor:
         Returns:
             JSON response from miner
         """
-        client = await self._get_http_client(timeout)
         url = f"{base_url.rstrip('/')}/{endpoint}"
 
-        resp = await client.post(url, json=payload)
-        resp.raise_for_status()
-        return resp.json()
+        # Create a fresh client for each call to avoid event loop binding issues
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=5.0)) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            return resp.json()
 
     async def list_environments(self) -> list[str]:
         """List available robotics environments."""
@@ -135,27 +131,20 @@ class Actor:
         start_time = time.time()
 
         try:
-            return await asyncio.wait_for(
-                self._run_evaluation(
-                    task_id=task_id,
-                    seed=seed,
-                    model=model,
-                    base_url=base_url,
-                    env_id=env_id,
-                    max_timesteps=max_timesteps,
-                    action_timeout=action_timeout,
-                    use_images=use_images,
-                    start_time=start_time,
-                ),
-                timeout=timeout,
-            )
-        except TimeoutError:
-            return self._build_error_result(
-                env_id=env_id,
+            # Don't use asyncio.wait_for as it can cause event loop binding issues
+            # when called from affinetes' HTTP server context. Instead, we rely on
+            # individual HTTP call timeouts and the max_timesteps limit.
+            return await self._run_evaluation(
                 task_id=task_id,
                 seed=seed,
+                model=model,
+                base_url=base_url,
+                env_id=env_id,
+                max_timesteps=max_timesteps,
+                action_timeout=action_timeout,
+                use_images=use_images,
                 start_time=start_time,
-                error=f"Evaluation timeout after {timeout}s",
+                overall_timeout=timeout,
             )
         except Exception as e:
             import traceback
@@ -179,6 +168,7 @@ class Actor:
         action_timeout: float,
         use_images: bool,
         start_time: float,
+        overall_timeout: int = 300,
     ) -> dict:
         """Internal evaluation loop."""
 
@@ -220,6 +210,17 @@ class Actor:
         action_times = []
 
         for t in range(max_timesteps):
+            # Check overall timeout
+            if time.time() - start_time > overall_timeout:
+                return self._build_error_result(
+                    env_id=env_id,
+                    task_id=task_id,
+                    seed=seed,
+                    start_time=start_time,
+                    error=f"Evaluation timeout after {overall_timeout}s",
+                    extra={"timesteps_completed": t},
+                )
+
             # Build request payload
             payload = {"observation": obs.tolist()}
 
@@ -330,10 +331,7 @@ class Actor:
 
     async def cleanup(self):
         """Cleanup resources."""
-        # Close HTTP client
-        if self._http_client is not None:
-            await self._http_client.aclose()
-            self._http_client = None
+        # HTTP clients are now created per-request, no need to close here
 
         # Close environments
         for env in self._env_cache.values():
