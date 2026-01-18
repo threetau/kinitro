@@ -81,23 +81,60 @@ def _query_commitment_by_hotkey(subtensor, netuid: int, hotkey: str) -> str | No
     """
     try:
         result = subtensor.substrate.query("Commitments", "CommitmentOf", [netuid, hotkey])
-        if result and result.value:
-            # The commitment is stored as bytes, decode to string
-            if isinstance(result.value, dict) and "info" in result.value:
-                # Handle structured commitment format
-                info = result.value.get("info", {})
-                fields = info.get("fields", [])
-                if fields and len(fields) > 0:
-                    # Extract the data field
-                    data = fields[0].get("Data", b"")
-                    if isinstance(data, bytes):
-                        return data.decode("utf-8", errors="ignore")
-                    elif isinstance(data, str):
-                        return data
-            elif isinstance(result.value, (bytes, bytearray)):
-                return result.value.decode("utf-8", errors="ignore")
-            elif isinstance(result.value, str):
-                return result.value
+        
+        # Handle different result types
+        if result is None:
+            return None
+            
+        # Result might be a dict directly (newer substrate interface)
+        if isinstance(result, dict):
+            data = result
+        elif hasattr(result, 'value'):
+            data = result.value
+        else:
+            return None
+            
+        if not data:
+            return None
+            
+        # Handle structured commitment format: {'deposit': ..., 'block': ..., 'info': {'fields': ...}}
+        if isinstance(data, dict) and "info" in data:
+            info = data.get("info", {})
+            fields = info.get("fields", ())
+            
+            if fields and len(fields) > 0:
+                # First field contains the raw data
+                first_field = fields[0]
+                
+                # Handle tuple format: ({'Raw94': ((bytes...),)},)
+                if isinstance(first_field, tuple) and len(first_field) > 0:
+                    first_field = first_field[0]
+                
+                # Extract bytes from various formats
+                if isinstance(first_field, dict):
+                    # Format: {'RawXX': ((bytes...),)} or {'Data': bytes}
+                    for key, value in first_field.items():
+                        if key.startswith('Raw') or key == 'Data':
+                            # Extract the bytes tuple
+                            if isinstance(value, tuple) and len(value) > 0:
+                                byte_data = value[0]
+                                if isinstance(byte_data, (list, tuple)):
+                                    return bytes(byte_data).decode("utf-8", errors="ignore")
+                            elif isinstance(value, (bytes, bytearray)):
+                                return value.decode("utf-8", errors="ignore")
+                            elif isinstance(value, str):
+                                return value
+                elif isinstance(first_field, (bytes, bytearray)):
+                    return first_field.decode("utf-8", errors="ignore")
+                elif isinstance(first_field, str):
+                    return first_field
+                    
+        # Handle simple formats
+        elif isinstance(data, (bytes, bytearray)):
+            return data.decode("utf-8", errors="ignore")
+        elif isinstance(data, str):
+            return data
+            
         return None
     except Exception as e:
         logger.debug("commitment_query_failed", hotkey=hotkey[:16], error=str(e))
@@ -197,11 +234,16 @@ def commit_model(
         commitment = f"{repo}:{revision}:{chute_id}"
 
     try:
-        success = subtensor.set_commitment(
+        result = subtensor.set_commitment(
             wallet=wallet,
             netuid=netuid,
-            commitment=commitment,
+            data=commitment,
+            wait_for_inclusion=True,
+            wait_for_finalization=False,
+            wait_for_revealed_execution=False,  # Don't wait for reveal phase
         )
+        # Handle both bool and ExtrinsicResponse return types
+        success = bool(result) if not hasattr(result, 'is_success') else result.is_success
         if success:
             logger.info(
                 "commitment_submitted",
