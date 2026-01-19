@@ -43,72 +43,59 @@ This rewards true generalists over specialists.
 
 The subnet uses a **separated backend/validator architecture** with miners deployed on **Chutes**:
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                              BITTENSOR CHAIN                                 │
-│  - Miner commitments (HuggingFace repo + Chutes endpoint)                    │
-│  - Validator weight submissions                                              │
-└───────────────────────────────┬──────────────────────────────────────────────┘
-                                │
-        ┌───────────────────────┴───────────────────────┐
-        │                                               │
-        ▼                                               ▼
-┌───────────────────────────────────┐   ┌───────────────────────────────────┐
-│       EVALUATION BACKEND          │   │          VALIDATOR(S)             │
-│      (Compute-heavy, GPU)         │   │         (Lightweight)             │
-├───────────────────────────────────┤   ├───────────────────────────────────┤
-│  - PostgreSQL database            │   │  - Polls backend for weights      │
-│  - Background eval scheduler      │   │  - Submits weights to chain       │
-│  - REST API for weights/scores    │   │  - No GPU required                │
-│  - Reads miner commits from chain │   └───────────────┬───────────────────┘
-│  - Runs MuJoCo simulation (GPU)   │                   │
-└───────────────┬───────────────────┘                   │
-                │                                       │
-                │ HTTP (get actions)          HTTP (get weights)
-                ▼                                       │
-┌───────────────────────────────────┐                   │
-│             CHUTES                │                   │
-│    (Decentralized GPU Cloud)      │                   │
-├───────────────────────────────────┤                   │
-│  ┌─────────────────────────────┐  │                   │
-│  │  Miner Policy Server (GPU)  │  │                   │
-│  │  - /reset: Start episode    │  │                   │
-│  │  - /act: Return action      │  │                   │
-│  │  - Runs inference on GPU    │  │                   │
-│  └─────────────────────────────┘  │                   │
-│                                   │                   │
-│  (Multiple miners, each with     │                   │
-│   their own policy deployment)   │                   │
-└───────────────────────────────────┘                   │
-                                                        │
-                    ┌───────────────────────────────────┘
-                    ▼
-        ┌───────────────────────┐
-        │   WEIGHT SUBMISSION   │
-        │   (to Bittensor)      │
-        └───────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Chain["Bittensor Chain"]
+        Commitments[("Miner Commitments<br/>(HuggingFace repo + Chutes endpoint)")]
+        Weights[("Validator Weights")]
+    end
+
+    subgraph Backend["Evaluation Backend (GPU)"]
+        Scheduler["Background Scheduler"]
+        API["REST API"]
+        DB[("PostgreSQL<br/>Scores & Weights")]
+        EvalEnv["Eval Environment<br/>(MuJoCo + MetaWorld)"]
+    end
+
+    subgraph Validators["Validator(s) (Lightweight)"]
+        V1["Validator 1"]
+        V2["Validator 2"]
+        Vn["Validator N"]
+    end
+
+    subgraph Chutes["Chutes (Decentralized GPU Cloud)"]
+        M1["Miner 1 Policy Server<br/>/reset, /act"]
+        M2["Miner 2 Policy Server<br/>/reset, /act"]
+        Mn["Miner N Policy Server<br/>/reset, /act"]
+    end
+
+    %% Miner registration flow
+    M1 & M2 & Mn -->|"1. Commit endpoint"| Commitments
+
+    %% Backend reads commitments
+    Commitments -->|"2. Read commitments"| Scheduler
+
+    %% Evaluation flow
+    Scheduler -->|"3. Start eval cycle"| EvalEnv
+    EvalEnv -->|"4. Get actions<br/>(obs → action)"| M1 & M2 & Mn
+    EvalEnv -->|"5. Store scores"| DB
+    DB -->|"6. Compute Pareto weights"| API
+
+    %% Validator flow
+    API -->|"7. GET /v1/weights/latest"| V1 & V2 & Vn
+    V1 & V2 & Vn -->|"8. Submit weights"| Weights
 ```
 
 ### Evaluation Flow
 
-1. **Miners** deploy their policy servers to **Chutes** and commit their endpoint on-chain
-2. **Backend** reads miner commitments from chain, discovers Chutes endpoints
-3. **Backend** runs MuJoCo simulation and calls miner endpoints for actions
-4. **Backend** computes ε-Pareto scores and exposes weights via REST API
-5. **Validators** poll the backend and submit weights to chain
-
-### Why Chutes?
-
-- **Decentralized**: No single point of failure for miner policies
-- **GPU access**: Miners can run large vision models for inference
-- **Verifiable**: Endpoint tied to HuggingFace repo + commit SHA
-- **Scalable**: Automatic scaling based on evaluation load
-
-This separation allows:
-- Heavy evaluation to run on dedicated GPU hardware
-- Multiple validators to share evaluation infrastructure  
-- Miners to run GPU inference without hosting their own servers
-- Easier scaling and debugging
+1. **Miners** deploy policy servers to **Chutes** and commit their endpoint on-chain
+2. **Backend** reads miner commitments from chain to discover Chutes endpoints
+3. **Backend scheduler** starts evaluation cycle (triggered periodically)
+4. **Eval environment** runs MuJoCo simulation, calls each miner's `/act` endpoint
+5. **Scores** are stored in PostgreSQL after each evaluation
+6. **Pareto weights** are computed from scores and exposed via REST API
+7. **Validators** poll `GET /v1/weights/latest` to fetch computed weights
+8. **Validators** submit weights to Bittensor chain
 
 ## Quick Start
 
