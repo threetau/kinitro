@@ -35,9 +35,12 @@ def get_miner_endpoint(miner: MinerCommitment) -> str:
     """
     Build miner's base URL from commitment.
 
-    Miners can deploy to:
-    1. Chutes: chute_id -> https://{slug}.chutes.ai
-    2. Self-hosted: chute_id can be a full URL (http://... or https://...)
+    Miners must deploy to Chutes. The chute_id can be:
+    1. A Chutes slug -> https://{slug}.chutes.ai
+    2. A full URL for testing (http://... or https://...)
+
+    Note: docker_image is not supported for production evaluations.
+    Miners must deploy their policy server to Chutes.
     """
     if miner.chute_id:
         # If chute_id is already a URL, use it directly (for testing/self-hosted)
@@ -49,7 +52,8 @@ def get_miner_endpoint(miner: MinerCommitment) -> str:
         return f"https://{slug}.chutes.ai"
 
     raise ValueError(
-        f"Miner {miner.uid} has no chute_id. Miners must deploy their policy to Chutes."
+        f"Miner {miner.uid} has no chute_id. "
+        f"Miners must deploy their policy to Chutes (docker_image alone is not supported)."
     )
 
 

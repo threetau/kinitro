@@ -21,10 +21,12 @@ class MinerCommitment:
 
     @property
     def is_valid(self) -> bool:
-        """Check if commitment has all required fields."""
-        return bool(
-            self.huggingface_repo and self.revision_sha and (self.chute_id or self.docker_image)
-        )
+        """Check if commitment has all required fields.
+        
+        Miners must deploy to Chutes - docker_image alone is not sufficient
+        for production evaluations.
+        """
+        return bool(self.huggingface_repo and self.revision_sha and self.chute_id)
 
 
 def parse_commitment(raw: str) -> dict:

@@ -1,4 +1,14 @@
-"""Parallel evaluation orchestration for multiple miners and environments."""
+"""Parallel evaluation orchestration for multiple miners and environments.
+
+.. deprecated::
+    This module is deprecated in favor of the split architecture:
+    - kinitro.scheduler: Task generation and scoring
+    - kinitro.executor: MuJoCo evaluations via affinetes
+    - kinitro.api: REST API and task pool management
+
+    This module remains for backwards compatibility and local testing only.
+    Production deployments should use the split architecture with Chutes.
+"""
 
 import asyncio
 import uuid
