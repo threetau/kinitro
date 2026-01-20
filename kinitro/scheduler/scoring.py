@@ -79,7 +79,13 @@ def compute_weights(
 
     Returns:
         Tuple of (weights_dict, weights_u16_dict)
+
+    Raises:
+        ValueError: If pareto_temperature is not positive
     """
+    if pareto_temperature <= 0:
+        raise ValueError("pareto_temperature must be > 0")
+
     # Compute Pareto frontier
     pareto_result = compute_pareto_frontier(
         miner_scores=miner_scores,

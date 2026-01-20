@@ -145,7 +145,20 @@ class Scheduler:
             )
 
             # 3. Wait for tasks to complete
-            await self._wait_for_cycle_completion(cycle_id)
+            cycle_completed = await self._wait_for_cycle_completion(cycle_id)
+
+            if not cycle_completed:
+                # Cycle timed out - fail it and don't publish partial weights
+                async with self.storage.session() as session:
+                    await self.storage.fail_cycle(
+                        session, cycle_id, "Cycle timed out waiting for tasks"
+                    )
+                logger.error(
+                    "evaluation_cycle_timeout",
+                    cycle_id=cycle_id,
+                    timeout_seconds=self.config.cycle_timeout_seconds,
+                )
+                return
 
             # 4. Aggregate results and compute scores
             async with self.storage.session() as session:
@@ -198,8 +211,13 @@ class Scheduler:
                 await self.storage.fail_cycle(session, cycle_id, str(e))
             raise
 
-    async def _wait_for_cycle_completion(self, cycle_id: int) -> None:
-        """Wait for all tasks in a cycle to complete."""
+    async def _wait_for_cycle_completion(self, cycle_id: int) -> bool:
+        """
+        Wait for all tasks in a cycle to complete.
+
+        Returns:
+            True if cycle completed successfully, False if timed out.
+        """
         start_time = time.time()
         timeout = self.config.cycle_timeout_seconds
         check_interval = 10  # seconds
@@ -209,7 +227,7 @@ class Scheduler:
             async with self.storage.session() as session:
                 if await self.storage.is_cycle_complete(session, cycle_id):
                     logger.info("cycle_tasks_complete", cycle_id=cycle_id)
-                    return
+                    return True
 
                 # Reassign stale tasks
                 stale_count = await self.storage.reassign_stale_tasks(
@@ -240,7 +258,7 @@ class Scheduler:
                     cycle_id=cycle_id,
                     timeout_seconds=timeout,
                 )
-                break
+                return False
 
             # Wait before next check
             await asyncio.sleep(check_interval)

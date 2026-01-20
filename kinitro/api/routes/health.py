@@ -1,6 +1,7 @@
 """Health and status routes."""
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from kinitro.backend.models import (
@@ -16,9 +17,13 @@ router = APIRouter(tags=["Health"])
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check(storage: Storage = Depends(get_storage)):
+async def health_check(session: AsyncSession = Depends(get_session)):
     """Health check endpoint."""
-    db_status = "connected" if storage is not None else "disconnected"
+    try:
+        await session.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception:
+        db_status = "disconnected"
     return HealthResponse(
         status="ok",
         version="0.1.0",
