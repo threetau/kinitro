@@ -98,9 +98,6 @@ async def submit_tasks(
                 rejected += 1
                 errors.append(f"Task {result.task_uuid}: not found or not assigned to executor")
         except Exception as e:
-            # Rollback to clear the failed transaction state so subsequent
-            # operations can proceed
-            await session.rollback()
             rejected += 1
             errors.append(f"Task {result.task_uuid}: {str(e)}")
 
