@@ -92,12 +92,12 @@ class TestGenerateSeed:
 
         assert seed1 != seed2
 
-    def test_32bit_unsigned(self):
-        """Seed should be 32-bit unsigned integer."""
+    def test_positive_31bit(self):
+        """Seed should be positive 31-bit integer (fits PostgreSQL int4)."""
         for _ in range(100):
             task_uuid = str(uuid.uuid4())
             seed = generate_seed(task_uuid)
-            assert 0 <= seed <= 0xFFFFFFFF
+            assert 0 <= seed <= 0x7FFFFFFF
 
     def test_consistent_across_calls(self):
         """Same UUID should produce same seed across multiple calls."""

@@ -24,10 +24,11 @@ def generate_seed(task_uuid: str) -> int:
         task_uuid: Random UUID assigned to the task
 
     Returns:
-        32-bit integer seed
+        Positive 32-bit signed integer seed (0 to 2^31-1)
     """
     hash_bytes = hashlib.sha256(task_uuid.encode()).digest()[:4]
-    return int.from_bytes(hash_bytes, byteorder="big")
+    # Mask to 31 bits to fit PostgreSQL signed int4 (max 2,147,483,647)
+    return int.from_bytes(hash_bytes, byteorder="big") & 0x7FFFFFFF
 
 
 def get_miner_endpoint(miner: MinerCommitment) -> str:
