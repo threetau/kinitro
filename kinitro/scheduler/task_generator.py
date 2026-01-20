@@ -10,24 +10,23 @@ from kinitro.chain.commitments import MinerCommitment
 logger = structlog.get_logger()
 
 
-def generate_seed(cycle_id: int, env_id: str, miner_uid: int, episode: int) -> int:
+def generate_seed(task_uuid: str) -> int:
     """
-    Generate a deterministic seed using SHA256.
+    Generate a deterministic seed from task UUID.
 
-    The seed is deterministic given the same inputs, ensuring reproducibility.
-    Uses SHA256 instead of hash() for consistency across Python processes.
+    The UUID is random (unpredictable by miners), but the seed derived from it
+    is deterministic - given the same task_uuid, you always get the same seed.
+    This provides:
+    - Unpredictability: miners can't pre-compute seeds for future tasks
+    - Reproducibility: same task_uuid always produces same environment
 
     Args:
-        cycle_id: Evaluation cycle ID
-        env_id: Environment identifier
-        miner_uid: Miner's UID
-        episode: Episode number within the evaluation
+        task_uuid: Random UUID assigned to the task
 
     Returns:
         32-bit integer seed
     """
-    seed_string = f"{cycle_id}:{env_id}:{miner_uid}:{episode}"
-    hash_bytes = hashlib.sha256(seed_string.encode()).digest()[:4]
+    hash_bytes = hashlib.sha256(task_uuid.encode()).digest()[:4]
     return int.from_bytes(hash_bytes, byteorder="big")
 
 
@@ -64,8 +63,12 @@ def generate_tasks(
     Generate evaluation tasks for all miners and environments.
 
     Each task gets:
-    - task_uuid: Random UUID for tracking (unpredictable, unique)
-    - seed: Deterministic seed from SHA256 for reproducibility
+    - task_uuid: Random UUID (unpredictable by miners)
+    - seed: Derived from task_uuid via SHA256 (deterministic given UUID)
+
+    This design ensures:
+    - Miners cannot predict future seeds (UUID is random)
+    - Evaluations are reproducible (same UUID = same seed = same environment)
 
     Args:
         miners: List of miner commitments
@@ -88,11 +91,12 @@ def generate_tasks(
 
         for env_id in env_ids:
             for i in range(episodes_per_env):
-                # Generate random UUID for task tracking (unpredictable)
+                # Generate random UUID - this is the source of unpredictability
                 task_uuid = str(uuid.uuid4())
 
-                # Generate deterministic seed using SHA256 (reproducible)
-                seed = generate_seed(cycle_id, env_id, miner.uid, i)
+                # Derive seed from UUID - deterministic, but unpredictable
+                # since it depends on the random UUID
+                seed = generate_seed(task_uuid)
 
                 tasks.append(
                     {
