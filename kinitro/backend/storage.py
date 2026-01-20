@@ -344,16 +344,21 @@ class Storage:
             Number of tasks created
         """
         for task_data in tasks:
-            task = TaskPoolORM(
-                task_uuid=task_data["task_uuid"],
-                cycle_id=task_data["cycle_id"],
-                miner_uid=task_data["miner_uid"],
-                miner_hotkey=task_data["miner_hotkey"],
-                miner_endpoint=task_data["miner_endpoint"],
-                env_id=task_data["env_id"],
-                seed=task_data["seed"],
-                status=TaskStatus.PENDING.value,
-            )
+            # Build kwargs, only including task_uuid if provided
+            # (passing None explicitly would violate NOT NULL constraint)
+            task_kwargs = {
+                "cycle_id": task_data["cycle_id"],
+                "miner_uid": task_data["miner_uid"],
+                "miner_hotkey": task_data["miner_hotkey"],
+                "miner_endpoint": task_data["miner_endpoint"],
+                "env_id": task_data["env_id"],
+                "seed": task_data["seed"],
+                "status": TaskStatus.PENDING.value,
+            }
+            task_uuid = task_data.get("task_uuid")
+            if task_uuid is not None:
+                task_kwargs["task_uuid"] = task_uuid
+            task = TaskPoolORM(**task_kwargs)
             session.add(task)
         logger.info("tasks_created_bulk", count=len(tasks))
         return len(tasks)
@@ -450,6 +455,15 @@ class Storage:
                 task_uuid=task_uuid,
                 expected=task.assigned_to,
                 actual=executor_id,
+            )
+            return False
+
+        # Only accept results for actively assigned tasks (prevent double-submit)
+        if task.status != TaskStatus.ASSIGNED.value:
+            logger.warning(
+                "task_not_assigned",
+                task_uuid=task_uuid,
+                status=task.status,
             )
             return False
 
