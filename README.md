@@ -268,35 +268,62 @@ The API service exposes these endpoints:
 ```
 kinitro/
 ├── kinitro/
-│   ├── api/              # API service (REST endpoints, task pool)
-│   │   ├── app.py        # FastAPI application
-│   │   ├── config.py     # API configuration
-│   │   ├── deps.py       # Dependency injection
-│   │   └── routes/       # Route handlers
-│   ├── scheduler/        # Scheduler service (task generation, scoring)
-│   │   ├── main.py       # Scheduler loop
-│   │   ├── config.py     # Scheduler configuration
-│   │   ├── task_generator.py
-│   │   └── scoring.py
-│   ├── executor/         # Executor service (MuJoCo evaluations)
-│   │   ├── main.py       # Executor loop
-│   │   ├── config.py     # Executor configuration
-│   │   ├── worker.py     # Evaluation worker (affinetes)
-│   │   └── api_client.py # HTTP client for API
-│   ├── backend/          # Monolithic backend (combines all services)
-│   │   ├── app.py        # FastAPI application
-│   │   ├── scheduler.py  # Background evaluation loop
-│   │   ├── evaluator.py  # Direct evaluation (no task pool)
-│   │   ├── storage.py    # PostgreSQL storage layer
-│   │   └── models.py     # Database & API models
-│   ├── environments/     # Robotics environment wrappers
-│   │   └── metaworld_env.py
-│   ├── scoring/          # ε-Pareto dominance and weights
-│   ├── chain/            # Bittensor chain integration
-│   ├── validator/        # Lightweight validator client
-│   └── miner/            # Miner templates
-├── eval-env/             # Evaluation environment (runs in Docker)
+│   ├── api/                  # API service (REST endpoints, task pool)
+│   │   ├── app.py            # FastAPI application
+│   │   ├── config.py         # API configuration
+│   │   ├── deps.py           # Dependency injection
+│   │   └── routes/           # Route handlers
+│   │       ├── health.py     # Health check endpoints
+│   │       ├── miners.py     # Miner info endpoints
+│   │       ├── scores.py     # Score endpoints
+│   │       ├── tasks.py      # Task pool endpoints
+│   │       └── weights.py    # Weight endpoints
+│   ├── scheduler/            # Scheduler service (task generation, scoring)
+│   │   ├── main.py           # Scheduler loop
+│   │   ├── config.py         # Scheduler configuration
+│   │   ├── task_generator.py # Task and seed generation
+│   │   └── scoring.py        # Pareto scoring utilities
+│   ├── executor/             # Executor service (MuJoCo evaluations)
+│   │   ├── main.py           # Executor loop
+│   │   ├── config.py         # Executor configuration
+│   │   ├── worker.py         # Evaluation worker (affinetes)
+│   │   └── api_client.py     # HTTP client for API
+│   ├── backend/              # Monolithic backend (combines all services)
+│   │   ├── app.py            # FastAPI application
+│   │   ├── config.py         # Backend configuration
+│   │   ├── routes.py         # REST API routes
+│   │   ├── scheduler.py      # Background evaluation loop
+│   │   ├── evaluator.py      # Direct evaluation (no task pool)
+│   │   ├── storage.py        # PostgreSQL storage layer
+│   │   └── models.py         # Database & API models
+│   ├── environments/         # Robotics environment wrappers
+│   │   ├── base.py           # Base environment interface
+│   │   ├── registry.py       # Environment registry
+│   │   ├── metaworld_env.py  # MetaWorld wrapper
+│   │   └── procedural.py     # Procedural generation utilities
+│   ├── evaluation/           # Evaluation orchestration
+│   │   ├── parallel.py       # Parallel miner evaluation
+│   │   ├── rollout.py        # Episode rollout logic
+│   │   └── metrics.py        # Evaluation metrics
+│   ├── scoring/              # ε-Pareto dominance and weights
+│   │   ├── pareto.py         # Pareto frontier computation
+│   │   └── winners_take_all.py # Subset scoring
+│   ├── chain/                # Bittensor chain integration
+│   │   ├── commitments.py    # Miner commitment reading
+│   │   └── weights.py        # Weight submission
+│   ├── validator/            # Lightweight validator client
+│   │   ├── client.py         # API client for weights
+│   │   └── main.py           # Validator loop
+│   ├── miner/                # Miner templates
+│   │   └── template/         # Policy server template
+│   │       ├── server.py     # FastAPI server
+│   │       ├── policy.py     # Policy interface
+│   │       └── env.py        # Environment utilities
+│   ├── cli.py                # CLI commands
+│   └── config.py             # Global configuration
+├── eval-env/                 # Evaluation environment (runs in Docker)
 ├── tests/
+│   └── unit/                 # Unit tests
 └── pyproject.toml
 ```
 
