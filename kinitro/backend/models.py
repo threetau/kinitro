@@ -1,5 +1,6 @@
 """Database models for the evaluation backend."""
 
+import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -19,6 +20,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship
+
+
+def generate_task_uuid() -> str:
+    """Generate a unique task UUID."""
+    return str(uuid.uuid4())
 
 # =============================================================================
 # SQLAlchemy ORM Models
@@ -124,11 +130,18 @@ class TaskPoolORM(Base):
 
     Tasks are created by the scheduler and executed by executors.
     This enables horizontal scaling of evaluation workloads.
+
+    The two-tier ID system:
+    - task_uuid: Random UUID for task tracking/API calls (unpredictable)
+    - seed: Deterministic seed for environment reproducibility
     """
 
     __tablename__ = "task_pool"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    task_uuid = Column(
+        String(36), nullable=False, unique=True, default=generate_task_uuid
+    )  # Random UUID for tracking
     cycle_id = Column(
         Integer, ForeignKey("evaluation_cycles.id", ondelete="CASCADE"), nullable=False
     )
@@ -136,7 +149,7 @@ class TaskPoolORM(Base):
     miner_hotkey = Column(String(64), nullable=False)
     miner_endpoint = Column(Text, nullable=False)  # Base URL for miner policy
     env_id = Column(String(64), nullable=False)
-    task_id = Column(Integer, nullable=False)  # Seed for reproducibility
+    seed = Column(Integer, nullable=False)  # Deterministic seed for reproducibility
     status = Column(String(20), nullable=False, default=TaskStatus.PENDING.value)
     assigned_to = Column(String(64), nullable=True)  # Executor ID
     assigned_at = Column(DateTime, nullable=True)
@@ -151,6 +164,7 @@ class TaskPoolORM(Base):
         Index("idx_task_pool_status", "status"),
         Index("idx_task_pool_cycle", "cycle_id"),
         Index("idx_task_pool_miner", "miner_uid"),
+        Index("idx_task_pool_uuid", "task_uuid"),
     )
 
 
@@ -265,13 +279,13 @@ class EnvironmentInfo(BaseModel):
 class Task(BaseModel):
     """A single evaluation task from the task pool."""
 
-    id: int
+    task_uuid: str  # Unique identifier for API calls
     cycle_id: int
     miner_uid: int
     miner_hotkey: str
     miner_endpoint: str
     env_id: str
-    task_id: int  # Seed for reproducibility
+    seed: int  # Deterministic seed for reproducibility
     status: str
     created_at: datetime
 
@@ -297,7 +311,7 @@ class TaskFetchResponse(BaseModel):
 class TaskResult(BaseModel):
     """Result of a single task execution."""
 
-    task_id: int = Field(description="Database ID of the task")
+    task_uuid: str = Field(description="UUID of the task")
     success: bool
     score: float = Field(default=0.0)
     total_reward: float = Field(default=0.0)

@@ -306,16 +306,18 @@ class Storage:
         miner_hotkey: str,
         miner_endpoint: str,
         env_id: str,
-        task_id: int,
+        seed: int,
+        task_uuid: str | None = None,
     ) -> TaskPoolORM:
         """Create a new task in the task pool."""
         task = TaskPoolORM(
+            task_uuid=task_uuid,  # Will use default if None
             cycle_id=cycle_id,
             miner_uid=miner_uid,
             miner_hotkey=miner_hotkey,
             miner_endpoint=miner_endpoint,
             env_id=env_id,
-            task_id=task_id,
+            seed=seed,
             status=TaskStatus.PENDING.value,
         )
         session.add(task)
@@ -331,20 +333,21 @@ class Storage:
 
         Args:
             session: Database session
-            tasks: List of task dicts with keys: cycle_id, miner_uid, miner_hotkey,
-                   miner_endpoint, env_id, task_id
+            tasks: List of task dicts with keys: task_uuid, cycle_id, miner_uid,
+                   miner_hotkey, miner_endpoint, env_id, seed
 
         Returns:
             Number of tasks created
         """
         for task_data in tasks:
             task = TaskPoolORM(
+                task_uuid=task_data["task_uuid"],
                 cycle_id=task_data["cycle_id"],
                 miner_uid=task_data["miner_uid"],
                 miner_hotkey=task_data["miner_hotkey"],
                 miner_endpoint=task_data["miner_endpoint"],
                 env_id=task_data["env_id"],
-                task_id=task_data["task_id"],
+                seed=task_data["seed"],
                 status=TaskStatus.PENDING.value,
             )
             session.add(task)
@@ -404,7 +407,7 @@ class Storage:
     async def submit_task_result(
         self,
         session: AsyncSession,
-        task_id: int,
+        task_uuid: str,
         executor_id: str,
         success: bool,
         score: float,
@@ -416,7 +419,7 @@ class Storage:
 
         Args:
             session: Database session
-            task_id: Database ID of the task
+            task_uuid: UUID of the task
             executor_id: ID of the executor submitting the result
             success: Whether the task completed successfully
             score: Score/success rate for the task
@@ -428,28 +431,27 @@ class Storage:
             True if result was accepted, False if rejected
         """
         result = await session.execute(
-            select(TaskPoolORM).where(TaskPoolORM.id == task_id).with_for_update()
+            select(TaskPoolORM).where(TaskPoolORM.task_uuid == task_uuid).with_for_update()
         )
         task = result.scalar_one_or_none()
 
         if task is None:
-            logger.warning("task_not_found", task_id=task_id)
+            logger.warning("task_not_found", task_uuid=task_uuid)
             return False
 
         # Verify executor owns this task
         if task.assigned_to != executor_id:
             logger.warning(
                 "task_executor_mismatch",
-                task_id=task_id,
+                task_uuid=task_uuid,
                 expected=task.assigned_to,
                 actual=executor_id,
             )
             return False
 
         # Update task with result
-        task.status = (
-            TaskStatus.COMPLETED.value if success or error is None else TaskStatus.FAILED.value
-        )
+        # COMPLETED = task ran successfully, FAILED = task failed (regardless of error message)
+        task.status = TaskStatus.COMPLETED.value if success else TaskStatus.FAILED.value
         task.completed_at = datetime.utcnow()
         task.result = {
             "success": success,
@@ -461,7 +463,7 @@ class Storage:
 
         logger.info(
             "task_result_submitted",
-            task_id=task_id,
+            task_uuid=task_uuid,
             success=success,
             score=score,
         )

@@ -1,10 +1,34 @@
 """Task generator for creating evaluation tasks."""
 
+import hashlib
+import uuid
+
 import structlog
 
 from kinitro.chain.commitments import MinerCommitment
 
 logger = structlog.get_logger()
+
+
+def generate_seed(cycle_id: int, env_id: str, miner_uid: int, episode: int) -> int:
+    """
+    Generate a deterministic seed using SHA256.
+
+    The seed is deterministic given the same inputs, ensuring reproducibility.
+    Uses SHA256 instead of hash() for consistency across Python processes.
+
+    Args:
+        cycle_id: Evaluation cycle ID
+        env_id: Environment identifier
+        miner_uid: Miner's UID
+        episode: Episode number within the evaluation
+
+    Returns:
+        32-bit integer seed
+    """
+    seed_string = f"{cycle_id}:{env_id}:{miner_uid}:{episode}"
+    hash_bytes = hashlib.sha256(seed_string.encode()).digest()[:4]
+    return int.from_bytes(hash_bytes, byteorder="big")
 
 
 def get_miner_endpoint(miner: MinerCommitment) -> str:
@@ -39,11 +63,15 @@ def generate_tasks(
     """
     Generate evaluation tasks for all miners and environments.
 
+    Each task gets:
+    - task_uuid: Random UUID for tracking (unpredictable, unique)
+    - seed: Deterministic seed from SHA256 for reproducibility
+
     Args:
         miners: List of miner commitments
         env_ids: List of environment IDs to evaluate
         episodes_per_env: Number of episodes per environment
-        block_number: Current block number (used for seed generation)
+        block_number: Current block number (logged for reference)
         cycle_id: ID of the evaluation cycle
 
     Returns:
@@ -60,17 +88,21 @@ def generate_tasks(
 
         for env_id in env_ids:
             for i in range(episodes_per_env):
-                # Generate deterministic task ID from block number
-                task_id = hash(f"{block_number}:{env_id}:{miner.uid}:{i}") % (2**31)
+                # Generate random UUID for task tracking (unpredictable)
+                task_uuid = str(uuid.uuid4())
+
+                # Generate deterministic seed using SHA256 (reproducible)
+                seed = generate_seed(cycle_id, env_id, miner.uid, i)
 
                 tasks.append(
                     {
+                        "task_uuid": task_uuid,
                         "cycle_id": cycle_id,
                         "miner_uid": miner.uid,
                         "miner_hotkey": miner.hotkey,
                         "miner_endpoint": endpoint,
                         "env_id": env_id,
-                        "task_id": task_id,
+                        "seed": seed,
                     }
                 )
 
@@ -80,6 +112,7 @@ def generate_tasks(
         n_envs=len(env_ids),
         episodes_per_env=episodes_per_env,
         total_tasks=len(tasks),
+        block_number=block_number,
     )
 
     return tasks

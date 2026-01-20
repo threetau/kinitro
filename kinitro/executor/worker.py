@@ -118,17 +118,17 @@ class Worker:
         """
         logger.info(
             "executing_task",
-            task_id=task.id,
+            task_uuid=task.task_uuid,
             miner_uid=task.miner_uid,
             env_id=task.env_id,
-            seed=task.task_id,
+            seed=task.seed,
         )
 
         try:
             env = await self._get_eval_environment()
 
             result = await env.evaluate(
-                task_id=task.task_id,
+                task_id=task.seed,  # Use seed for environment reproducibility
                 model=f"miner-{task.miner_uid}",  # Identifier for logging
                 base_url=task.miner_endpoint,
                 env_id=task.env_id,
@@ -144,13 +144,13 @@ class Worker:
 
             logger.info(
                 "task_executed",
-                task_id=task.id,
+                task_uuid=task.task_uuid,
                 success=success,
                 score=score,
             )
 
             return TaskResult(
-                task_id=task.id,
+                task_uuid=task.task_uuid,
                 success=success,
                 score=score,
                 total_reward=extra.get("total_reward", 0.0),
@@ -159,18 +159,18 @@ class Worker:
             )
 
         except TimeoutError:
-            logger.warning("task_timeout", task_id=task.id)
+            logger.warning("task_timeout", task_uuid=task.task_uuid)
             return TaskResult(
-                task_id=task.id,
+                task_uuid=task.task_uuid,
                 success=False,
                 score=0.0,
                 error="Evaluation timeout",
             )
 
         except Exception as e:
-            logger.error("task_error", task_id=task.id, error=str(e))
+            logger.error("task_error", task_uuid=task.task_uuid, error=str(e))
             return TaskResult(
-                task_id=task.id,
+                task_uuid=task.task_uuid,
                 success=False,
                 score=0.0,
                 error=str(e),

@@ -45,13 +45,13 @@ async def fetch_tasks(
 
     tasks = [
         Task(
-            id=t.id,
+            task_uuid=t.task_uuid,
             cycle_id=t.cycle_id,
             miner_uid=t.miner_uid,
             miner_hotkey=t.miner_hotkey,
             miner_endpoint=t.miner_endpoint,
             env_id=t.env_id,
-            task_id=t.task_id,
+            seed=t.seed,
             status=t.status,
             created_at=t.created_at,
         )
@@ -84,7 +84,7 @@ async def submit_tasks(
         try:
             success = await storage.submit_task_result(
                 session=session,
-                task_id=result.task_id,
+                task_uuid=result.task_uuid,
                 executor_id=request.executor_id,
                 success=result.success,
                 score=result.score,
@@ -96,10 +96,13 @@ async def submit_tasks(
                 accepted += 1
             else:
                 rejected += 1
-                errors.append(f"Task {result.task_id}: not found or not assigned to executor")
+                errors.append(f"Task {result.task_uuid}: not found or not assigned to executor")
         except Exception as e:
+            # Rollback to clear the failed transaction state so subsequent
+            # operations can proceed
+            await session.rollback()
             rejected += 1
-            errors.append(f"Task {result.task_id}: {str(e)}")
+            errors.append(f"Task {result.task_uuid}: {str(e)}")
 
     return TaskSubmitResponse(
         accepted=accepted,
