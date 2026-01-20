@@ -83,34 +83,6 @@ def randomize_domain(
     return result
 
 
-def generate_seed_from_block(
-    block_number: int,
-    env_id: str,
-    validator_hotkey: str,
-    episode_index: int = 0,
-) -> int:
-    """
-    Generate deterministic seed from blockchain state.
-
-    This ensures:
-    1. Seeds rotate each block (can't pre-compute)
-    2. Different validators get different seeds (can't collude easily)
-    3. Seeds are deterministic (can verify/reproduce)
-
-    Args:
-        block_number: Current blockchain block
-        env_id: Environment identifier
-        validator_hotkey: Validator's hotkey for uniqueness
-        episode_index: Episode number within evaluation
-
-    Returns:
-        Deterministic seed as integer
-    """
-    seed_string = f"{block_number}:{env_id}:{validator_hotkey}:{episode_index}"
-    # Use hash and mask to get positive 32-bit integer
-    return hash(seed_string) & 0x7FFFFFFF
-
-
 class ProceduralTaskGenerator:
     """
     Generates procedural task variations for an environment.

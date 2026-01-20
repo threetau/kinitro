@@ -1,6 +1,7 @@
 """Parallel evaluation orchestration for multiple miners and environments."""
 
 import asyncio
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -9,8 +10,8 @@ import structlog
 from kinitro.chain.commitments import MinerCommitment
 from kinitro.environments import get_environment
 from kinitro.environments.base import EpisodeResult
-from kinitro.environments.procedural import generate_seed_from_block
 from kinitro.evaluation.rollout import PolicyInterface, RolloutConfig, run_episode
+from kinitro.scheduler.task_generator import generate_seed
 
 logger = structlog.get_logger()
 
@@ -279,11 +280,9 @@ async def evaluate_all_miners(
 
         # Evaluate on each environment
         for env_id in environment_ids:
-            # Generate deterministic seeds for this evaluation
-            seeds = [
-                generate_seed_from_block(block_number, env_id, validator_hotkey, i)
-                for i in range(episodes_per_env)
-            ]
+            # Generate random UUIDs and derive seeds from them
+            # This ensures unpredictable seeds that miners can't pre-compute
+            seeds = [generate_seed(str(uuid.uuid4())) for _ in range(episodes_per_env)]
 
             try:
                 result = await evaluate_miner_on_environment(
