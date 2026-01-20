@@ -307,75 +307,7 @@ def db_status(
 
 
 # =============================================================================
-# BACKEND COMMANDS
-# =============================================================================
-
-
-@app.command()
-def backend(
-    host: str = typer.Option("0.0.0.0", help="Host to bind to"),
-    port: int = typer.Option(8000, help="Port to bind to"),
-    database_url: str = typer.Option(
-        "postgresql://postgres:postgres@localhost:5432/kinitro",
-        help="PostgreSQL connection URL",
-    ),
-    network: str = typer.Option("finney", help="Bittensor network"),
-    netuid: int = typer.Option(..., help="Subnet UID"),
-    eval_interval: int = typer.Option(3600, help="Seconds between evaluation cycles"),
-    episodes_per_env: int = typer.Option(50, help="Episodes per environment"),
-    log_level: str = typer.Option("INFO", help="Logging level"),
-):
-    """
-    Run the evaluation backend service (monolithic mode).
-
-    This runs all components in a single process:
-    - API server (REST endpoints)
-    - Scheduler (task generation, scoring)
-    - Executor (MuJoCo evaluations)
-
-    For production deployments, consider using the split architecture:
-    - kinitro api       - REST API server (stateless, scalable)
-    - kinitro scheduler - Task generation and scoring (single instance)
-    - kinitro executor  - MuJoCo evaluations (horizontally scalable)
-    """
-    import structlog
-
-    structlog.configure(
-        wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(__import__("logging"), log_level)
-        ),
-    )
-
-    from kinitro.backend.app import run_server
-    from kinitro.backend.config import BackendConfig
-
-    # Normalize database URL to use asyncpg driver
-    normalized_db_url = _normalize_database_url(database_url)
-
-    config = BackendConfig(
-        host=host,
-        port=port,
-        database_url=normalized_db_url,
-        network=network,
-        netuid=netuid,
-        eval_interval_seconds=eval_interval,
-        episodes_per_env=episodes_per_env,
-        log_level=log_level,
-    )
-
-    typer.echo(f"Starting backend (monolithic mode) on {host}:{port}")
-    typer.echo(f"  Network: {network} (netuid={netuid})")
-    typer.echo(f"  Database: {database_url.split('@')[-1]}")
-    typer.echo(f"  Eval interval: {eval_interval}s")
-    typer.echo("")
-    typer.echo("TIP: For production, use split architecture:")
-    typer.echo("  kinitro api + kinitro scheduler + kinitro executor")
-
-    run_server(config)
-
-
-# =============================================================================
-# SPLIT ARCHITECTURE COMMANDS (api, scheduler, executor)
+# SERVICE COMMANDS (api, scheduler, executor)
 # =============================================================================
 
 

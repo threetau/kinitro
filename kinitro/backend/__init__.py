@@ -1,5 +1,25 @@
-"""Backend service for robotics subnet evaluation."""
+"""Backend storage and models for Kinitro evaluation."""
 
-from kinitro.backend.app import create_app
+from kinitro.backend.models import (
+    Task,
+    TaskResult,
+    TaskPoolORM,
+    TaskStatus,
+    MinerScoreORM,
+    EvaluationCycleORM,
+    EvaluationCycleStatus,
+    ComputedWeightsORM,
+)
+from kinitro.backend.storage import Storage
 
-__all__ = ["create_app"]
+__all__ = [
+    "Storage",
+    "Task",
+    "TaskResult",
+    "TaskPoolORM",
+    "TaskStatus",
+    "MinerScoreORM",
+    "EvaluationCycleORM",
+    "EvaluationCycleStatus",
+    "ComputedWeightsORM",
+]

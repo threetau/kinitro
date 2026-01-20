@@ -118,14 +118,6 @@ flowchart TB
 7. **Scheduler** computes Pareto scores when cycle complete and saves weights
 8. **Validators** poll `GET /v1/weights/latest` and submit to chain
 
-### Monolithic Mode
-
-For simple deployments, you can run all services together:
-
-```bash
-kinitro backend --netuid YOUR_NETUID  # Runs API + Scheduler + Executor in one process
-```
-
 ## Quick Start
 
 ### Installation
@@ -158,13 +150,7 @@ uv run kinitro build-eval-env --tag kinitro/eval-env:v1
 # 3. Initialize database
 uv run kinitro db init --database-url postgresql://kinitro:secret@localhost/kinitro
 
-# 4a. Start the backend (monolithic mode - simple deployments)
-uv run kinitro backend \
-  --netuid YOUR_NETUID \
-  --network finney \
-  --database-url postgresql://kinitro:secret@localhost/kinitro
-
-# 4b. OR use split architecture (production - scalable)
+# 4. Start the services (split architecture)
 # Terminal 1: API Service
 uv run kinitro api --database-url postgresql://kinitro:secret@localhost/kinitro
 
@@ -222,13 +208,10 @@ kinitro db status         # Show database statistics
 kinitro db reset          # Drop and recreate database
 kinitro db drop           # Drop database
 
-# Service commands (split architecture)
+# Service commands
 kinitro api               # Run API service (REST endpoints, task pool)
 kinitro scheduler         # Run scheduler (task generation, scoring)
 kinitro executor          # Run executor (MuJoCo evaluations)
-
-# Monolithic mode (runs all services together)
-kinitro backend           # Run all-in-one backend service
 
 # Validator commands
 kinitro validate          # Run validator (polls API, sets weights)
@@ -288,12 +271,7 @@ kinitro/
 │   │   ├── config.py         # Executor configuration
 │   │   ├── worker.py         # Evaluation worker (affinetes)
 │   │   └── api_client.py     # HTTP client for API
-│   ├── backend/              # Monolithic backend (combines all services)
-│   │   ├── app.py            # FastAPI application
-│   │   ├── config.py         # Backend configuration
-│   │   ├── routes.py         # REST API routes
-│   │   ├── scheduler.py      # Background evaluation loop
-│   │   ├── evaluator.py      # Direct evaluation (no task pool)
+│   ├── backend/              # Shared storage layer and models
 │   │   ├── storage.py        # PostgreSQL storage layer
 │   │   └── models.py         # Database & API models
 │   ├── environments/         # Robotics environment wrappers
@@ -301,10 +279,6 @@ kinitro/
 │   │   ├── registry.py       # Environment registry
 │   │   ├── metaworld_env.py  # MetaWorld wrapper
 │   │   └── procedural.py     # Procedural generation utilities
-│   ├── evaluation/           # Evaluation orchestration
-│   │   ├── parallel.py       # Parallel miner evaluation
-│   │   ├── rollout.py        # Episode rollout logic
-│   │   └── metrics.py        # Evaluation metrics
 │   ├── scoring/              # ε-Pareto dominance and weights
 │   │   ├── pareto.py         # Pareto frontier computation
 │   │   └── winners_take_all.py # Subset scoring
