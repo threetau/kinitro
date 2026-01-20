@@ -310,16 +310,20 @@ class Storage:
         task_uuid: str | None = None,
     ) -> TaskPoolORM:
         """Create a new task in the task pool."""
-        task = TaskPoolORM(
-            task_uuid=task_uuid,  # Will use default if None
-            cycle_id=cycle_id,
-            miner_uid=miner_uid,
-            miner_hotkey=miner_hotkey,
-            miner_endpoint=miner_endpoint,
-            env_id=env_id,
-            seed=seed,
-            status=TaskStatus.PENDING.value,
-        )
+        # Build kwargs, only including task_uuid if provided
+        # (passing None explicitly would violate NOT NULL constraint)
+        task_kwargs = {
+            "cycle_id": cycle_id,
+            "miner_uid": miner_uid,
+            "miner_hotkey": miner_hotkey,
+            "miner_endpoint": miner_endpoint,
+            "env_id": env_id,
+            "seed": seed,
+            "status": TaskStatus.PENDING.value,
+        }
+        if task_uuid is not None:
+            task_kwargs["task_uuid"] = task_uuid
+        task = TaskPoolORM(**task_kwargs)
         session.add(task)
         await session.flush()
         return task
