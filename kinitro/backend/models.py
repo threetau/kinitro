@@ -102,6 +102,14 @@ class MinerScoreORM(Base):
     __table_args__ = (
         Index("idx_miner_scores_cycle", "cycle_id"),
         Index("idx_miner_scores_uid", "uid"),
+        # Prevent duplicate scores for same miner/env in a cycle
+        Index(
+            "idx_miner_scores_unique",
+            "cycle_id",
+            "uid",
+            "env_id",
+            unique=True,
+        ),
     )
 
 

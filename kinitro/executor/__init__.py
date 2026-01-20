@@ -1,6 +1,6 @@
 """Executor service for Kinitro evaluation backend."""
 
-from kinitro.executor.main import run_executor
 from kinitro.executor.config import ExecutorConfig
+from kinitro.executor.main import run_executor
 
-__all__ = ["run_executor", "ExecutorConfig"]
+__all__ = ["ExecutorConfig", "run_executor"]
