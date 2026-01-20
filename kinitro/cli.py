@@ -404,7 +404,7 @@ def scheduler(
         log_level=log_level,
     )
 
-    typer.echo(f"Starting scheduler service")
+    typer.echo("Starting scheduler service")
     typer.echo(f"  Network: {network} (netuid={netuid})")
     typer.echo(f"  Database: {database_url.split('@')[-1]}")
     typer.echo(f"  Eval interval: {eval_interval}s")
@@ -472,7 +472,7 @@ def executor(
 
     config = ExecutorConfig(**config_kwargs)
 
-    typer.echo(f"Starting executor service")
+    typer.echo("Starting executor service")
     typer.echo(f"  Executor ID: {config.executor_id}")
     typer.echo(f"  API URL: {api_url}")
     typer.echo(f"  Batch size: {batch_size}")
