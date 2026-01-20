@@ -334,6 +334,7 @@ def api(
     """
     import structlog
 
+    log_level = log_level.upper()
     structlog.configure(
         wrapper_class=structlog.make_filtering_bound_logger(
             getattr(__import__("logging"), log_level)
@@ -383,6 +384,7 @@ def scheduler(
     """
     import structlog
 
+    log_level = log_level.upper()
     structlog.configure(
         wrapper_class=structlog.make_filtering_bound_logger(
             getattr(__import__("logging"), log_level)
@@ -447,6 +449,7 @@ def executor(
     """
     import structlog
 
+    log_level = log_level.upper()
     structlog.configure(
         wrapper_class=structlog.make_filtering_bound_logger(
             getattr(__import__("logging"), log_level)

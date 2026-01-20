@@ -13,13 +13,13 @@ from kinitro.backend.models import (
 from kinitro.backend.storage import Storage
 
 __all__ = [
-    "Storage",
-    "Task",
-    "TaskResult",
-    "TaskPoolORM",
-    "TaskStatus",
-    "MinerScoreORM",
+    "ComputedWeightsORM",
     "EvaluationCycleORM",
     "EvaluationCycleStatus",
-    "ComputedWeightsORM",
+    "MinerScoreORM",
+    "Storage",
+    "Task",
+    "TaskPoolORM",
+    "TaskResult",
+    "TaskStatus",
 ]
