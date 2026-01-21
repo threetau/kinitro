@@ -1335,7 +1335,9 @@ def test_env(
                 rewards.append(reward)
                 dones.append(done)
                 # Convert info to serializable format
-                infos.append({k: v for k, v in info.items() if isinstance(v, (int, float, bool, str))})
+                infos.append(
+                    {k: v for k, v in info.items() if isinstance(v, (int, float, bool, str))}
+                )
 
                 # Capture images
                 if save_images and has_cameras and hasattr(env, "get_observation"):
