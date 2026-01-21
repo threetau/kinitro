@@ -265,14 +265,12 @@ class MetaWorldEnvironment(RoboticsEnvironment):
 
     def _get_camera_images(self) -> dict[str, np.ndarray]:
         """Render images from all configured cameras."""
+        import mujoco
+
         images = {}
 
         for cam_name, cam_env in self._camera_envs.items():
             try:
-                # Sync camera env state with main env
-                if self._current_task is not None:
-                    cam_env.set_task(self._current_task)
-
                 # Copy the physics state from main env to camera env
                 if hasattr(self._env, "unwrapped") and hasattr(cam_env, "unwrapped"):
                     main_data = self._env.unwrapped.data
@@ -283,14 +281,13 @@ class MetaWorldEnvironment(RoboticsEnvironment):
                     cam_data.qvel[:] = main_data.qvel[:]
 
                     # Forward kinematics to update derived quantities
-                    import mujoco
-
                     mujoco.mj_forward(cam_env.unwrapped.model, cam_data)
 
                 # Render
                 img = cam_env.render()
                 if img is not None:
-                    images[cam_name] = img
+                    # Flip vertically - MuJoCo renders with origin at bottom-left
+                    images[cam_name] = np.flipud(img)
             except Exception:
                 # Rendering may fail in headless environments
                 pass
