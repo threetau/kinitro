@@ -123,6 +123,7 @@ class Scheduler:
                 cycle = await self.storage.get_cycle(session, cycle_id)
                 if cycle:
                     cycle.n_miners = len(miners)
+                    await session.commit()
 
             logger.info("found_miners", count=len(miners))
 
@@ -164,7 +165,7 @@ class Scheduler:
             async with self.storage.session() as session:
                 completed_tasks = await self.storage.get_cycle_task_results(session, cycle_id)
 
-            miner_scores = aggregate_task_results(completed_tasks, self.env_ids)
+            miner_scores = aggregate_task_results(completed_tasks)
 
             # 5. Compute weights
             weights, weights_u16 = compute_weights(

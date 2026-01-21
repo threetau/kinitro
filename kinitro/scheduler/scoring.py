@@ -12,14 +12,12 @@ logger = structlog.get_logger()
 
 def aggregate_task_results(
     tasks: list[TaskPoolORM],
-    env_ids: list[str],
 ) -> dict[int, dict[str, float]]:
     """
     Aggregate task results into miner scores.
 
     Args:
         tasks: List of completed tasks
-        env_ids: List of environment IDs
 
     Returns:
         Dict mapping uid -> env_id -> success_rate
@@ -148,7 +146,9 @@ def convert_to_scores_data(
                     "hotkey": hotkey,
                     "env_id": env_id,
                     "success_rate": success_rate,
-                    "mean_reward": 0.0,  # Not tracked in task pool model
+                    # TODO: compute actual mean_reward from task results
+                    "mean_reward": 0.0,
+                    # TODO: compute actual episodes_completed/failed from task results
                     "episodes_completed": episodes_per_env,
                     "episodes_failed": 0,
                 }
