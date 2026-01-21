@@ -104,7 +104,7 @@ flowchart TB
 |---------|---------|---------|---------|
 | **API** | `kinitro api` | REST API, task pool management | Horizontal (stateless) |
 | **Scheduler** | `kinitro scheduler` | Task generation, scoring, weight computation | Single instance |
-| **Executor** | `kinitro executor` | Run MuJoCo evaluations via affinetes | Horizontal (GPU machines) |
+| **Executor** | `kinitro executor` | Run MuJoCo evaluations via [affinetes](https://github.com/AffineFoundation/affinetes/) | Horizontal (GPU machines) |
 | **Validator** | `kinitro validate` | Submit weights to chain | Per validator |
 
 ### Evaluation Flow
@@ -124,7 +124,7 @@ flowchart TB
 
 ```bash
 # Clone and install
-git clone https://github.com/AffineFoundation/kinitro.git
+git clone https://github.com/threetau/kinitro.git
 cd kinitro
 
 # Install with uv (recommended)
@@ -139,34 +139,10 @@ pip install -e .
 See the full [Validator Guide](docs/validator-guide.md) for detailed instructions.
 
 ```bash
-# 1. Start PostgreSQL
-docker run -d --name kinitro-postgres \
-  -e POSTGRES_USER=kinitro -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=kinitro \
-  -p 5432:5432 postgres:15
-
-# 2. Build the evaluation environment
-uv run kinitro build-eval-env --tag kinitro/eval-env:v1
-
-# 3. Initialize database
-uv run kinitro db init --database-url postgresql://kinitro:secret@localhost/kinitro
-
-# 4. Start the services (split architecture)
-# Terminal 1: API Service
-uv run kinitro api --database-url postgresql://kinitro:secret@localhost/kinitro
-
-# Terminal 2: Scheduler Service
-uv run kinitro scheduler \
-  --netuid YOUR_NETUID \
-  --network finney \
-  --database-url postgresql://kinitro:secret@localhost/kinitro
-
-# Terminal 3+: Executor(s) - can run multiple on different GPU machines
-uv run kinitro executor --api-url http://localhost:8000
-
-# 5. Start the validator (submits weights to chain)
+# Start the validator (submits weights to chain)
 uv run kinitro validate \
-  --backend-url http://localhost:8000 \
-  --netuid YOUR_NETUID \
+  --backend-url https://api.kinitro.ai \
+  --netuid 26 \
   --network finney \
   --wallet-name your-wallet \
   --hotkey-name your-hotkey
@@ -198,9 +174,38 @@ uv run kinitro commit \
   --network finney
 ```
 
+
+### For Backend Operators (subnet owners)
+```bash
+# 1. Start PostgreSQL
+docker run -d --name kinitro-postgres \
+  -e POSTGRES_USER=kinitro -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=kinitro \
+  -p 5432:5432 postgres:15
+
+# 2. Build the evaluation environment
+uv run kinitro build-eval-env --tag kinitro/eval-env:v1
+
+# 3. Initialize database
+uv run kinitro db init --database-url postgresql://kinitro:secret@localhost/kinitro
+
+# 4. Start the services (split architecture)
+# Terminal 1: API Service
+uv run kinitro api --database-url postgresql://kinitro:secret@localhost/kinitro
+
+# Terminal 2: Scheduler Service
+uv run kinitro scheduler \
+  --netuid YOUR_NETUID \
+  --network finney \
+  --database-url postgresql://kinitro:secret@localhost/kinitro
+
+# Terminal 3+: Executor(s) - can run multiple on different GPU machines
+uv run kinitro executor --api-url http://localhost:8000
+```
+
 ## CLI Reference
 
 ```bash
+## Backend operator commands
 # Database commands
 kinitro db create         # Create database
 kinitro db init           # Initialize schema
@@ -208,20 +213,20 @@ kinitro db status         # Show database statistics
 kinitro db reset          # Drop and recreate database
 kinitro db drop           # Drop database
 
-# Service commands
+# Service commands 
 kinitro api               # Run API service (REST endpoints, task pool)
 kinitro scheduler         # Run scheduler (task generation, scoring)
 kinitro executor          # Run executor (MuJoCo evaluations)
 
-# Validator commands
+## Validator commands
 kinitro validate          # Run validator (polls API, sets weights)
 
-# Environment commands
+## Environment commands
 kinitro list-envs         # List available environments
 kinitro test-env ENV_ID   # Test an environment locally
 kinitro test-scoring      # Test the scoring mechanism
 
-# Miner commands
+## Miner commands
 kinitro init-miner DIR    # Initialize miner template
 kinitro build PATH --tag TAG [--push]  # Build Docker image
 kinitro commit            # Commit model to chain
