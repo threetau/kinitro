@@ -1221,7 +1221,6 @@ chute.entrypoint = "uvicorn server:app --host 0.0.0.0 --port 8000"
 def test_env(
     env_id: str = typer.Argument(..., help="Environment ID to test"),
     episodes: int = typer.Option(5, help="Number of episodes to run"),
-    render: bool = typer.Option(False, help="Render environment (if supported)"),
     record_dir: str | None = typer.Option(
         None, "--record-dir", "-r", help="Directory to save recordings (enables recording)"
     ),
@@ -1310,16 +1309,18 @@ def test_env(
 
         # Capture initial images if recording
         if recording and save_images and has_cameras and hasattr(env, "get_observation"):
+            typer.echo("    Capturing initial images...")
             full_obs = env.get_observation()
             for cam_name, img in full_obs.camera_views.items():
                 if cam_name not in images:
                     images[cam_name] = []
                 images[cam_name].append(img.copy())
+            typer.echo("    Done.")
 
         ep_reward = 0.0
         steps = 0
 
-        for _ in range(max_steps):
+        for step_idx in range(max_steps):
             # Random action
             low, high = env.action_bounds
             action = np.random.uniform(low, high)
@@ -1338,6 +1339,8 @@ def test_env(
 
                 # Capture images
                 if save_images and has_cameras and hasattr(env, "get_observation"):
+                    if step_idx % 100 == 0:
+                        typer.echo(f"    Step {step_idx}...")
                     full_obs = env.get_observation()
                     for cam_name, img in full_obs.camera_views.items():
                         if cam_name not in images:
