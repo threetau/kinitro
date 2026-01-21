@@ -84,6 +84,10 @@ def compute_weights(
     if pareto_temperature <= 0:
         raise ValueError("pareto_temperature must be > 0")
 
+    if not miner_scores:
+        logger.warning("no_miner_scores", msg="No miner scores to compute weights from")
+        return {}, {"uids": [], "values": []}
+
     # Compute Pareto frontier
     pareto_result = compute_pareto_frontier(
         miner_scores=miner_scores,
