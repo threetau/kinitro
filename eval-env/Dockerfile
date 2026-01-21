@@ -3,9 +3,11 @@
 # This container runs MuJoCo/MetaWorld simulation and queries miner
 # policy endpoints to get actions. Used by validators via affinetes.
 #
-# Build with affinetes:
-#   import affinetes as af
-#   af.build_image_from_env('eval-env', 'kinitro/eval-env:v1')
+# Build with the kinitro CLI:
+#   kinitro build-eval-env --tag kinitro/eval-env:v1
+#
+# The CLI command copies the required kinitro/environments module into
+# this directory before building, then cleans up afterward.
 #
 # The container will be managed by affinetes, which injects its HTTP
 # server to expose the Actor class methods.
@@ -35,7 +37,8 @@ ENV MUJOCO_GL=egl
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy the kinitro environments package (subset needed for eval)
+# Copy the kinitro environments package (copied by build-eval-env command)
+# This is a subset of the main kinitro package - only environments/ is needed
 COPY kinitro /app/kinitro
 
 # Set PYTHONPATH so kinitro package is importable

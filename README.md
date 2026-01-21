@@ -41,61 +41,82 @@ This rewards true generalists over specialists.
 
 ## Architecture
 
-The subnet uses a **separated backend/validator architecture** with miners deployed on **Chutes**:
+The subnet uses a **split service architecture** with miners deployed on **Chutes**:
 
 ```mermaid
 flowchart TB
     subgraph Chain["Bittensor Chain"]
-        Commitments[("Miner Commitments<br/>(HuggingFace repo + Chutes endpoint)")]
+        Commitments[("Miner Commitments")]
         Weights[("Validator Weights")]
     end
 
-    subgraph Backend["Evaluation Backend (GPU)"]
-        Scheduler["Background Scheduler"]
-        API["REST API"]
-        DB[("PostgreSQL<br/>Scores & Weights")]
-        EvalEnv["Eval Environment<br/>(MuJoCo + MetaWorld)"]
+    subgraph API["API Service (kinitro api)"]
+        RestAPI["REST API"]
+        TaskPool["Task Pool Manager"]
+        DB[("PostgreSQL")]
     end
 
-    subgraph Validators["Validator(s) (Lightweight)"]
+    subgraph Scheduler["Scheduler Service (kinitro scheduler)"]
+        TaskGen["Task Generator"]
+        Scoring["Pareto Scoring"]
+    end
+
+    subgraph Executor["Executor Service(s) (kinitro executor)"]
+        E1["Executor 1 (GPU)"]
+        E2["Executor 2 (GPU)"]
+        En["Executor N (GPU)"]
+    end
+
+    subgraph Validators["Validator(s) (kinitro validate)"]
         V1["Validator 1"]
-        V2["Validator 2"]
         Vn["Validator N"]
     end
 
-    subgraph Chutes["Chutes (Decentralized GPU Cloud)"]
-        M1["Miner 1 Policy Server<br/>/reset, /act"]
-        M2["Miner 2 Policy Server<br/>/reset, /act"]
-        Mn["Miner N Policy Server<br/>/reset, /act"]
+    subgraph Chutes["Chutes (Miner Policy Servers)"]
+        M1["Miner 1"]
+        Mn["Miner N"]
     end
 
-    %% Miner registration flow
-    M1 & M2 & Mn -->|"1. Commit endpoint"| Commitments
+    %% Chain interactions
+    Commitments -->|"Read miners"| Scheduler
+    V1 & Vn -->|"Submit weights"| Weights
 
-    %% Backend reads commitments
-    Commitments -->|"2. Read commitments"| Scheduler
+    %% Scheduler flow
+    TaskGen -->|"Create tasks"| DB
+    DB -->|"Read scores"| Scoring
+    Scoring -->|"Save weights"| DB
 
-    %% Evaluation flow
-    Scheduler -->|"3. Start eval cycle"| EvalEnv
-    EvalEnv -->|"4. Get actions<br/>(obs → action)"| M1 & M2 & Mn
-    EvalEnv -->|"5. Store scores"| DB
-    DB -->|"6. Compute Pareto weights"| API
+    %% Executor flow
+    E1 & E2 & En -->|"Fetch tasks"| TaskPool
+    E1 & E2 & En -->|"Submit results"| TaskPool
+    TaskPool <-->|"Read/Write"| DB
+
+    %% Executor to Miners
+    E1 & E2 & En -->|"Get actions"| M1 & Mn
 
     %% Validator flow
-    API -->|"7. GET /v1/weights/latest"| V1 & V2 & Vn
-    V1 & V2 & Vn -->|"8. Submit weights"| Weights
+    RestAPI -->|"GET /weights"| V1 & Vn
 ```
+
+### Service Components
+
+| Service | Command | Purpose | Scaling |
+|---------|---------|---------|---------|
+| **API** | `kinitro api` | REST API, task pool management | Horizontal (stateless) |
+| **Scheduler** | `kinitro scheduler` | Task generation, scoring, weight computation | Single instance |
+| **Executor** | `kinitro executor` | Run MuJoCo evaluations via affinetes | Horizontal (GPU machines) |
+| **Validator** | `kinitro validate` | Submit weights to chain | Per validator |
 
 ### Evaluation Flow
 
 1. **Miners** deploy policy servers to **Chutes** and commit their endpoint on-chain
-2. **Backend** reads miner commitments from chain to discover Chutes endpoints
-3. **Backend scheduler** starts evaluation cycle (triggered periodically)
-4. **Eval environment** runs MuJoCo simulation, calls each miner's `/act` endpoint
-5. **Scores** are stored in PostgreSQL after each evaluation
-6. **Pareto weights** are computed from scores and exposed via REST API
-7. **Validators** poll `GET /v1/weights/latest` to fetch computed weights
-8. **Validators** submit weights to Bittensor chain
+2. **Scheduler** reads miner commitments from chain to discover Chutes endpoints
+3. **Scheduler** creates evaluation tasks in PostgreSQL (task pool)
+4. **Executor(s)** fetch tasks from API (`POST /v1/tasks/fetch`)
+5. **Executor** runs MuJoCo simulation, calls miner endpoints for actions
+6. **Executor** submits results to API (`POST /v1/tasks/submit`)
+7. **Scheduler** computes Pareto scores when cycle complete and saves weights
+8. **Validators** poll `GET /v1/weights/latest` and submit to chain
 
 ## Quick Start
 
@@ -129,11 +150,18 @@ uv run kinitro build-eval-env --tag kinitro/eval-env:v1
 # 3. Initialize database
 uv run kinitro db init --database-url postgresql://kinitro:secret@localhost/kinitro
 
-# 4. Start the backend (runs evaluations)
-uv run kinitro backend \
+# 4. Start the services (split architecture)
+# Terminal 1: API Service
+uv run kinitro api --database-url postgresql://kinitro:secret@localhost/kinitro
+
+# Terminal 2: Scheduler Service
+uv run kinitro scheduler \
   --netuid YOUR_NETUID \
   --network finney \
   --database-url postgresql://kinitro:secret@localhost/kinitro
+
+# Terminal 3+: Executor(s) - can run multiple on different GPU machines
+uv run kinitro executor --api-url http://localhost:8000
 
 # 5. Start the validator (submits weights to chain)
 uv run kinitro validate \
@@ -180,11 +208,13 @@ kinitro db status         # Show database statistics
 kinitro db reset          # Drop and recreate database
 kinitro db drop           # Drop database
 
-# Backend commands
-kinitro backend           # Run evaluation backend service
+# Service commands
+kinitro api               # Run API service (REST endpoints, task pool)
+kinitro scheduler         # Run scheduler (task generation, scoring)
+kinitro executor          # Run executor (MuJoCo evaluations)
 
 # Validator commands
-kinitro validate          # Run validator (polls backend, sets weights)
+kinitro validate          # Run validator (polls API, sets weights)
 
 # Environment commands
 kinitro list-envs         # List available environments
@@ -195,11 +225,12 @@ kinitro test-scoring      # Test the scoring mechanism
 kinitro init-miner DIR    # Initialize miner template
 kinitro build PATH --tag TAG [--push]  # Build Docker image
 kinitro commit            # Commit model to chain
+kinitro mock-miner        # Run mock miner for testing
 ```
 
-## Backend API
+## API Endpoints
 
-The backend exposes a REST API:
+The API service exposes these endpoints:
 
 | Endpoint | Description |
 |----------|-------------|
@@ -211,29 +242,62 @@ The backend exposes a REST API:
 | `GET /v1/scores/{cycle_id}` | Scores for specific cycle |
 | `GET /v1/miners` | List evaluated miners |
 | `GET /v1/environments` | List environments |
+| `POST /v1/tasks/fetch` | Fetch tasks (for executors) |
+| `POST /v1/tasks/submit` | Submit results (for executors) |
+| `GET /v1/tasks/stats` | Task pool statistics |
 
 ## Project Structure
 
 ```
 kinitro/
 ├── kinitro/
-│   ├── backend/          # Evaluation backend service
-│   │   ├── app.py        # FastAPI application
-│   │   ├── routes.py     # REST API endpoints
-│   │   ├── scheduler.py  # Background evaluation loop
-│   │   ├── storage.py    # PostgreSQL storage layer
-│   │   └── models.py     # Database & API models
-│   ├── environments/     # Robotics environment wrappers
-│   │   └── metaworld_env.py
-│   ├── evaluation/       # Episode rollout and parallel evaluation
-│   ├── scoring/          # ε-Pareto dominance and weights
-│   ├── chain/            # Bittensor chain integration
-│   ├── validator/        # Lightweight validator client
-│   │   ├── main.py       # Polls backend, sets weights
-│   │   └── client.py     # HTTP client for backend API
-│   └── miner/            # Miner templates
+│   ├── api/                   # API service (REST endpoints, task pool)
+│   │   ├── app.py             # FastAPI application
+│   │   ├── config.py          # API configuration
+│   │   ├── deps.py            # Dependency injection
+│   │   └── routes/            # Route handlers
+│   │       ├── health.py      # Health check endpoints
+│   │       ├── miners.py      # Miner info endpoints
+│   │       ├── scores.py      # Score endpoints
+│   │       ├── tasks.py       # Task pool endpoints
+│   │       └── weights.py     # Weight endpoints
+│   ├── scheduler/             # Scheduler service (task generation, scoring)
+│   │   ├── config.py          # Scheduler configuration
+│   │   ├── main.py            # Scheduler loop
+│   │   ├── scoring.py         # Pareto scoring utilities
+│   │   └── task_generator.py  # Task and seed generation
+│   ├── executor/              # Executor service (MuJoCo evaluations)
+│   │   ├── api_client.py      # HTTP client for API
+│   │   ├── config.py          # Executor configuration
+│   │   ├── main.py            # Executor loop
+│   │   └── worker.py          # Evaluation worker (affinetes)
+│   ├── backend/               # Shared storage layer and models
+│   │   ├── models.py          # Database & API models
+│   │   └── storage.py         # PostgreSQL storage layer
+│   ├── environments/          # Robotics environment wrappers
+│   │   ├── base.py            # Base environment interface
+│   │   ├── metaworld_env.py   # MetaWorld wrapper
+│   │   ├── procedural.py      # Procedural generation utilities
+│   │   └── registry.py        # Environment registry
+│   ├── scoring/               # ε-Pareto dominance and weights
+│   │   ├── pareto.py          # Pareto frontier computation
+│   │   └── winners_take_all.py # Subset scoring
+│   ├── chain/                 # Bittensor chain integration
+│   │   ├── commitments.py     # Miner commitment reading
+│   │   └── weights.py         # Weight submission
+│   ├── validator/             # Lightweight validator client
+│   │   ├── client.py          # API client for weights
+│   │   └── main.py            # Validator loop
+│   ├── miner/                 # Miner templates
+│   │   └── template/          # Policy server template
+│   │       ├── env.py         # Environment utilities
+│   │       ├── policy.py      # Policy interface
+│   │       └── server.py      # FastAPI server
+│   ├── cli.py                 # CLI commands
+│   └── config.py              # Global configuration
+├── eval-env/                  # Evaluation environment (runs in Docker)
 ├── tests/
-├── docker-compose.yml
+│   └── unit/                  # Unit tests
 └── pyproject.toml
 ```
 

@@ -14,6 +14,8 @@ from kinitro.backend.models import (
     EvaluationCycleORM,
     EvaluationCycleStatus,
     MinerScoreORM,
+    TaskPoolORM,
+    TaskStatus,
 )
 
 logger = structlog.get_logger()
@@ -291,3 +293,317 @@ class Storage:
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    # =========================================================================
+    # Task Pool
+    # =========================================================================
+
+    async def create_task(
+        self,
+        session: AsyncSession,
+        cycle_id: int,
+        miner_uid: int,
+        miner_hotkey: str,
+        miner_endpoint: str,
+        env_id: str,
+        seed: int,
+        task_uuid: str | None = None,
+    ) -> TaskPoolORM:
+        """Create a new task in the task pool."""
+        # Build kwargs, only including task_uuid if provided
+        # (passing None explicitly would violate NOT NULL constraint)
+        task_kwargs = {
+            "cycle_id": cycle_id,
+            "miner_uid": miner_uid,
+            "miner_hotkey": miner_hotkey,
+            "miner_endpoint": miner_endpoint,
+            "env_id": env_id,
+            "seed": seed,
+            "status": TaskStatus.PENDING.value,
+        }
+        if task_uuid is not None:
+            task_kwargs["task_uuid"] = task_uuid
+        task = TaskPoolORM(**task_kwargs)
+        session.add(task)
+        await session.flush()
+        return task
+
+    async def create_tasks_bulk(
+        self,
+        session: AsyncSession,
+        tasks: list[dict],
+    ) -> int:
+        """Bulk create tasks in the task pool.
+
+        Args:
+            session: Database session
+            tasks: List of task dicts with keys: task_uuid, cycle_id, miner_uid,
+                   miner_hotkey, miner_endpoint, env_id, seed
+
+        Returns:
+            Number of tasks created
+        """
+        for task_data in tasks:
+            # Build kwargs, only including task_uuid if provided
+            # (passing None explicitly would violate NOT NULL constraint)
+            task_kwargs = {
+                "cycle_id": task_data["cycle_id"],
+                "miner_uid": task_data["miner_uid"],
+                "miner_hotkey": task_data["miner_hotkey"],
+                "miner_endpoint": task_data["miner_endpoint"],
+                "env_id": task_data["env_id"],
+                "seed": task_data["seed"],
+                "status": TaskStatus.PENDING.value,
+            }
+            task_uuid = task_data.get("task_uuid")
+            if task_uuid is not None:
+                task_kwargs["task_uuid"] = task_uuid
+            task = TaskPoolORM(**task_kwargs)
+            session.add(task)
+        logger.info("tasks_created_bulk", count=len(tasks))
+        return len(tasks)
+
+    async def fetch_tasks(
+        self,
+        session: AsyncSession,
+        executor_id: str,
+        batch_size: int = 10,
+        env_ids: list[str] | None = None,
+    ) -> list[TaskPoolORM]:
+        """Fetch and assign tasks to an executor.
+
+        Uses SELECT FOR UPDATE SKIP LOCKED to ensure atomic assignment
+        and avoid race conditions between executors.
+
+        Args:
+            session: Database session
+            executor_id: ID of the executor fetching tasks
+            batch_size: Maximum number of tasks to fetch
+            env_ids: Optional filter by environment IDs
+
+        Returns:
+            List of assigned tasks
+        """
+        # Build query for pending tasks
+        query = (
+            select(TaskPoolORM)
+            .where(TaskPoolORM.status == TaskStatus.PENDING.value)
+            .order_by(TaskPoolORM.id)
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+        )
+
+        if env_ids:
+            query = query.where(TaskPoolORM.env_id.in_(env_ids))
+
+        result = await session.execute(query)
+        tasks = list(result.scalars().all())
+
+        # Assign tasks to executor
+        now = datetime.utcnow()
+        for task in tasks:
+            task.status = TaskStatus.ASSIGNED.value
+            task.assigned_to = executor_id
+            task.assigned_at = now
+
+        logger.info(
+            "tasks_fetched",
+            executor=executor_id,
+            count=len(tasks),
+        )
+        return tasks
+
+    async def submit_task_result(
+        self,
+        session: AsyncSession,
+        task_uuid: str,
+        executor_id: str,
+        success: bool,
+        score: float,
+        total_reward: float = 0.0,
+        timesteps: int = 0,
+        error: str | None = None,
+    ) -> bool:
+        """Submit the result for a completed task.
+
+        Args:
+            session: Database session
+            task_uuid: UUID of the task
+            executor_id: ID of the executor submitting the result
+            success: Whether the task completed successfully
+            score: Score/success rate for the task
+            total_reward: Total reward accumulated
+            timesteps: Number of timesteps executed
+            error: Error message if failed
+
+        Returns:
+            True if result was accepted, False if rejected
+        """
+        result = await session.execute(
+            select(TaskPoolORM).where(TaskPoolORM.task_uuid == task_uuid).with_for_update()
+        )
+        task = result.scalar_one_or_none()
+
+        if task is None:
+            logger.warning("task_not_found", task_uuid=task_uuid)
+            return False
+
+        # Verify executor owns this task
+        if task.assigned_to != executor_id:
+            logger.warning(
+                "task_executor_mismatch",
+                task_uuid=task_uuid,
+                expected=task.assigned_to,
+                actual=executor_id,
+            )
+            return False
+
+        # Only accept results for actively assigned tasks (prevent double-submit)
+        if task.status != TaskStatus.ASSIGNED.value:
+            logger.warning(
+                "task_not_assigned",
+                task_uuid=task_uuid,
+                status=task.status,
+            )
+            return False
+
+        # Update task with result
+        # COMPLETED = task ran successfully, FAILED = task failed (regardless of error message)
+        task.status = TaskStatus.COMPLETED.value if success else TaskStatus.FAILED.value
+        task.completed_at = datetime.utcnow()
+        task.result = {
+            "success": success,
+            "score": score,
+            "total_reward": total_reward,
+            "timesteps": timesteps,
+            "error": error,
+        }
+
+        logger.info(
+            "task_result_submitted",
+            task_uuid=task_uuid,
+            success=success,
+            score=score,
+        )
+        return True
+
+    async def get_task_pool_stats(
+        self,
+        session: AsyncSession,
+        cycle_id: int | None = None,
+    ) -> dict:
+        """Get statistics about the task pool.
+
+        Args:
+            session: Database session
+            cycle_id: Optional filter by cycle ID
+
+        Returns:
+            Dict with task pool statistics
+        """
+        # Base query
+        base_filter = TaskPoolORM.cycle_id == cycle_id if cycle_id else True
+
+        # Count by status
+        result = await session.execute(
+            select(TaskPoolORM.status, func.count()).where(base_filter).group_by(TaskPoolORM.status)
+        )
+        status_counts = dict(result.all())
+
+        # Get active executors (assigned tasks)
+        result = await session.execute(
+            select(func.distinct(TaskPoolORM.assigned_to))
+            .where(base_filter)
+            .where(TaskPoolORM.status == TaskStatus.ASSIGNED.value)
+            .where(TaskPoolORM.assigned_to.isnot(None))
+        )
+        active_executors = [r for r in result.scalars().all() if r is not None]
+
+        return {
+            "total_tasks": sum(status_counts.values()),
+            "pending_tasks": status_counts.get(TaskStatus.PENDING.value, 0),
+            "assigned_tasks": status_counts.get(TaskStatus.ASSIGNED.value, 0),
+            "completed_tasks": status_counts.get(TaskStatus.COMPLETED.value, 0),
+            "failed_tasks": status_counts.get(TaskStatus.FAILED.value, 0),
+            "active_executors": active_executors,
+            "current_cycle_id": cycle_id,
+        }
+
+    async def count_pending_tasks(
+        self,
+        session: AsyncSession,
+        cycle_id: int | None = None,
+    ) -> int:
+        """Count pending tasks in the pool."""
+        query = (
+            select(func.count())
+            .select_from(TaskPoolORM)
+            .where(TaskPoolORM.status == TaskStatus.PENDING.value)
+        )
+        if cycle_id:
+            query = query.where(TaskPoolORM.cycle_id == cycle_id)
+        result = await session.execute(query)
+        return result.scalar() or 0
+
+    async def get_cycle_task_results(
+        self,
+        session: AsyncSession,
+        cycle_id: int,
+    ) -> list[TaskPoolORM]:
+        """Get all completed tasks for a cycle."""
+        result = await session.execute(
+            select(TaskPoolORM)
+            .where(TaskPoolORM.cycle_id == cycle_id)
+            .where(TaskPoolORM.status.in_([TaskStatus.COMPLETED.value, TaskStatus.FAILED.value]))
+        )
+        return list(result.scalars().all())
+
+    async def is_cycle_complete(
+        self,
+        session: AsyncSession,
+        cycle_id: int,
+    ) -> bool:
+        """Check if all tasks in a cycle are complete."""
+        pending = await session.execute(
+            select(func.count())
+            .select_from(TaskPoolORM)
+            .where(TaskPoolORM.cycle_id == cycle_id)
+            .where(TaskPoolORM.status.in_([TaskStatus.PENDING.value, TaskStatus.ASSIGNED.value]))
+        )
+        return (pending.scalar() or 0) == 0
+
+    async def reassign_stale_tasks(
+        self,
+        session: AsyncSession,
+        stale_threshold_seconds: int = 300,
+    ) -> int:
+        """Reassign tasks that have been assigned but not completed within threshold.
+
+        Args:
+            session: Database session
+            stale_threshold_seconds: Time after which assigned tasks are considered stale
+
+        Returns:
+            Number of tasks reassigned
+        """
+        from datetime import timedelta
+
+        threshold = datetime.utcnow() - timedelta(seconds=stale_threshold_seconds)
+
+        result = await session.execute(
+            select(TaskPoolORM)
+            .where(TaskPoolORM.status == TaskStatus.ASSIGNED.value)
+            .where(TaskPoolORM.assigned_at < threshold)
+            .with_for_update()
+        )
+        stale_tasks = list(result.scalars().all())
+
+        for task in stale_tasks:
+            task.status = TaskStatus.PENDING.value
+            task.assigned_to = None
+            task.assigned_at = None
+
+        if stale_tasks:
+            logger.info("stale_tasks_reassigned", count=len(stale_tasks))
+
+        return len(stale_tasks)

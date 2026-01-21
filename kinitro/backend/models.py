@@ -1,5 +1,6 @@
 """Database models for the evaluation backend."""
 
+import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -20,6 +21,12 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship
 
+
+def generate_task_uuid() -> str:
+    """Generate a unique task UUID."""
+    return str(uuid.uuid4())
+
+
 # =============================================================================
 # SQLAlchemy ORM Models
 # =============================================================================
@@ -36,6 +43,15 @@ class EvaluationCycleStatus(str, Enum):
 
     PENDING = "pending"
     RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class TaskStatus(str, Enum):
+    """Status of a task in the task pool."""
+
+    PENDING = "pending"
+    ASSIGNED = "assigned"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -87,6 +103,14 @@ class MinerScoreORM(Base):
     __table_args__ = (
         Index("idx_miner_scores_cycle", "cycle_id"),
         Index("idx_miner_scores_uid", "uid"),
+        # Prevent duplicate scores for same miner/env in a cycle
+        Index(
+            "idx_miner_scores_unique",
+            "cycle_id",
+            "uid",
+            "env_id",
+            unique=True,
+        ),
     )
 
 
@@ -108,6 +132,49 @@ class ComputedWeightsORM(Base):
     cycle = relationship("EvaluationCycleORM", back_populates="computed_weights")
 
     __table_args__ = (Index("idx_weights_block", "block_number"),)
+
+
+class TaskPoolORM(Base):
+    """Database model for the task pool.
+
+    Tasks are created by the scheduler and executed by executors.
+    This enables horizontal scaling of evaluation workloads.
+
+    The two-tier ID system:
+    - task_uuid: Random UUID for task tracking/API calls (unpredictable)
+    - seed: Deterministic seed for environment reproducibility
+    """
+
+    __tablename__ = "task_pool"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_uuid = Column(
+        String(36), nullable=False, unique=True, default=generate_task_uuid
+    )  # Random UUID for tracking
+    cycle_id = Column(
+        Integer, ForeignKey("evaluation_cycles.id", ondelete="CASCADE"), nullable=False
+    )
+    miner_uid = Column(Integer, nullable=False)
+    miner_hotkey = Column(String(64), nullable=False)
+    miner_endpoint = Column(Text, nullable=False)  # Base URL for miner policy
+    env_id = Column(String(64), nullable=False)
+    seed = Column(Integer, nullable=False)  # Deterministic seed for reproducibility
+    status = Column(String(20), nullable=False, default=TaskStatus.PENDING.value)
+    assigned_to = Column(String(64), nullable=True)  # Executor ID
+    assigned_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    result = Column(JSONB, nullable=True)  # {success, score, error, etc.}
+    created_at = Column(DateTime, nullable=False, default=func.now())
+
+    # Relationships
+    cycle = relationship("EvaluationCycleORM")
+
+    __table_args__ = (
+        Index("idx_task_pool_status", "status"),
+        Index("idx_task_pool_cycle", "cycle_id"),
+        Index("idx_task_pool_miner", "miner_uid"),
+        Index("idx_task_pool_uuid", "task_uuid"),
+    )
 
 
 # =============================================================================
@@ -211,3 +278,78 @@ class EnvironmentInfo(BaseModel):
     task_name: str
     n_evaluations: int
     avg_success_rate: float | None
+
+
+# =============================================================================
+# Task Pool API Models
+# =============================================================================
+
+
+class Task(BaseModel):
+    """A single evaluation task from the task pool."""
+
+    task_uuid: str  # Unique identifier for API calls
+    cycle_id: int
+    miner_uid: int
+    miner_hotkey: str
+    miner_endpoint: str
+    env_id: str
+    seed: int  # Deterministic seed for reproducibility
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TaskFetchRequest(BaseModel):
+    """Request to fetch tasks from the pool."""
+
+    executor_id: str = Field(description="Unique identifier for the executor")
+    batch_size: int = Field(default=10, ge=1, le=100, description="Number of tasks to fetch")
+    env_ids: list[str] | None = Field(default=None, description="Filter by environment IDs")
+
+
+class TaskFetchResponse(BaseModel):
+    """Response containing fetched tasks."""
+
+    tasks: list[Task]
+    total_pending: int = Field(description="Total pending tasks in pool")
+
+
+class TaskResult(BaseModel):
+    """Result of a single task execution."""
+
+    task_uuid: str = Field(description="UUID of the task")
+    success: bool
+    score: float = Field(default=0.0)
+    total_reward: float = Field(default=0.0)
+    timesteps: int = Field(default=0)
+    error: str | None = Field(default=None)
+
+
+class TaskSubmitRequest(BaseModel):
+    """Request to submit task results."""
+
+    executor_id: str = Field(description="Executor that completed the tasks")
+    results: list[TaskResult]
+
+
+class TaskSubmitResponse(BaseModel):
+    """Response for task submission."""
+
+    accepted: int = Field(description="Number of results accepted")
+    rejected: int = Field(description="Number of results rejected")
+    errors: list[str] = Field(default_factory=list)
+
+
+class TaskPoolStats(BaseModel):
+    """Statistics about the task pool."""
+
+    total_tasks: int
+    pending_tasks: int
+    assigned_tasks: int
+    completed_tasks: int
+    failed_tasks: int
+    active_executors: list[str]
+    current_cycle_id: int | None

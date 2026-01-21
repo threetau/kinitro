@@ -1,13 +1,15 @@
 """Tests for procedural generation."""
 
+import uuid
+
 import numpy as np
 
 from kinitro.environments.procedural import (
     ProceduralTaskGenerator,
-    generate_seed_from_block,
     randomize_physics,
     randomize_positions,
 )
+from kinitro.scheduler.task_generator import generate_seed
 
 
 class TestRandomizePositions:
@@ -70,42 +72,38 @@ class TestRandomizePhysics:
             assert 0.5 <= result["friction"] <= 1.5
 
 
-class TestGenerateSeedFromBlock:
-    """Tests for deterministic seed generation."""
+class TestGenerateSeed:
+    """Tests for seed generation from task UUID."""
 
     def test_deterministic(self):
-        """Same inputs should give same seed."""
-        seed1 = generate_seed_from_block(1000, "env_a", "hotkey123", 0)
-        seed2 = generate_seed_from_block(1000, "env_a", "hotkey123", 0)
+        """Same UUID should give same seed."""
+        task_uuid = str(uuid.uuid4())
+        seed1 = generate_seed(task_uuid)
+        seed2 = generate_seed(task_uuid)
 
         assert seed1 == seed2
 
-    def test_different_blocks_different_seeds(self):
-        """Different blocks should give different seeds."""
-        seed1 = generate_seed_from_block(1000, "env_a", "hotkey123", 0)
-        seed2 = generate_seed_from_block(1001, "env_a", "hotkey123", 0)
+    def test_different_uuids_different_seeds(self):
+        """Different UUIDs should give different seeds."""
+        uuid1 = str(uuid.uuid4())
+        uuid2 = str(uuid.uuid4())
+        seed1 = generate_seed(uuid1)
+        seed2 = generate_seed(uuid2)
 
         assert seed1 != seed2
 
-    def test_different_envs_different_seeds(self):
-        """Different environments should give different seeds."""
-        seed1 = generate_seed_from_block(1000, "env_a", "hotkey123", 0)
-        seed2 = generate_seed_from_block(1000, "env_b", "hotkey123", 0)
-
-        assert seed1 != seed2
-
-    def test_different_validators_different_seeds(self):
-        """Different validators should get different seeds."""
-        seed1 = generate_seed_from_block(1000, "env_a", "validator1", 0)
-        seed2 = generate_seed_from_block(1000, "env_a", "validator2", 0)
-
-        assert seed1 != seed2
-
-    def test_positive_32bit(self):
-        """Seed should be positive 32-bit integer."""
-        for i in range(100):
-            seed = generate_seed_from_block(i, f"env_{i}", "hotkey", i)
+    def test_positive_31bit(self):
+        """Seed should be positive 31-bit integer (fits PostgreSQL int4)."""
+        for _ in range(100):
+            task_uuid = str(uuid.uuid4())
+            seed = generate_seed(task_uuid)
             assert 0 <= seed <= 0x7FFFFFFF
+
+    def test_consistent_across_calls(self):
+        """Same UUID should produce same seed across multiple calls."""
+        test_uuid = "550e8400-e29b-41d4-a716-446655440000"
+        seeds = [generate_seed(test_uuid) for _ in range(10)]
+        assert all(s == seeds[0] for s in seeds)
 
 
 class TestProceduralTaskGenerator:
