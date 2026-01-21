@@ -22,7 +22,7 @@ class MinerCommitment:
     @property
     def is_valid(self) -> bool:
         """Check if commitment has all required fields.
-        
+
         Miners must deploy to Chutes - docker_image alone is not sufficient
         for production evaluations.
         """

@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from kinitro.api.deps import get_session, get_storage
 from kinitro.backend.models import (
     EvaluationCycle,
     HealthResponse,
     StatusResponse,
 )
-from kinitro.api.deps import get_session, get_storage
 from kinitro.backend.storage import Storage
 from kinitro.environments import get_all_environment_ids
 

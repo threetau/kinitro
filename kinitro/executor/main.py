@@ -5,8 +5,8 @@ import signal
 
 import structlog
 
-from kinitro.executor.config import ExecutorConfig
 from kinitro.executor.api_client import APIClient
+from kinitro.executor.config import ExecutorConfig
 from kinitro.executor.worker import Worker
 
 logger = structlog.get_logger()
@@ -64,7 +64,7 @@ class Executor:
                         self._shutdown_event.wait(),
                         timeout=self.config.poll_interval_seconds,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass  # Normal timeout, continue loop
 
     async def stop(self) -> None:

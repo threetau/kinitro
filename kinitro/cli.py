@@ -341,7 +341,7 @@ def api(
         ),
     )
 
-    from kinitro.api import run_server, APIConfig
+    from kinitro.api import APIConfig, run_server
 
     normalized_db_url = _normalize_database_url(database_url)
 
@@ -391,7 +391,7 @@ def scheduler(
         ),
     )
 
-    from kinitro.scheduler import run_scheduler, SchedulerConfig
+    from kinitro.scheduler import SchedulerConfig, run_scheduler
 
     normalized_db_url = _normalize_database_url(database_url)
 
@@ -456,7 +456,7 @@ def executor(
         ),
     )
 
-    from kinitro.executor import run_executor, ExecutorConfig
+    from kinitro.executor import ExecutorConfig, run_executor
 
     config_kwargs = {
         "api_url": api_url,
@@ -774,7 +774,7 @@ def build_eval_env(
             eval_env_environments,
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
         )
-        typer.echo(f"  Copied environments module to build context")
+        typer.echo("  Copied environments module to build context")
 
         # Build the image
         result_tag = affinetes.build_image_from_env(

@@ -3,8 +3,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from kinitro.backend.models import EnvironmentInfo, MinerInfo
 from kinitro.api.deps import get_session, get_storage
+from kinitro.backend.models import EnvironmentInfo, MinerInfo
 from kinitro.backend.storage import Storage
 from kinitro.environments import get_all_environment_ids
 

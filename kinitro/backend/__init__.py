@@ -1,14 +1,14 @@
 """Backend storage and models for Kinitro evaluation."""
 
 from kinitro.backend.models import (
-    Task,
-    TaskResult,
-    TaskPoolORM,
-    TaskStatus,
-    MinerScoreORM,
+    ComputedWeightsORM,
     EvaluationCycleORM,
     EvaluationCycleStatus,
-    ComputedWeightsORM,
+    MinerScoreORM,
+    Task,
+    TaskPoolORM,
+    TaskResult,
+    TaskStatus,
 )
 from kinitro.backend.storage import Storage
 

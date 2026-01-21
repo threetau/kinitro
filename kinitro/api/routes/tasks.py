@@ -1,8 +1,9 @@
 """Task pool routes for executors to fetch and submit tasks."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from kinitro.api.deps import get_session, get_storage
 from kinitro.backend.models import (
     Task,
     TaskFetchRequest,
@@ -11,7 +12,6 @@ from kinitro.backend.models import (
     TaskSubmitRequest,
     TaskSubmitResponse,
 )
-from kinitro.api.deps import get_session, get_storage
 from kinitro.backend.storage import Storage
 
 router = APIRouter(prefix="/v1/tasks", tags=["Tasks"])

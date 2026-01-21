@@ -3,12 +3,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from kinitro.api.deps import get_session, get_storage
 from kinitro.backend.models import (
     EvaluationCycle,
     MinerScore,
     ScoresResponse,
 )
-from kinitro.api.deps import get_session, get_storage
 from kinitro.backend.storage import Storage
 
 router = APIRouter(prefix="/v1/scores", tags=["Scores"])

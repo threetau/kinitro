@@ -3,9 +3,9 @@
 import structlog
 
 from kinitro.backend.models import TaskPoolORM
+from kinitro.chain.weights import weights_to_u16
 from kinitro.scoring.pareto import compute_pareto_frontier
 from kinitro.scoring.winners_take_all import compute_subset_scores, scores_to_weights
-from kinitro.chain.weights import weights_to_u16
 
 logger = structlog.get_logger()
 

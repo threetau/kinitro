@@ -3,8 +3,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from kinitro.backend.models import WeightsResponse, WeightsU16
 from kinitro.api.deps import get_session, get_storage
+from kinitro.backend.models import WeightsResponse, WeightsU16
 from kinitro.backend.storage import Storage
 
 router = APIRouter(prefix="/v1/weights", tags=["Weights"])

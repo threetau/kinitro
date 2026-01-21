@@ -9,12 +9,12 @@ from kinitro.backend.storage import Storage
 from kinitro.chain.commitments import read_miner_commitments
 from kinitro.environments import get_all_environment_ids
 from kinitro.scheduler.config import SchedulerConfig
-from kinitro.scheduler.task_generator import generate_tasks
 from kinitro.scheduler.scoring import (
     aggregate_task_results,
     compute_weights,
     convert_to_scores_data,
 )
+from kinitro.scheduler.task_generator import generate_tasks
 
 logger = structlog.get_logger()
 
