@@ -892,42 +892,58 @@ def chutes_push(
     typer.echo(f"  GPU: {gpu_count}x (min {min_vram_gb}GB VRAM)")
 
     # Generate Chute configuration for robotics policy server
+    import time
+
+    chute_name = repo.replace("/", "-")
+    image_tag = f"{revision[:8]}-{int(time.time()) % 10000}"  # revision + timestamp
     chute_config = textwrap.dedent(f'''
 import os
-from chutes import Chute
-from chutes.chute import NodeSelector
+from chutes.chute import Chute, NodeSelector
+from chutes.image import Image
 
 os.environ["NO_PROXY"] = "localhost,127.0.0.1"
 
+# Build the image from Chutes base (has 'chutes' user for post-processing)
+image = Image("{user}", "{chute_name}", "{image_tag}", readme="Kinitro miner policy from {repo}")
+# Use default parachutes base image (don't call from_base to keep default)
+image.run_command("pip install --no-cache-dir huggingface_hub uvicorn fastapi torch numpy gymnasium pillow pydantic")
+image.run_command("python -c \\"from huggingface_hub import snapshot_download; snapshot_download('{repo}', revision='{revision}', local_dir='/app')\\"")
+image.set_workdir("/app")
+image.with_entrypoint("uvicorn server:app --host 0.0.0.0 --port 8000")
+
 chute = Chute(
-    name="{repo.replace("/", "-")}",
+    username="{user}",
+    name="{chute_name}",
+    image=image,
     readme="{repo}",
     node_selector=NodeSelector(
         gpu_count={gpu_count},
         min_vram_gb={min_vram_gb},
     ),
 )
-
-# The policy server files are loaded from HuggingFace
-chute.from_huggingface("{repo}", revision="{revision}")
-
-# Install dependencies
-chute.add_pip_requirements("requirements.txt")
-
-# Set the entrypoint for the FastAPI policy server
-chute.entrypoint = "uvicorn server:app --host 0.0.0.0 --port 8000"
 ''')
 
     tmp_file = Path("tmp_kinitro_chute.py")
     tmp_file.write_text(chute_config)
 
     try:
-        # Deploy to Chutes
-        cmd = ["chutes", "deploy", f"{tmp_file.stem}:chute", "--accept-fee"]
         env = {**os.environ, "CHUTES_API_KEY": api_key}
 
-        typer.echo("\nDeploying...")
-        result = subprocess.run(cmd, env=env)
+        # Step 1: Build the image first
+        typer.echo("\nBuilding image (this may take several minutes)...")
+        build_cmd = ["chutes", "build", f"{tmp_file.stem}:chute", "--wait"]
+        result = subprocess.run(build_cmd, env=env, input=b"y\n")
+
+        if result.returncode != 0:
+            typer.echo("Image build failed!", err=True)
+            raise typer.Exit(1)
+
+        typer.echo("Image built successfully!")
+
+        # Step 2: Deploy the chute
+        typer.echo("\nDeploying chute...")
+        deploy_cmd = ["chutes", "deploy", f"{tmp_file.stem}:chute", "--accept-fee"]
+        result = subprocess.run(deploy_cmd, env=env, input=b"y\n")
 
         if result.returncode != 0:
             typer.echo("Chutes deployment failed!", err=True)
@@ -1099,22 +1115,30 @@ def miner_deploy(
             chute_id = "dry-run-chute-id"
         else:
             # Generate Chute config
+            chute_name = repo.replace("/", "-")
             chute_config = textwrap.dedent(f'''
 import os
-from chutes import Chute
-from chutes.chute import NodeSelector
+from chutes.chute import Chute, NodeSelector
+from chutes.image import Image
 
 os.environ["NO_PROXY"] = "localhost,127.0.0.1"
 
+# Build the image from a Python base with HuggingFace model
+image = Image("{user}", "{chute_name}", "latest")
+image.from_base("python:3.11-slim")
+image.apt_install(["git", "git-lfs"])
+image.run_command("pip install --no-cache-dir huggingface_hub uvicorn fastapi torch numpy gymnasium pillow pydantic")
+image.run_command("huggingface-cli download {repo} --revision {revision} --local-dir /app")
+image.set_workdir("/app")
+image.with_entrypoint("uvicorn server:app --host 0.0.0.0 --port 8000")
+
 chute = Chute(
-    name="{repo.replace("/", "-")}",
+    username="{user}",
+    name="{chute_name}",
+    image=image,
     readme="{repo}",
     node_selector=NodeSelector(gpu_count=1, min_vram_gb=8),
 )
-
-chute.from_huggingface("{repo}", revision="{revision}")
-chute.add_pip_requirements("requirements.txt")
-chute.entrypoint = "uvicorn server:app --host 0.0.0.0 --port 8000"
 ''')
 
             tmp_file = Path("tmp_kinitro_chute.py")

@@ -46,14 +46,20 @@ def parse_commitment(raw: str) -> dict:
     import json
 
     # Try JSON format first (Affine-compatible)
+    # Supports both full keys and short keys for compactness:
+    #   Full: {"model": "...", "revision": "...", "chute_id": "..."}
+    #   Short: {"m": "...", "r": "...", "c": "..."}
     if raw.strip().startswith("{"):
         try:
             data = json.loads(raw)
-            hf_repo = data.get("model", "")
-            revision = data.get("revision", "")
-            chute_id = data.get("chute_id", "")
+            # Support both full and short keys
+            hf_repo = data.get("model", "") or data.get("m", "")
+            revision = data.get("revision", "") or data.get("r", "")
+            chute_id = data.get("chute_id", "") or data.get("c", "")
             docker_image = (
-                data.get("docker_image", "") or f"{hf_repo}:{revision}" if hf_repo else ""
+                data.get("docker_image", "")
+                or data.get("d", "")
+                or (f"{hf_repo}:{revision}" if hf_repo else "")
             )
 
             if hf_repo and revision:
@@ -254,14 +260,18 @@ def commit_model(
     """
     import json
 
-    # Use JSON format compatible with Affine
+    # Use compact JSON format to fit within chain limits (~128 bytes)
+    # Short keys: m=model, r=revision, c=chute_id
     commitment_data = json.dumps(
         {
-            "model": repo,
-            "revision": revision,
-            "chute_id": chute_id,
-        }
+            "m": repo,
+            "r": revision,
+            "c": chute_id,
+        },
+        separators=(",", ":"),  # Remove spaces for compactness
     )
+
+    logger.info("commitment_data", data=commitment_data, length=len(commitment_data))
 
     try:
         result = subtensor.set_commitment(

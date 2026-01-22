@@ -4,8 +4,19 @@ Miner Policy Server for Robotics Subnet
 This FastAPI server exposes your robotics policy as HTTP endpoints
 that validators can query during evaluation.
 
-Deploy this to Chutes or run self-hosted, then commit the endpoint
-info on-chain so validators can find and evaluate your policy.
+DEPLOYMENT OPTIONS:
+
+1. Chutes Platform (Recommended):
+   - Use chute.py for Chutes deployment
+   - Run: chutes deploy chute:chute --accept-fee
+   - Or use kinitro CLI: kinitro chutes-push --repo YOUR_HF_REPO
+
+2. Self-Hosted:
+   - Run this server directly with uvicorn
+   - Ensure your endpoint is publicly accessible
+
+After deployment, commit your policy on-chain:
+    kinitro commit --chute-id YOUR_CHUTE_ID --netuid YOUR_NETUID
 
 Endpoints:
     POST /reset - Reset policy for new episode
@@ -16,8 +27,8 @@ Usage:
     # Local testing
     uvicorn server:app --host 0.0.0.0 --port 8000
 
-    # Deploy to Chutes
-    chutes deploy chute:chute
+    # Deploy to Chutes (use chute.py instead)
+    chutes deploy chute:chute --accept-fee
 """
 
 import time
