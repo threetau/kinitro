@@ -1,4 +1,4 @@
-"""Configuration management for robo-subnet."""
+"""Configuration management for Kinitro."""
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class NetworkConfig(BaseSettings):
     """Bittensor network configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="ROBO_")
+    model_config = SettingsConfigDict(env_prefix="KINITRO_")
 
     network: str = Field(default="finney", description="Network: finney, test, or local")
     netuid: int = Field(default=1, description="Subnet UID")
@@ -18,7 +18,7 @@ class NetworkConfig(BaseSettings):
 class ValidatorConfig(BaseSettings):
     """Validator-specific configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="ROBO_")
+    model_config = SettingsConfigDict(env_prefix="KINITRO_")
 
     # Network settings (inherited concept)
     network: str = Field(default="finney")
@@ -59,7 +59,7 @@ class ValidatorConfig(BaseSettings):
 class MinerConfig(BaseSettings):
     """Miner-specific configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="ROBO_")
+    model_config = SettingsConfigDict(env_prefix="KINITRO_")
 
     network: str = Field(default="finney")
     netuid: int = Field(default=1)

@@ -1,1 +1,1 @@
-"""Tests for robo-subnet."""
+"""Tests for Kinitro."""

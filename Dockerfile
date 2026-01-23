@@ -1,6 +1,6 @@
-# Dockerfile for Robotics Subnet Validator
+# Dockerfile for Kinitro Validator
 #
-# Build: docker build -t robo-subnet:latest .
+# Build: docker build -t kinitro:latest .
 
 FROM python:3.11-slim
 
@@ -29,7 +29,7 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir -e .
 
 # Copy source code
-COPY robo/ ./robo/
+COPY kinitro/ ./kinitro/
 
 # Default command
-CMD ["robo", "--help"]
+CMD ["kinitro", "--help"]

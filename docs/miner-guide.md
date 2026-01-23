@@ -1,6 +1,6 @@
 # Miner Guide
 
-This guide explains how to participate as a miner in the Robotics Generalization Subnet. As a miner, you'll train a robotics policy and deploy it as an HTTP endpoint that validators can query during evaluation.
+This guide explains how to participate as a miner in Kinitro. As a miner, you'll train a robotics policy and deploy it as an HTTP endpoint that validators can query during evaluation.
 
 ## Overview
 

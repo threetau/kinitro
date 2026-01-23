@@ -1,8 +1,8 @@
 """
-Miner Policy Template for Robotics Subnet
+Miner Policy Template for Kinitro
 
 This is the template for creating a policy that can be evaluated
-by the robotics subnet validators.
+by Kinitro validators.
 
 Your policy must implement the RobotActor class with:
 - reset(task_config): Called at the start of each episode

@@ -1,5 +1,5 @@
 """
-Robo Subnet - Bittensor subnet for evaluating generalist robotics policies.
+Kinitro - A Bittensor subnet for evaluating generalist robotics policies.
 
 Miners submit RL policies that are evaluated across diverse robotics environments
 (manipulation, locomotion, dexterous). Only policies that generalize across ALL

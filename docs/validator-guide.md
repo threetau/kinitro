@@ -1,23 +1,23 @@
 # Validator Guide
 
-This guide explains how to run a validator for the Robotics Generalization Subnet. Validators are **lightweight** - they simply poll the evaluation backend for weights and submit them to the Bittensor chain.
+This guide explains how to run a validator for Kinitro. Validators are **lightweight** - they simply poll the evaluation backend for weights and submit them to the Bittensor chain.
 
 ## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  EVALUATION BACKEND (operated by subnet owner)                   │
-│    - Runs evaluations on miner policies                          │
-│    - Computes epsilon-Pareto scores                              │
-│    - Exposes REST API: GET /v1/weights/latest                    │
+│  EVALUATION BACKEND (operated by subnet owner)                  │
+│    - Runs evaluations on miner policies                         │
+│    - Computes epsilon-Pareto scores                             │
+│    - Exposes REST API: GET /v1/weights/latest                   │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ HTTP
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  YOUR VALIDATOR                                                  │
-│    - Polls backend for weights                                   │
-│    - Submits weights to chain                                    │
-│    - No GPU required                                             │
+│  YOUR VALIDATOR                                                 │
+│    - Polls backend for weights                                  │
+│    - Submits weights to chain                                   │
+│    - No GPU required                                            │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -37,7 +37,7 @@ The backend handles all the heavy computation (running simulations, evaluating m
 ### 1. Install the Package
 
 ```bash
-git clone https://github.com/AffineFoundation/kinitro.git
+git clone https://github.com/threetau/kinitro.git
 cd kinitro
 uv sync
 ```

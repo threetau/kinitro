@@ -1,6 +1,6 @@
 # Backend Guide (Subnet Operator)
 
-This guide explains how to run the evaluation backend for the Robotics Generalization Subnet. The backend is operated by the **subnet owner** and handles all compute-heavy evaluation of miner policies.
+This guide explains how to run the evaluation backend for Kinitro. The backend is operated by the **subnet owner** and handles all compute-heavy evaluation of miner policies.
 
 > **Note**: This guide is for subnet operators only. If you're a validator, see the [Validator Guide](./validator-guide.md). If you're a miner, see the [Miner Guide](./miner-guide.md).
 
@@ -8,30 +8,30 @@ This guide explains how to run the evaluation backend for the Robotics Generaliz
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  EVALUATION BACKEND (this component)                             │
-│    - PostgreSQL database for storing results                     │
-│    - FastAPI server exposing weights API                         │
-│    - Scheduler running periodic evaluation cycles                │
-│    - affinetes containers for isolated simulation                │
-│    - Calls miner Chutes endpoints for policy actions             │
-│    - Computes epsilon-Pareto scores and weights                  │
+│  EVALUATION BACKEND (this component)                            │
+│    - PostgreSQL database for storing results                    │
+│    - FastAPI server exposing weights API                        │
+│    - Scheduler running periodic evaluation cycles               │
+│    - affinetes containers for isolated simulation               │
+│    - Calls miner Chutes endpoints for policy actions            │
+│    - Computes epsilon-Pareto scores and weights                 │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ HTTP API
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  VALIDATORS (run by community)                                   │
-│    - Poll GET /v1/weights/latest                                 │
-│    - Submit weights to chain                                     │
+│  VALIDATORS (run by community)                                  │
+│    - Poll GET /v1/weights/latest                                │
+│    - Submit weights to chain                                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Requirements
 
 - **CPU**: 4+ cores recommended
-- **RAM**: 16GB+ (for MuJoCo simulation)
-- **GPU**: Optional but recommended for faster evaluation
-- **Storage**: 50GB+ for Docker images and database
-- **Docker**: Required for affinetes container-based evaluation
+- **RAM**: 16 GiB+ (for MuJoCo simulation)
+- **GPU**: Optional, but recommended for faster evaluation
+- **Storage**: 50 GiB+ for Docker images and database
+- **Docker**: Required for Affinetes container-based evaluation
 - **PostgreSQL**: 13+ for storing evaluation results
 
 ## Quick Start
@@ -39,7 +39,7 @@ This guide explains how to run the evaluation backend for the Robotics Generaliz
 ### 1. Install the Package
 
 ```bash
-git clone https://github.com/AffineFoundation/kinitro.git
+git clone https://github.com/threetau/kinitro.git
 cd kinitro
 uv sync
 ```
@@ -67,7 +67,7 @@ sudo -u postgres psql -c "ALTER USER kinitro PASSWORD 'your-secure-password';"
 
 ### 3. Build the Evaluation Environment
 
-The evaluation runs in Docker containers managed by affinetes:
+The evaluation runs in Docker containers managed by Affinetes:
 
 ```bash
 uv run kinitro build-eval-env --tag kinitro/eval-env:v1
@@ -112,7 +112,7 @@ The backend will:
 ### Command Line Options
 
 | Flag | Environment Variable | Default | Description |
-|------|---------------------|---------|-------------|
+|------|----------------------|---------|-------------|
 | `--host` | `KINITRO_BACKEND_HOST` | `0.0.0.0` | API server bind address |
 | `--port` | `KINITRO_BACKEND_PORT` | `8000` | API server port |
 | `--database-url` | `KINITRO_BACKEND_DATABASE_URL` | - | PostgreSQL connection URL |
@@ -380,7 +380,7 @@ server {
 uv run kinitro backend --log-level DEBUG ...
 
 # View structured logs
-uv run robo backend ... 2>&1 | jq .
+uv run kinitro backend ... 2>&1 | jq .
 ```
 
 ### Prometheus Metrics

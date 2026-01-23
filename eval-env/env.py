@@ -9,7 +9,7 @@ This Actor class runs inside an affinetes-managed container and:
 Usage (from backend):
     import affinetes as af_env
 
-    env = af_env.load_env(image="robo-subnet/eval-env:v1")
+    env = af_env.load_env(image="kinitro/eval-env:v1")
     result = await env.evaluate(
         task_id=123,
         base_url="https://miner-policy.chutes.ai",
@@ -22,7 +22,7 @@ import time
 import httpx
 import numpy as np
 
-# Import from robo package (installed in container via PYTHONPATH)
+# Import from kinitro package (installed in container via PYTHONPATH)
 from kinitro.environments import get_environment
 from kinitro.environments.registry import get_all_environment_ids
 
