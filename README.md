@@ -1,4 +1,4 @@
-# Kinitro - Robotics Generalization Subnet
+# Kinitro: Robotics Generalization Subnet
 
 A Bittensor subnet for evaluating generalist robotics policies across diverse simulated environments.
 
@@ -104,7 +104,7 @@ flowchart TB
 |---------|---------|---------|---------|
 | **API** | `kinitro api` | REST API, task pool management | Horizontal (stateless) |
 | **Scheduler** | `kinitro scheduler` | Task generation, scoring, weight computation | Single instance |
-| **Executor** | `kinitro executor` | Run MuJoCo evaluations via [affinetes](https://github.com/AffineFoundation/affinetes/) | Horizontal (GPU machines) |
+| **Executor** | `kinitro executor` | Run MuJoCo evaluations via [Affinetes](https://github.com/AffineFoundation/affinetes/) | Horizontal (GPU machines) |
 | **Validator** | `kinitro validate` | Submit weights to chain | Per validator |
 
 ### Evaluation Flow
@@ -134,23 +134,9 @@ uv sync
 pip install -e .
 ```
 
-### For Validators
-
-See the full [Validator Guide](docs/validator-guide.md) for detailed instructions.
-
-```bash
-# Start the validator (submits weights to chain)
-uv run kinitro validate \
-  --backend-url https://api.kinitro.ai \
-  --netuid 26 \
-  --network finney \
-  --wallet-name your-wallet \
-  --hotkey-name your-hotkey
-```
-
 ### For Miners
 
-See the full [Miner Guide](docs/miner-guide.md) for detailed instructions.
+See the full [Miner Guide](docs/miner-guide.md) for detailed instructions on how to train and deploy a policy.
 
 ```bash
 # 1. Initialize a policy template
@@ -174,8 +160,24 @@ uv run kinitro commit \
   --network finney
 ```
 
+### For Validators
+
+See the full [Validator Guide](docs/validator-guide.md) for detailed instructions on setting up a validator (lightweight).
+
+```bash
+# Start the validator (submits weights to chain)
+uv run kinitro validate \
+  --backend-url https://api.kinitro.ai \
+  --netuid 26 \
+  --network finney \
+  --wallet-name your-wallet \
+  --hotkey-name your-hotkey
+```
 
 ### For Backend Operators (subnet owners)
+
+See the full [Backend Guide](docs/backend-guide.md) for instructions on how to run the evaluation backend (subnet operators only).
+
 ```bash
 # 1. Start PostgreSQL
 docker run -d --name kinitro-postgres \
@@ -202,37 +204,6 @@ uv run kinitro scheduler \
 uv run kinitro executor --api-url http://localhost:8000
 ```
 
-## CLI Reference
-
-```bash
-## Backend operator commands
-# Database commands
-kinitro db create         # Create database
-kinitro db init           # Initialize schema
-kinitro db status         # Show database statistics
-kinitro db reset          # Drop and recreate database
-kinitro db drop           # Drop database
-
-# Service commands 
-kinitro api               # Run API service (REST endpoints, task pool)
-kinitro scheduler         # Run scheduler (task generation, scoring)
-kinitro executor          # Run executor (MuJoCo evaluations)
-
-## Validator commands
-kinitro validate          # Run validator (polls API, sets weights)
-
-## Environment commands
-kinitro list-envs         # List available environments
-kinitro test-env ENV_ID   # Test an environment locally
-kinitro test-scoring      # Test the scoring mechanism
-
-## Miner commands
-kinitro init-miner DIR    # Initialize miner template
-kinitro build PATH --tag TAG [--push]  # Build Docker image
-kinitro commit            # Commit model to chain
-kinitro mock-miner        # Run mock miner for testing
-```
-
 ## API Endpoints
 
 The API service exposes these endpoints:
@@ -250,61 +221,6 @@ The API service exposes these endpoints:
 | `POST /v1/tasks/fetch` | Fetch tasks (for executors) |
 | `POST /v1/tasks/submit` | Submit results (for executors) |
 | `GET /v1/tasks/stats` | Task pool statistics |
-
-## Project Structure
-
-```
-kinitro/
-├── kinitro/
-│   ├── api/                   # API service (REST endpoints, task pool)
-│   │   ├── app.py             # FastAPI application
-│   │   ├── config.py          # API configuration
-│   │   ├── deps.py            # Dependency injection
-│   │   └── routes/            # Route handlers
-│   │       ├── health.py      # Health check endpoints
-│   │       ├── miners.py      # Miner info endpoints
-│   │       ├── scores.py      # Score endpoints
-│   │       ├── tasks.py       # Task pool endpoints
-│   │       └── weights.py     # Weight endpoints
-│   ├── scheduler/             # Scheduler service (task generation, scoring)
-│   │   ├── config.py          # Scheduler configuration
-│   │   ├── main.py            # Scheduler loop
-│   │   ├── scoring.py         # Pareto scoring utilities
-│   │   └── task_generator.py  # Task and seed generation
-│   ├── executor/              # Executor service (MuJoCo evaluations)
-│   │   ├── api_client.py      # HTTP client for API
-│   │   ├── config.py          # Executor configuration
-│   │   ├── main.py            # Executor loop
-│   │   └── worker.py          # Evaluation worker (affinetes)
-│   ├── backend/               # Shared storage layer and models
-│   │   ├── models.py          # Database & API models
-│   │   └── storage.py         # PostgreSQL storage layer
-│   ├── environments/          # Robotics environment wrappers
-│   │   ├── base.py            # Base environment interface
-│   │   ├── metaworld_env.py   # MetaWorld wrapper
-│   │   ├── procedural.py      # Procedural generation utilities
-│   │   └── registry.py        # Environment registry
-│   ├── scoring/               # ε-Pareto dominance and weights
-│   │   ├── pareto.py          # Pareto frontier computation
-│   │   └── winners_take_all.py # Subset scoring
-│   ├── chain/                 # Bittensor chain integration
-│   │   ├── commitments.py     # Miner commitment reading
-│   │   └── weights.py         # Weight submission
-│   ├── validator/             # Lightweight validator client
-│   │   ├── client.py          # API client for weights
-│   │   └── main.py            # Validator loop
-│   ├── miner/                 # Miner templates
-│   │   └── template/          # Policy server template
-│   │       ├── env.py         # Environment utilities
-│   │       ├── policy.py      # Policy interface
-│   │       └── server.py      # FastAPI server
-│   ├── cli.py                 # CLI commands
-│   └── config.py              # Global configuration
-├── eval-env/                  # Evaluation environment (runs in Docker)
-├── tests/
-│   └── unit/                  # Unit tests
-└── pyproject.toml
-```
 
 ## Environments
 
@@ -348,12 +264,6 @@ async def act(observation: np.ndarray, images: dict | None) -> np.ndarray:
 
 See the [Miner Guide](docs/miner-guide.md) and `kinitro/miner/template/` for complete examples.
 
-## Documentation
-
-- [Miner Guide](docs/miner-guide.md) - How to train and deploy a policy
-- [Validator Guide](docs/validator-guide.md) - How to run a validator (lightweight)
-- [Backend Guide](docs/backend-guide.md) - How to run the evaluation backend (subnet operators only)
-
 ## Development
 
 ```bash
@@ -375,19 +285,7 @@ ruff check kinitro/
 
 ## Configuration
 
-Environment variables (or `.env` file):
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `NETWORK` | Bittensor network | `finney` |
-| `NETUID` | Subnet UID | (required) |
-| `WALLET_NAME` | Wallet name | `default` |
-| `HOTKEY_NAME` | Hotkey name | `default` |
-| `POSTGRES_USER` | Database user | `postgres` |
-| `POSTGRES_PASSWORD` | Database password | `postgres` |
-| `POSTGRES_DB` | Database name | `kinitro` |
-| `EVAL_INTERVAL` | Seconds between evals | `3600` |
-| `EPISODES_PER_ENV` | Episodes per environment | `50` |
+Use environment variables or a `.env` file. See `.env.example` for configuration options.
 
 ## License
 
