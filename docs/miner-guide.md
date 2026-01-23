@@ -73,9 +73,10 @@ cd my-policy
 ```
 
 This creates:
-- `server.py` - FastAPI server with `/reset` and `/act` endpoints
+- `server.py` - FastAPI server with `/reset` and `/act` endpoints (for local testing)
 - `policy.py` - Policy implementation template (edit this!)
-- `Dockerfile` - For containerizing your policy
+- `chute.py` - Chutes deployment configuration with `@chute.cord()` endpoints
+- `Dockerfile` - For containerizing your policy (optional, for self-hosted)
 - `requirements.txt` - Python dependencies
 
 ## Step 2: Understand the Observation Space
@@ -150,7 +151,7 @@ See `policy.py` for example implementations of VLA and Diffusion policies.
 
 ## Step 4: Test Locally
 
-Test your policy server locally:
+Test your policy using the FastAPI server before deploying to Chutes:
 
 ```bash
 cd my-policy
@@ -172,6 +173,10 @@ curl -X POST http://localhost:8001/act \
   -H "Content-Type: application/json" \
   -d '{"observation": [0.0, 0.5, 0.2, 1.0]}'
 ```
+
+The `server.py` file provides the same endpoints as the Chutes deployment (`/health`, `/reset`, `/act`) but runs as a standard FastAPI server. This lets you test your policy logic locally before deploying.
+
+> **Note**: The `server.py` uses FastAPI decorators while `chute.py` uses `@chute.cord()` decorators, but both implement the same API interface.
 
 ## Step 5: Upload to HuggingFace
 
@@ -204,55 +209,119 @@ git ls-remote https://huggingface.co/your-username/kinitro-policy HEAD
 2. **Register your Chutes account with your mining hotkey** - this links your Chutes deployment to your miner identity
 3. **Fund your Chutes account** with TAO to pay for GPU compute time
 4. **Get your Chutes API key** from the Chutes dashboard
+5. **Install the Chutes SDK**: `pip install chutes`
 
-### Create Chute Configuration
+### Understanding chute.py
 
-Create a `chute.py` in your policy directory:
+The miner template includes a `chute.py` file that defines your Chutes deployment. This file:
+
+1. **Configures the Docker image** - installs dependencies and downloads your model from HuggingFace
+2. **Defines the Chute** - specifies GPU requirements and metadata
+3. **Implements `@chute.cord()` endpoints** - wraps your policy as HTTP endpoints (`/health`, `/reset`, `/act`)
+
+The key difference from `server.py` is that Chutes uses `@chute.cord()` decorators instead of FastAPI routes:
 
 ```python
-from chutes import Chute
-from chutes.chute import NodeSelector
+from chutes.chute import Chute, NodeSelector
+from chutes.image import Image
 
+# Configure image build
+image = Image("your-username", "your-policy-name", "v1")
+image.run_command("pip install torch numpy ...")
+image.run_command('python -c "from huggingface_hub import snapshot_download; ..."')
+
+# Define the chute
 chute = Chute(
-    "kinitro-policy",
-    # Specify GPU requirements
-    node_selector=NodeSelector(min_vram_gb=8),
+    username="your-username",
+    name="your-policy-name", 
+    image=image,
+    node_selector=NodeSelector(gpu_count=1, min_vram_gb_per_gpu=16),
 )
 
-# Add your policy files
-chute.add_file("server.py")
-chute.add_file("policy.py")
-chute.add_file("model.pt")  # Your trained weights
+# Define endpoints with @chute.cord()
+@chute.cord(public_api_path="/health", public_api_method="GET")
+async def health() -> HealthResponse:
+    ...
 
-# Install dependencies
-chute.add_pip_requirements("requirements.txt")
+@chute.cord(public_api_path="/reset", public_api_method="POST")
+async def reset(request: ResetRequest) -> ResetResponse:
+    ...
 
-# Set the entrypoint
-chute.entrypoint = "uvicorn server:app --host 0.0.0.0 --port 8000"
+@chute.cord(public_api_path="/act", public_api_method="POST")
+async def act(request: ActRequest) -> ActResponse:
+    ...
 ```
 
-### Deploy
+### Configure Your Deployment
 
-You can use the CLI helper command:
+Edit `chute.py` to set your configuration:
+
+```python
+# Your Chutes username
+CHUTES_USER = os.environ.get("CHUTE_USER", "your-username")
+
+# Name for your chute
+CHUTE_NAME = f"{CHUTES_USER}-kinitro-policy"
+
+# HuggingFace repo (set via environment or hardcode)
+HF_REPO = os.environ.get("HF_REPO", "your-username/kinitro-policy")
+HF_REVISION = os.environ.get("HF_REVISION", "main")
+
+# GPU requirements - adjust based on your model size
+GPU_COUNT = 1
+MIN_VRAM_GB = 16
+```
+
+### Deploy Using kinitro CLI (Recommended)
+
+The easiest way to deploy is using the `kinitro chutes-push` command:
 
 ```bash
 # Set credentials
 export CHUTES_API_KEY="your-api-key"
 export CHUTE_USER="your-username"
 
-# Deploy using CLI
+# Deploy to Chutes
 uv run kinitro chutes-push \
   --repo your-username/kinitro-policy \
-  --revision YOUR_HUGGINGFACE_COMMIT_SHA
+  --revision YOUR_HUGGINGFACE_COMMIT_SHA \
+  --gpu-count 1 \
+  --min-vram 16
 ```
 
-Or deploy manually with the chutes CLI:
+This command:
+1. Generates a `chute.py` configuration
+2. Builds the Docker image on Chutes infrastructure
+3. Deploys the chute
+4. Returns the `chute_id` for on-chain commitment
+
+### Deploy Manually with Chutes CLI
+
+Alternatively, deploy directly with the chutes CLI:
 
 ```bash
-chutes deploy chute:chute
+# Set credentials
+export CHUTES_API_KEY="your-api-key"
+
+# Deploy from your policy directory
+cd my-policy
+chutes deploy chute:chute --accept-fee
 ```
 
-Note the deployment URL (chute_id) - you'll need this for the on-chain commitment.
+### Verify Deployment
+
+After deployment, note your **chute_id** and **slug**. You can verify your deployment:
+
+```bash
+# List your chutes
+chutes chutes list
+
+# Test the endpoint (replace with your slug)
+curl -X GET "https://YOUR-SLUG.chutes.ai/health" \
+  -H "Authorization: Bearer $CHUTES_API_KEY"
+```
+
+The chute slug follows the pattern: `{username}-{chute-name}` (e.g., `myuser-myuser-kinitro-policy`).
 
 ### Keep Your Chute Warm
 
@@ -311,15 +380,16 @@ uv run kinitro commit \
 
 ### Commitment Format
 
-The commitment is stored on-chain as JSON (compatible with Affine SN120):
+The commitment is stored on-chain as compact JSON to fit within chain limits:
 
 ```json
-{
-  "model": "your-username/kinitro-policy",
-  "revision": "abc123def456...",
-  "chute_id": "chute_xyz789..."
-}
+{"m":"your-username/kinitro-policy","r":"abc123def456...","c":"chute_xyz789..."}
 ```
+
+Where:
+- `m` = HuggingFace model repository
+- `r` = HuggingFace revision (commit SHA)
+- `c` = Chutes deployment ID
 
 ### Verify Your Commitment
 
@@ -458,6 +528,67 @@ Key implications:
 - Ensure you're using JSON format (not legacy colon-separated)
 - Verify the HuggingFace repo exists and is accessible
 - Check that the revision SHA matches your HuggingFace commit
+- Commitment must be under ~128 bytes (uses compact JSON with short keys)
+
+### Testing Chutes Endpoints
+
+#### Local Testing (Before Deployment)
+
+Test your policy locally using the FastAPI server:
+
+```bash
+cd my-policy
+
+# Start the local server
+uvicorn server:app --host 0.0.0.0 --port 8001
+
+# Test endpoints locally
+curl http://localhost:8001/health
+curl -X POST http://localhost:8001/reset \
+  -H "Content-Type: application/json" \
+  -d '{"task_config": {"task_name": "pick-place-v3", "seed": 42}}'
+curl -X POST http://localhost:8001/act \
+  -H "Content-Type: application/json" \
+  -d '{"observation": [0.0, 0.0, 0.0, 1.0]}'
+```
+
+#### Remote Testing (After Deployment)
+
+Test your deployed chute endpoints:
+
+```bash
+export CHUTES_API_KEY="your-api-key"
+SLUG="your-username-your-chute-name"
+
+# Health check
+curl -X GET "https://${SLUG}.chutes.ai/health" \
+  -H "Authorization: Bearer $CHUTES_API_KEY"
+
+# Reset
+curl -X POST "https://${SLUG}.chutes.ai/reset" \
+  -H "Authorization: Bearer $CHUTES_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"task_config": {"task_name": "pick-place-v3", "seed": 42}}'
+
+# Act
+curl -X POST "https://${SLUG}.chutes.ai/act" \
+  -H "Authorization: Bearer $CHUTES_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"observation": [0.0, 0.0, 0.0, 1.0], "images": null}'
+```
+
+#### View Chute Logs
+
+If your chute is having issues, view the logs:
+
+```bash
+# List your chutes to get instance ID
+chutes chutes list
+
+# View logs (replace INSTANCE_ID)
+curl -s "https://api.chutes.ai/instances/INSTANCE_ID/logs/?backfill=1000" \
+  -H "Authorization: Bearer $CHUTES_API_KEY" | jq .
+```
 
 ## Example Training Setup
 

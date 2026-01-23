@@ -148,14 +148,23 @@ cd my-policy
 # 3. Test locally
 uvicorn server:app --port 8001
 
-# 4. Deploy to Chutes (or self-host)
-chutes deploy chute:chute
+# 4. Upload to HuggingFace
+huggingface-cli upload your-username/kinitro-policy .
 
-# 5. Register on chain
+# 5. Deploy to Chutes
+export CHUTES_API_KEY="your-api-key"
+export CHUTE_USER="your-username"
+
+uv run kinitro chutes-push \
+  --repo your-username/kinitro-policy \
+  --revision YOUR_HF_COMMIT_SHA \
+  --gpu-count 1 --min-vram 16
+
+# 6. Register on chain
 uv run kinitro commit \
-  --repo your-user/kinitro-policy \
-  --revision $(git rev-parse HEAD) \
-  --chute-id YOUR_CHUTE_ENDPOINT \
+  --repo your-username/kinitro-policy \
+  --revision YOUR_HF_COMMIT_SHA \
+  --chute-id YOUR_CHUTE_ID \
   --netuid YOUR_NETUID \
   --network finney
 ```

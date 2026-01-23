@@ -825,8 +825,15 @@ def init_miner(
 
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Copy template files
+    # Copy template files (skip directories and pycache)
     for file in template_dir.iterdir():
+        # Skip directories and pycache
+        if file.is_dir() or file.name.startswith("__"):
+            continue
+        # Skip .pyc files
+        if file.suffix == ".pyc":
+            continue
+
         dest = output_path / file.name
         if dest.exists():
             typer.echo(f"Skipping {file.name} (already exists)")
@@ -1080,10 +1087,13 @@ def miner_deploy(
                 api = HfApi(token=hf)
 
                 # Create repo if it doesn't exist
+                typer.echo(f"  Creating/checking repository {repo}...")
                 try:
-                    api.create_repo(repo, exist_ok=True, repo_type="model")
-                except Exception:
-                    pass  # Repo may already exist
+                    api.create_repo(repo, exist_ok=True, repo_type="model", private=False)
+                    typer.echo("  Repository ready.")
+                except Exception as create_err:
+                    # Log but continue - repo might already exist
+                    typer.echo(f"  Note: {create_err}")
 
                 # Upload folder
                 typer.echo(f"  Uploading {policy_path}...")
@@ -1091,6 +1101,7 @@ def miner_deploy(
                     folder_path=policy_path,
                     repo_id=repo,
                     commit_message=message,
+                    ignore_patterns=["__pycache__/*", "*.pyc", ".git/*"],
                 )
 
                 # Get latest commit SHA
@@ -1114,8 +1125,11 @@ def miner_deploy(
             typer.echo(f"  [DRY RUN] Would deploy {repo}@{revision[:12]}...")
             chute_id = "dry-run-chute-id"
         else:
-            # Generate Chute config
-            chute_name = repo.replace("/", "-")
+            # Generate Chute config using working pattern
+            import time
+
+            chute_name = f"{user}-{repo.split('/')[-1]}"
+            image_tag = f"{revision[:8]}-{int(time.time()) % 10000}"
             chute_config = textwrap.dedent(f'''
 import os
 from chutes.chute import Chute, NodeSelector
@@ -1123,12 +1137,10 @@ from chutes.image import Image
 
 os.environ["NO_PROXY"] = "localhost,127.0.0.1"
 
-# Build the image from a Python base with HuggingFace model
-image = Image("{user}", "{chute_name}", "latest")
-image.from_base("python:3.11-slim")
-image.apt_install(["git", "git-lfs"])
+# Build the image (uses default parachutes/python:3.12 base)
+image = Image("{user}", "{chute_name}", "{image_tag}", readme="Policy server for {repo}")
 image.run_command("pip install --no-cache-dir huggingface_hub uvicorn fastapi torch numpy gymnasium pillow pydantic")
-image.run_command("huggingface-cli download {repo} --revision {revision} --local-dir /app")
+image.run_command("python -c \\"from huggingface_hub import snapshot_download; snapshot_download('{repo}', revision='{revision}', local_dir='/app')\\"")
 image.set_workdir("/app")
 image.with_entrypoint("uvicorn server:app --host 0.0.0.0 --port 8000")
 
@@ -1137,7 +1149,7 @@ chute = Chute(
     name="{chute_name}",
     image=image,
     readme="{repo}",
-    node_selector=NodeSelector(gpu_count=1, min_vram_gb=8),
+    node_selector=NodeSelector(gpu_count=1, min_vram_gb_per_gpu=16),
 )
 ''')
 
@@ -1145,14 +1157,43 @@ chute = Chute(
             tmp_file.write_text(chute_config)
 
             try:
-                cmd = ["chutes", "deploy", f"{tmp_file.stem}:chute", "--accept-fee"]
                 env = {**os.environ, "CHUTES_API_KEY": api_key}
 
-                result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+                # Step 2a: Build the image first (with --wait to wait for completion)
+                typer.echo("  Building image (this may take several minutes)...")
+                build_cmd = ["chutes", "build", f"{tmp_file.stem}:chute", "--wait"]
+                build_result = subprocess.run(
+                    build_cmd,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    input="y\n",
+                    timeout=600,  # 10 minute timeout for build
+                )
 
-                if result.returncode != 0:
-                    typer.echo(f"Chutes deployment failed: {result.stderr}", err=True)
+                if build_result.returncode != 0:
+                    typer.echo(f"  Build failed: {build_result.stderr}", err=True)
+                    typer.echo(f"  Build output: {build_result.stdout}", err=True)
                     raise typer.Exit(1)
+                typer.echo("  Image built successfully!")
+
+                # Step 2b: Deploy the chute
+                typer.echo("  Deploying chute...")
+                deploy_cmd = ["chutes", "deploy", f"{tmp_file.stem}:chute", "--accept-fee"]
+                deploy_result = subprocess.run(
+                    deploy_cmd,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    input="y\n",
+                    timeout=120,  # 2 minute timeout for deploy
+                )
+
+                if deploy_result.returncode != 0:
+                    typer.echo(f"  Deploy failed: {deploy_result.stderr}", err=True)
+                    typer.echo(f"  Deploy output: {deploy_result.stdout}", err=True)
+                    raise typer.Exit(1)
+                typer.echo("  Chute deployed successfully!")
 
                 # Try to get chute_id from Chutes API
                 try:
