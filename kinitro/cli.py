@@ -1090,12 +1090,8 @@ def miner_deploy(
 
                 # Create repo if it doesn't exist
                 typer.echo(f"  Creating/checking repository {repo}...")
-                try:
-                    api.create_repo(repo, exist_ok=True, repo_type="model", private=False)
-                    typer.echo("  Repository ready.")
-                except Exception as create_err:
-                    # Log but continue - repo might already exist
-                    typer.echo(f"  Note: {create_err}")
+                api.create_repo(repo, exist_ok=True, repo_type="model", private=False)
+                typer.echo("  Repository ready.")
 
                 # Upload folder
                 typer.echo(f"  Uploading {policy_path}...")
