@@ -44,7 +44,6 @@ from fastapi import FastAPI, HTTPException
 from policy import RobotPolicy
 from pydantic import BaseModel
 
-
 # =============================================================================
 # Structured Logging (matches chute.py for consistency)
 # =============================================================================

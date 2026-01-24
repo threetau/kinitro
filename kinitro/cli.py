@@ -927,6 +927,8 @@ chute = Chute(
         gpu_count={gpu_count},
         min_vram_gb={min_vram_gb},
     ),
+    # Keep chute warm for 8 hours to ensure validators can reach endpoint
+    shutdown_after_seconds=28800,
 )
 ''')
 
@@ -1150,6 +1152,8 @@ chute = Chute(
     image=image,
     readme="{repo}",
     node_selector=NodeSelector(gpu_count=1, min_vram_gb_per_gpu=16),
+    # Keep chute warm for 8 hours to ensure validators can reach endpoint
+    shutdown_after_seconds=28800,
 )
 ''')
 

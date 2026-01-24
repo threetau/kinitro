@@ -23,7 +23,6 @@ from chutes.chute import Chute, NodeSelector
 from chutes.image import Image
 from pydantic import BaseModel
 
-
 # =============================================================================
 # Structured Logging
 # =============================================================================
@@ -142,6 +141,10 @@ chute = Chute(
     image=image,
     readme="Robotics policy for kinitro subnet",
     node_selector=NodeSelector(gpu_count=1, min_vram_gb_per_gpu=16),
+    # Keep chute warm for 8 hours to ensure validators can reach endpoint
+    shutdown_after_seconds=28800,
+    # Allow multiple concurrent requests (e.g., during batch evaluation)
+    concurrency=4,
 )
 
 # =============================================================================
@@ -223,6 +226,39 @@ def initialize(app):
             error_type=type(e).__name__,
         )
         _policy = None
+
+
+@chute.on_shutdown()
+def cleanup(app):
+    """Cleanup resources on shutdown."""
+    global _policy
+
+    logger.info(
+        "Shutting down policy server",
+        total_requests=_request_count,
+        total_errors=_error_count,
+        uptime_seconds=round(time.time() - _start_time, 2) if _start_time else 0,
+    )
+
+    if _policy is not None:
+        try:
+            # Release GPU memory
+            import torch
+
+            if hasattr(_policy, "cleanup"):
+                _policy.cleanup()
+            _policy = None
+
+            # Force CUDA memory cleanup
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                logger.info("GPU memory released")
+        except Exception as e:
+            logger.error(
+                "Cleanup failed",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
 
 
 # =============================================================================
