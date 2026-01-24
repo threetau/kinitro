@@ -31,7 +31,11 @@ Usage:
     chutes deploy chute:chute --accept-fee
 """
 
+import json
+import logging
 import time
+from contextlib import contextmanager
+from typing import Any
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
@@ -40,21 +44,105 @@ from fastapi import FastAPI, HTTPException
 from policy import RobotPolicy
 from pydantic import BaseModel
 
+
+# =============================================================================
+# Structured Logging (matches chute.py for consistency)
+# =============================================================================
+
+
+class StructuredLogger:
+    """JSON structured logger for production observability."""
+
+    def __init__(self, name: str):
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.INFO)
+
+        # Remove existing handlers to avoid duplicates
+        self.logger.handlers = []
+
+        # Add JSON handler
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        self.logger.addHandler(handler)
+
+        self.name = name
+
+    def _log(self, level: str, message: str, **kwargs: Any) -> None:
+        """Emit a structured log entry."""
+        entry = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "level": level,
+            "logger": self.name,
+            "message": message,
+            **kwargs,
+        }
+        log_method = getattr(self.logger, level.lower())
+        log_method(json.dumps(entry))
+
+    def info(self, message: str, **kwargs: Any) -> None:
+        self._log("INFO", message, **kwargs)
+
+    def warning(self, message: str, **kwargs: Any) -> None:
+        self._log("WARNING", message, **kwargs)
+
+    def error(self, message: str, **kwargs: Any) -> None:
+        self._log("ERROR", message, **kwargs)
+
+    def debug(self, message: str, **kwargs: Any) -> None:
+        self._log("DEBUG", message, **kwargs)
+
+    @contextmanager
+    def measure(self, operation: str, **extra: Any):
+        """Context manager to measure and log operation duration."""
+        start = time.time()
+        try:
+            yield
+        except Exception as e:
+            duration = time.time() - start
+            self.error(
+                f"{operation} failed",
+                operation=operation,
+                duration_ms=round(duration * 1000, 2),
+                error=str(e),
+                error_type=type(e).__name__,
+                **extra,
+            )
+            raise
+        else:
+            duration = time.time() - start
+            self.info(
+                f"{operation} completed",
+                operation=operation,
+                duration_ms=round(duration * 1000, 2),
+                **extra,
+            )
+
+
+# Initialize logger
+logger = StructuredLogger("kinitro.policy")
+
 app = FastAPI(
     title="Robotics Policy Server",
     description="Miner policy endpoint for robotics subnet evaluation",
     version="1.0.0",
 )
 
-# Global policy instance
+# Global state
 _policy: RobotPolicy | None = None
+_request_count = 0
+_error_count = 0
 
 
 def get_policy() -> RobotPolicy:
     """Get or initialize the policy."""
     global _policy
     if _policy is None:
-        _policy = RobotPolicy()
+        with logger.measure("policy_load"):
+            _policy = RobotPolicy()
+        logger.info(
+            "Policy initialized",
+            model_loaded=_policy.is_loaded() if _policy else False,
+        )
     return _policy
 
 
@@ -122,10 +210,22 @@ async def health_check():
     Validators may call this to verify your endpoint is running.
     """
     policy = get_policy()
+    uptime = time.time() - _start_time
+    model_loaded = policy.is_loaded()
+
+    logger.info(
+        "Health check",
+        status="healthy",
+        model_loaded=model_loaded,
+        uptime_seconds=round(uptime, 2),
+        request_count=_request_count,
+        error_count=_error_count,
+    )
+
     return HealthResponse(
         status="healthy",
-        model_loaded=policy.is_loaded(),
-        uptime_seconds=time.time() - _start_time,
+        model_loaded=model_loaded,
+        uptime_seconds=uptime,
     )
 
 
@@ -144,11 +244,28 @@ async def reset(request: ResetRequest):
     Returns:
         Status and optional episode ID
     """
+    global _request_count, _error_count
+    _request_count += 1
+    task_config = request.task_config.model_dump()
+
     try:
         policy = get_policy()
-        episode_id = await policy.reset(request.task_config.model_dump())
+        with logger.measure(
+            "reset",
+            env_id=task_config.get("env_id"),
+            task_id=task_config.get("task_id"),
+        ):
+            episode_id = await policy.reset(task_config)
         return ResetResponse(status="ok", episode_id=episode_id)
     except Exception as e:
+        _error_count += 1
+        logger.error(
+            "Reset failed",
+            error=str(e),
+            error_type=type(e).__name__,
+            env_id=task_config.get("env_id"),
+            task_id=task_config.get("task_id"),
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -167,6 +284,9 @@ async def act(request: ActRequest):
     Returns:
         Action as list of floats
     """
+    global _request_count, _error_count
+    _request_count += 1
+
     try:
         policy = get_policy()
 
@@ -178,11 +298,30 @@ async def act(request: ActRequest):
         if request.images:
             images = {k: np.array(v) for k, v in request.images.items()}
 
-        # Get action from policy
+        # Get action from policy (measure timing)
+        start = time.time()
         action = await policy.act(obs, images)
+        duration_ms = (time.time() - start) * 1000
+
+        # Log periodically (every 100 requests) or if slow
+        if _request_count % 100 == 0 or duration_ms > 100:
+            logger.info(
+                "Act request",
+                duration_ms=round(duration_ms, 2),
+                request_count=_request_count,
+                obs_dim=len(request.observation),
+                has_images=request.images is not None,
+            )
 
         return ActResponse(action=action.tolist())
     except Exception as e:
+        _error_count += 1
+        logger.error(
+            "Act failed",
+            error=str(e),
+            error_type=type(e).__name__,
+            obs_dim=len(request.observation) if request.observation else 0,
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -194,6 +333,7 @@ async def act(request: ActRequest):
 @app.on_event("startup")
 async def startup():
     """Initialize policy on startup."""
+    logger.info("Starting policy server")
     get_policy()
 
 
@@ -201,6 +341,11 @@ async def startup():
 async def shutdown():
     """Cleanup on shutdown."""
     global _policy
+    logger.info(
+        "Shutting down policy server",
+        total_requests=_request_count,
+        total_errors=_error_count,
+    )
     if _policy is not None:
         await _policy.cleanup()
         _policy = None
