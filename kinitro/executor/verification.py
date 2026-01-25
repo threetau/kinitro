@@ -73,7 +73,19 @@ class PolicyVerifier:
             num_samples: Number of test observations per verification
             cache_dir: Directory to cache downloaded models
             max_repo_size_gb: Maximum allowed HuggingFace repo size in GB
+
+        Raises:
+            ValueError: If any parameter is invalid
         """
+        if not 0.0 <= verification_rate <= 1.0:
+            raise ValueError("verification_rate must be between 0.0 and 1.0")
+        if tolerance < 0:
+            raise ValueError("tolerance must be >= 0")
+        if num_samples <= 0:
+            raise ValueError("num_samples must be >= 1")
+        if max_repo_size_gb <= 0:
+            raise ValueError("max_repo_size_gb must be > 0")
+
         self.verification_rate = verification_rate
         self.tolerance = tolerance
         self.num_samples = num_samples
