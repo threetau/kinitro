@@ -1136,8 +1136,10 @@ def miner_deploy(
         typer.echo("  Mode: DRY RUN")
     typer.echo("=" * 60)
 
-    # Maximum allowed repo size (same as verification limit)
-    max_repo_size_gb = 5.0
+    # Maximum allowed repo size (same as verification limit, configurable via env var)
+    max_repo_size_gb = float(
+        os.environ.get("KINITRO_MAX_REPO_SIZE_GB", 5.0)
+    )
     max_repo_size_bytes = int(max_repo_size_gb * 1024 * 1024 * 1024)
 
     # Step 1: Upload to HuggingFace
@@ -1198,6 +1200,9 @@ def miner_deploy(
 
                 typer.echo(f"  Upload complete. Revision: {revision[:12]}...")
 
+            except typer.Exit:
+                # Re-raise Exit exceptions (e.g., from size check) without misleading message
+                raise
             except Exception as e:
                 typer.echo(f"HuggingFace upload failed: {e}", err=True)
                 raise typer.Exit(1)
