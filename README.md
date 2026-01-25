@@ -8,11 +8,7 @@ This subnet incentivizes the development of **generalist robotics policies** - A
 
 Only policies that **generalize across ALL environments** earn rewards, using ε-Pareto dominance scoring.
 
-
-
-https://github.com/user-attachments/assets/6ca14a88-74ef-464c-8fa6-dbeacf4deead
-
-
+https://github.com/user-attachments/assets/37942435-8143-41cf-aa78-39f4e8a04509
 
 ## Key Features
 
