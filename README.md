@@ -8,6 +8,8 @@ This subnet incentivizes the development of **generalist robotics policies** - A
 
 Only policies that **generalize across ALL environments** earn rewards, using ε-Pareto dominance scoring.
 
+![KinitroEvaluationFlow_ManimCE_v0 19 2-ezgif com-optimize-FAST](https://github.com/user-attachments/assets/9eef1d8b-02ab-4eb1-97c9-7014e9b0ee76)
+
 ## Key Features
 
 ### Vision-Based Observations
@@ -29,6 +31,9 @@ Miners receive **limited observations** to prevent overfitting:
 - **Copy-proof**: Must improve on the leader to earn, not just match them
 - **Specialization-proof**: Must dominate on ALL environments, not just one
 - **Deployment verification**: Spot-checks verify Basilica deployments match HuggingFace uploads
+
+![KinitroVerificationFlow_ManimCE_v0 19 2](https://github.com/user-attachments/assets/6ebc211e-eaa1-4e49-9d95-cf1641d08615)
+
 
 ### Scoring: ε-Pareto Dominance
 
