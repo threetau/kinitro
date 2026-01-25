@@ -1136,6 +1136,10 @@ def miner_deploy(
         typer.echo("  Mode: DRY RUN")
     typer.echo("=" * 60)
 
+    # Maximum allowed repo size (same as verification limit)
+    MAX_REPO_SIZE_GB = 5.0
+    MAX_REPO_SIZE_BYTES = int(MAX_REPO_SIZE_GB * 1024 * 1024 * 1024)
+
     # Step 1: Upload to HuggingFace
     if not skip_upload:
         typer.echo(f"\n[1/{len(steps)}] Uploading to HuggingFace ({repo})...")
@@ -1145,7 +1149,32 @@ def miner_deploy(
             revision = "dry-run-revision"
         else:
             try:
+                import os as _os
+
                 from huggingface_hub import HfApi
+
+                # Check local folder size before uploading
+                total_size = 0
+                for dirpath, dirnames, filenames in _os.walk(policy_path):
+                    # Skip ignored patterns
+                    dirnames[:] = [d for d in dirnames if d not in ["__pycache__", ".git"]]
+                    for filename in filenames:
+                        if not filename.endswith(".pyc"):
+                            filepath = _os.path.join(dirpath, filename)
+                            total_size += _os.path.getsize(filepath)
+
+                if total_size > MAX_REPO_SIZE_BYTES:
+                    size_gb = total_size / (1024 * 1024 * 1024)
+                    typer.echo(
+                        f"Error: Policy folder size ({size_gb:.2f}GB) exceeds maximum "
+                        f"allowed ({MAX_REPO_SIZE_GB}GB)",
+                        err=True,
+                    )
+                    raise typer.Exit(1)
+
+                typer.echo(
+                    f"  Folder size: {total_size / (1024 * 1024):.2f}MB (max: {MAX_REPO_SIZE_GB}GB)"
+                )
 
                 api = HfApi(token=hf)
 

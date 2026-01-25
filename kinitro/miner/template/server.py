@@ -174,6 +174,7 @@ class ActRequest(BaseModel):
 
     observation: list[float]
     images: dict[str, list] | None = None  # Camera images as nested lists
+    seed: int | None = None  # Optional: seed for deterministic inference (verification)
 
 
 class ActResponse(BaseModel):
@@ -285,6 +286,21 @@ async def act(request: ActRequest):
     try:
         policy = get_policy()
 
+        # Set seed if provided (for deterministic verification)
+        if request.seed is not None:
+            import random
+
+            random.seed(request.seed)
+            np.random.seed(request.seed)
+            try:
+                import torch
+
+                torch.manual_seed(request.seed)
+                if torch.cuda.is_available():
+                    torch.cuda.manual_seed_all(request.seed)
+            except ImportError:
+                pass  # torch not available
+
         # Convert observation to numpy
         obs = np.array(request.observation, dtype=np.float32)
 
@@ -295,7 +311,7 @@ async def act(request: ActRequest):
 
         # Get action from policy (measure timing)
         start = time.time()
-        action = await policy.act(obs, images)
+        action = await policy.act(obs, images, seed=request.seed)
         duration_ms = (time.time() - start) * 1000
 
         # Log periodically (every 100 requests) or if slow

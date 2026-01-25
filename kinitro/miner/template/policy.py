@@ -41,13 +41,14 @@ class RobotPolicy:
         self._episode_id = uuid.uuid4().hex
         return self._episode_id
 
-    async def act(self, observation, images=None):
+    async def act(self, observation, images=None, seed=None):
         """
         Get action for current observation.
 
         Args:
             observation: numpy array of proprioceptive state
             images: optional dict of camera images
+            seed: optional seed for deterministic inference (used for verification)
 
         Returns:
             Action as list or numpy array (4D for MetaWorld)
@@ -56,8 +57,11 @@ class RobotPolicy:
         # Example:
         # action = self.model(observation)
         # return action
+        #
+        # NOTE: If seed is provided, ensure your inference is deterministic.
+        # The validator may verify that your deployed model matches HuggingFace.
 
-        # Default: random action
+        # Default: random action (seed is already set by server if provided)
         import numpy as np
 
         return np.random.uniform(-1, 1, size=4).astype(np.float32)
