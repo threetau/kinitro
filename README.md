@@ -28,6 +28,7 @@ Miners receive **limited observations** to prevent overfitting:
 - **Sybil-proof**: Copies tie under Pareto dominance, no benefit from multiple identities
 - **Copy-proof**: Must improve on the leader to earn, not just match them
 - **Specialization-proof**: Must dominate on ALL environments, not just one
+- **Deployment verification**: Spot-checks verify Basilica deployments match HuggingFace uploads
 
 ### Scoring: ε-Pareto Dominance
 
