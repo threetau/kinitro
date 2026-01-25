@@ -351,6 +351,8 @@ class Storage:
                 "miner_uid": task_data["miner_uid"],
                 "miner_hotkey": task_data["miner_hotkey"],
                 "miner_endpoint": task_data["miner_endpoint"],
+                "miner_repo": task_data.get("miner_repo"),
+                "miner_revision": task_data.get("miner_revision"),
                 "env_id": task_data["env_id"],
                 "seed": task_data["seed"],
                 "status": TaskStatus.PENDING.value,

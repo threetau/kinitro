@@ -132,6 +132,27 @@ The backend will:
 | `KINITRO_BACKEND_MAX_TIMESTEPS_PER_EPISODE` | `500` | Max steps per episode |
 | `KINITRO_BACKEND_PARETO_TEMPERATURE` | `1.0` | Softmax temperature for weights |
 
+### Executor Verification Settings
+
+The executor can perform spot-check verification to ensure miners' Basilica deployments match their HuggingFace uploads. This detects miners running modified code.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KINITRO_EXECUTOR_VERIFICATION_ENABLED` | `false` | Enable spot-check verification |
+| `KINITRO_EXECUTOR_VERIFICATION_RATE` | `0.05` | Probability of verifying each miner (0.0-1.0) |
+| `KINITRO_EXECUTOR_VERIFICATION_TOLERANCE` | `0.001` | Tolerance for comparing action outputs |
+| `KINITRO_EXECUTOR_VERIFICATION_SAMPLES` | `5` | Number of test observations per verification |
+| `KINITRO_EXECUTOR_VERIFICATION_MAX_REPO_SIZE_GB` | `5.0` | Maximum HuggingFace repo size to download |
+
+When verification is enabled, the executor will:
+1. Randomly select miners based on `VERIFICATION_RATE`
+2. Download their policy from HuggingFace
+3. Run local inference with deterministic seeds
+4. Compare outputs against the Basilica endpoint
+5. Log verification results (pass/fail with match score)
+
+Miners that fail verification may be serving different code than what they committed to HuggingFace.
+
 ## API Reference
 
 The backend exposes a REST API that validators use to fetch weights.

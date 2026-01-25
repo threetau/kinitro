@@ -1136,6 +1136,12 @@ def miner_deploy(
         typer.echo("  Mode: DRY RUN")
     typer.echo("=" * 60)
 
+    # Maximum allowed repo size (same as verification limit, configurable via env var)
+    max_repo_size_gb = float(
+        os.environ.get("KINITRO_MAX_REPO_SIZE_GB", 5.0)
+    )
+    max_repo_size_bytes = int(max_repo_size_gb * 1024 * 1024 * 1024)
+
     # Step 1: Upload to HuggingFace
     if not skip_upload:
         typer.echo(f"\n[1/{len(steps)}] Uploading to HuggingFace ({repo})...")
@@ -1145,7 +1151,32 @@ def miner_deploy(
             revision = "dry-run-revision"
         else:
             try:
+                import os as _os
+
                 from huggingface_hub import HfApi
+
+                # Check local folder size before uploading
+                total_size = 0
+                for dirpath, dirnames, filenames in _os.walk(policy_path):
+                    # Skip ignored patterns
+                    dirnames[:] = [d for d in dirnames if d not in ["__pycache__", ".git"]]
+                    for filename in filenames:
+                        if not filename.endswith(".pyc"):
+                            filepath = _os.path.join(dirpath, filename)
+                            total_size += _os.path.getsize(filepath)
+
+                if total_size > max_repo_size_bytes:
+                    size_gb = total_size / (1024 * 1024 * 1024)
+                    typer.echo(
+                        f"Error: Policy folder size ({size_gb:.2f}GB) exceeds maximum "
+                        f"allowed ({max_repo_size_gb}GB)",
+                        err=True,
+                    )
+                    raise typer.Exit(1)
+
+                typer.echo(
+                    f"  Folder size: {total_size / (1024 * 1024):.2f}MB (max: {max_repo_size_gb}GB)"
+                )
 
                 api = HfApi(token=hf)
 
@@ -1169,6 +1200,9 @@ def miner_deploy(
 
                 typer.echo(f"  Upload complete. Revision: {revision[:12]}...")
 
+            except typer.Exit:
+                # Re-raise Exit exceptions (e.g., from size check) without misleading message
+                raise
             except Exception as e:
                 typer.echo(f"HuggingFace upload failed: {e}", err=True)
                 raise typer.Exit(1)

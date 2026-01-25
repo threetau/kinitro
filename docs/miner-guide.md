@@ -257,6 +257,24 @@ uv run kinitro basilica-push \
   --min-vram 16
 ```
 
+### Deployment Verification (Spot-Checks)
+
+> **Important**: Your Basilica deployment may be spot-checked to verify it matches your HuggingFace upload.
+
+The evaluation system performs random verification checks to ensure miners are running the same code they uploaded to HuggingFace. During verification:
+
+1. Your policy is downloaded from HuggingFace
+2. Test observations are generated with deterministic seeds
+3. Local inference is compared against your Basilica endpoint
+4. If outputs don't match, verification fails
+
+**To pass verification:**
+- Your Basilica deployment must serve the exact same model as your HuggingFace upload
+- If your policy uses randomness, support the optional `seed` parameter in your `/act` endpoint (the template already handles this)
+- Don't modify your deployment code after uploading to HuggingFace
+
+**Size limits:** HuggingFace repositories larger than 5GB will be rejected. This limit applies to both uploads and verification downloads.
+
 ## Local Testing (Development Only)
 
 For local development and testing, you can run your policy server directly:

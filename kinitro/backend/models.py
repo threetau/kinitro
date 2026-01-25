@@ -157,6 +157,8 @@ class TaskPoolORM(Base):
     miner_uid = Column(Integer, nullable=False)
     miner_hotkey = Column(String(64), nullable=False)
     miner_endpoint = Column(Text, nullable=False)  # Base URL for miner policy
+    miner_repo = Column(String(256), nullable=True)  # HuggingFace repo for verification
+    miner_revision = Column(String(64), nullable=True)  # HuggingFace revision for verification
     env_id = Column(String(64), nullable=False)
     seed = Column(Integer, nullable=False)  # Deterministic seed for reproducibility
     status = Column(String(20), nullable=False, default=TaskStatus.PENDING.value)
@@ -293,6 +295,8 @@ class Task(BaseModel):
     miner_uid: int
     miner_hotkey: str
     miner_endpoint: str
+    miner_repo: str | None = None  # HuggingFace repo for verification
+    miner_revision: str | None = None  # HuggingFace revision for verification
     env_id: str
     seed: int  # Deterministic seed for reproducibility
     status: str
@@ -326,6 +330,14 @@ class TaskResult(BaseModel):
     total_reward: float = Field(default=0.0)
     timesteps: int = Field(default=0)
     error: str | None = Field(default=None)
+    verification_passed: bool | None = Field(
+        default=None,
+        description="Whether miner passed model verification (None if not checked)",
+    )
+    verification_score: float | None = Field(
+        default=None,
+        description="Match score between deployed and HuggingFace model (0.0 to 1.0)",
+    )
 
 
 class TaskSubmitRequest(BaseModel):
