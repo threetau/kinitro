@@ -61,3 +61,7 @@ class RobotPolicy:
         import numpy as np
 
         return np.random.uniform(-1, 1, size=4).astype(np.float32)
+
+    async def cleanup(self):
+        """Called on shutdown. Override to release resources."""
+        pass

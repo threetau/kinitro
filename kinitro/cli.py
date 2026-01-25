@@ -918,7 +918,8 @@ def basilica_push(
     typer.echo(f"  Repo: {repo}")
     typer.echo(f"  Revision: {revision[:12]}...")
     typer.echo(f"  Deployment Name: {name}")
-    typer.echo(f"  GPU: {gpu_count}x (min {min_gpu_memory_gb}GB VRAM)")
+    vram_str = f" (min {min_gpu_memory_gb}GB VRAM)" if min_gpu_memory_gb else ""
+    typer.echo(f"  GPU: {gpu_count}x{vram_str}")
     typer.echo(f"  Memory: {memory}")
 
     # Create client
@@ -1016,9 +1017,11 @@ subprocess.run([
     typer.echo(f"  URL: {deployment.url}")
     typer.echo(f"  State: {deployment.state}")
     typer.echo("=" * 60)
+    # Extract deployment ID from URL
+    deploy_id = deployment.url.split("//")[1].split(".")[0] if deployment.url else deployment.name
     typer.echo("\nNext step - commit on-chain:")
     typer.echo(f"  kinitro commit --repo {repo} --revision {revision} \\")
-    typer.echo(f"    --endpoint {deployment.url} --netuid YOUR_NETUID")
+    typer.echo(f"    --deployment-id {deploy_id} --netuid YOUR_NETUID")
 
 
 @app.command("miner-deploy")

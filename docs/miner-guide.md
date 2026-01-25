@@ -310,13 +310,13 @@ uv run kinitro commit \
 The commitment is stored on-chain as compact JSON to fit within chain limits:
 
 ```json
-{"m":"your-username/kinitro-policy","r":"abc123def456...","e":"https://xxx.deployments.basilica.ai"}
+{"m":"your-username/kinitro-policy","r":"abc123def456...","d":"deployment-uuid"}
 ```
 
 Where:
 - `m` = HuggingFace model repository
 - `r` = HuggingFace revision (commit SHA)
-- `e` = Basilica endpoint URL
+- `d` = Basilica deployment ID (UUID)
 
 ### Verify Your Commitment
 

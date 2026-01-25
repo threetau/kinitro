@@ -75,8 +75,8 @@ import sys
 import subprocess
 
 print("Starting Kinitro Policy Server...")
-print(f"HF_REPO: {os.environ.get("HF_REPO", "not set")}")
-print(f"HF_REVISION: {os.environ.get("HF_REVISION", "not set")}")
+print(f"HF_REPO: {{os.environ.get('HF_REPO', 'not set')}}")
+print(f"HF_REVISION: {{os.environ.get('HF_REVISION', 'not set')}}")
 
 # Download model from HuggingFace
 from huggingface_hub import snapshot_download

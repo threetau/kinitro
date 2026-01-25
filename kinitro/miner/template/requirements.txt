@@ -19,7 +19,7 @@ torch>=2.0.0
 Pillow>=10.0.0
 
 # HuggingFace (for model hosting)
-huggingface_hub>=0.16.0
+huggingface_hub>=0.20.0
 # transformers>=4.30.0
 
 # Gymnasium (for environment compatibility)

@@ -72,7 +72,7 @@ def parse_commitment(raw: str) -> dict:
             # Support both full and short keys
             hf_repo = data.get("model", "") or data.get("m", "")
             revision = data.get("revision", "") or data.get("r", "")
-            # deployment_id uses "d" for short key (was "e" for endpoint)
+            # deployment_id uses "d" for short key
             deployment_id = data.get("deployment_id", "") or data.get("d", "")
             docker_image = f"{hf_repo}:{revision}" if hf_repo else ""
 

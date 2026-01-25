@@ -308,7 +308,10 @@ async def act(request: ActRequest):
                 has_images=request.images is not None,
             )
 
-        return ActResponse(action=action.tolist())
+        # Handle both NumPy arrays and lists/tuples
+        if hasattr(action, "tolist"):
+            action = action.tolist()
+        return ActResponse(action=action)
     except Exception as e:
         _error_count += 1
         logger.error(
@@ -342,7 +345,10 @@ async def shutdown():
         total_errors=_error_count,
     )
     if _policy is not None:
-        await _policy.cleanup()
+        # Guard cleanup() call in case policy doesn't implement it
+        cleanup = getattr(_policy, "cleanup", None)
+        if callable(cleanup):
+            await cleanup()
         _policy = None
 
 
