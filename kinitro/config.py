@@ -50,7 +50,6 @@ class ValidatorConfig(BaseSettings):
     basilica_api_token: str | None = Field(
         default=None, description="Basilica API token for container execution"
     )
-    chutes_api_key: str | None = Field(default=None, description="Chutes API key for LLM inference")
 
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
@@ -69,7 +68,7 @@ class MinerConfig(BaseSettings):
     # Model settings
     huggingface_repo: str | None = Field(default=None, description="HuggingFace model repo")
     model_revision: str | None = Field(default=None, description="Model revision/commit SHA")
-    chute_id: str | None = Field(default=None, description="Chutes deployment ID")
+    deployment_id: str | None = Field(default=None, description="Basilica deployment ID")
 
     # Docker settings
     docker_registry: str = Field(default="docker.io", description="Docker registry")

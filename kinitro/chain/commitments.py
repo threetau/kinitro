@@ -7,6 +7,19 @@ import structlog
 logger = structlog.get_logger()
 
 
+# Basilica deployment URL template
+BASILICA_URL_TEMPLATE = "https://{deployment_id}.deployments.basilica.ai"
+
+
+def deployment_id_to_url(deployment_id: str) -> str:
+    """Convert a Basilica deployment ID to a full URL."""
+    # If already a full URL, return as-is
+    if deployment_id.startswith("http://") or deployment_id.startswith("https://"):
+        return deployment_id.rstrip("/")
+    # Otherwise, construct the Basilica URL
+    return BASILICA_URL_TEMPLATE.format(deployment_id=deployment_id)
+
+
 @dataclass
 class MinerCommitment:
     """Parsed miner commitment from chain."""
@@ -15,52 +28,59 @@ class MinerCommitment:
     hotkey: str
     huggingface_repo: str
     revision_sha: str
-    chute_id: str
+    deployment_id: str  # Basilica deployment ID (UUID, not full URL)
     docker_image: str
     committed_block: int
+
+    @property
+    def endpoint(self) -> str:
+        """Get the full endpoint URL from deployment ID."""
+        return deployment_id_to_url(self.deployment_id)
 
     @property
     def is_valid(self) -> bool:
         """Check if commitment has all required fields.
 
-        Miners must deploy to Chutes - docker_image alone is not sufficient
-        for production evaluations.
+        Miners must have a deployment ID.
         """
-        return bool(self.huggingface_repo and self.revision_sha and self.chute_id)
+        return bool(self.huggingface_repo and self.revision_sha and self.deployment_id)
 
 
 def parse_commitment(raw: str) -> dict:
     """
     Parse raw commitment string from chain.
 
-    Supports two formats:
-    1. JSON (preferred, Affine-compatible): {"model": "user/repo", "revision": "sha", "chute_id": "id"}
-    2. Legacy colon-separated: "huggingface_repo:revision_sha:chute_id[:docker_image]"
+    Supports multiple formats:
+    1. JSON with deployment_id (preferred): {"model": "user/repo", "revision": "sha", "deployment_id": "uuid"}
+    2. Legacy colon-separated: "huggingface_repo:revision_sha:deployment_id[:docker_image]"
 
     Args:
         raw: Raw commitment string
 
     Returns:
-        Dict with parsed fields: huggingface_repo, revision_sha, chute_id, docker_image
+        Dict with parsed fields: huggingface_repo, revision_sha, deployment_id, docker_image
     """
     import json
 
-    # Try JSON format first (Affine-compatible)
+    # Try JSON format first
+    # Supports both full keys and short keys for compactness:
+    #   Full: {"model": "...", "revision": "...", "deployment_id": "..."}
+    #   Short: {"m": "...", "r": "...", "d": "..."}
     if raw.strip().startswith("{"):
         try:
             data = json.loads(raw)
-            hf_repo = data.get("model", "")
-            revision = data.get("revision", "")
-            chute_id = data.get("chute_id", "")
-            docker_image = (
-                data.get("docker_image", "") or f"{hf_repo}:{revision}" if hf_repo else ""
-            )
+            # Support both full and short keys
+            hf_repo = data.get("model", "") or data.get("m", "")
+            revision = data.get("revision", "") or data.get("r", "")
+            # deployment_id uses "d" for short key
+            deployment_id = data.get("deployment_id", "") or data.get("d", "")
+            docker_image = f"{hf_repo}:{revision}" if hf_repo else ""
 
             if hf_repo and revision:
                 return {
                     "huggingface_repo": hf_repo,
                     "revision_sha": revision,
-                    "chute_id": chute_id,
+                    "deployment_id": deployment_id,
                     "docker_image": docker_image,
                 }
         except json.JSONDecodeError:
@@ -72,13 +92,13 @@ def parse_commitment(raw: str) -> dict:
     if len(parts) >= 3:
         hf_repo = parts[0]
         revision = parts[1]
-        chute_id = parts[2]
+        deployment_id = parts[2]
         docker_image = parts[3] if len(parts) > 3 else f"{hf_repo}:{revision}"
 
         return {
             "huggingface_repo": hf_repo,
             "revision_sha": revision,
-            "chute_id": chute_id,
+            "deployment_id": deployment_id,
             "docker_image": docker_image,
         }
 
@@ -87,7 +107,7 @@ def parse_commitment(raw: str) -> dict:
     return {
         "huggingface_repo": "",
         "revision_sha": "",
-        "chute_id": "",
+        "deployment_id": "",
         "docker_image": "",
     }
 
@@ -210,7 +230,7 @@ def read_miner_commitments(
                     hotkey=hotkey,
                     huggingface_repo=parsed["huggingface_repo"],
                     revision_sha=parsed["revision_sha"],
-                    chute_id=parsed["chute_id"],
+                    deployment_id=parsed["deployment_id"],
                     docker_image=parsed["docker_image"],
                     committed_block=neuron.last_update,
                 )
@@ -234,10 +254,10 @@ def commit_model(
     netuid: int,
     repo: str,
     revision: str,
-    chute_id: str,
+    deployment_id: str,
 ) -> bool:
     """
-    Commit model info to chain using JSON format (Affine-compatible).
+    Commit model info to chain using JSON format.
 
     This is called by miners to register their model.
 
@@ -247,21 +267,25 @@ def commit_model(
         netuid: Subnet UID
         repo: HuggingFace repository (user/model)
         revision: Commit SHA
-        chute_id: Chutes deployment ID
+        deployment_id: Basilica deployment ID (UUID only, not full URL)
 
     Returns:
         True if commitment succeeded
     """
     import json
 
-    # Use JSON format compatible with Affine
+    # Use compact JSON format to fit within chain limits (~128 bytes)
+    # Short keys: m=model, r=revision, d=deployment_id
     commitment_data = json.dumps(
         {
-            "model": repo,
-            "revision": revision,
-            "chute_id": chute_id,
-        }
+            "m": repo,
+            "r": revision,
+            "d": deployment_id,
+        },
+        separators=(",", ":"),  # Remove spaces for compactness
     )
+
+    logger.info("commitment_data", data=commitment_data, length=len(commitment_data))
 
     try:
         result = subtensor.set_commitment(
@@ -279,7 +303,7 @@ def commit_model(
                 "commitment_submitted",
                 repo=repo,
                 revision=revision[:12],
-                chute_id=chute_id,
+                deployment_id=deployment_id,
             )
         return success
     except Exception as e:

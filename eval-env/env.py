@@ -3,7 +3,7 @@ Affinetes-compatible robotics evaluation environment.
 
 This Actor class runs inside an affinetes-managed container and:
 1. Manages MuJoCo/MetaWorld simulation
-2. Queries miner policy endpoints (on Chutes or self-hosted) for actions
+2. Queries miner policy endpoints (on Basilica or self-hosted) for actions
 3. Returns evaluation scores
 
 Usage (from backend):
@@ -12,7 +12,7 @@ Usage (from backend):
     env = af_env.load_env(image="kinitro/eval-env:v1")
     result = await env.evaluate(
         task_id=123,
-        base_url="https://miner-policy.chutes.ai",
+        base_url="https://xxx.deployments.basilica.ai",
         task_name="pick-place-v3"
     )
 """
@@ -59,7 +59,7 @@ class Actor:
         Call miner's policy endpoint.
 
         Args:
-            base_url: Miner's base URL (e.g., https://slug.chutes.ai)
+            base_url: Miner's base URL (e.g., https://xxx.deployments.basilica.ai)
             endpoint: Endpoint path (e.g., "act" or "reset")
             payload: JSON payload to send
             timeout: Request timeout in seconds
@@ -106,7 +106,7 @@ class Actor:
             seed: Random seed (defaults to task_id)
             model: Miner's model name (for logging)
             base_url: Miner's policy endpoint URL (required)
-                      e.g., "https://miner-policy.chutes.ai"
+                      e.g., "https://xxx.deployments.basilica.ai"
             env_id: Environment ID (e.g., "metaworld/pick-place-v3")
             max_timesteps: Maximum steps per episode
             action_timeout: Timeout for each action request (seconds)
