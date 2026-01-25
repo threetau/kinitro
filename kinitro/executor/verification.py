@@ -120,7 +120,9 @@ class PolicyVerifier:
             policy = await self._load_policy_from_hf(repo, revision)
 
             # Generate deterministic test observations
-            test_seed = hash(f"{miner_uid}:{revision}") % (2**31)
+            # Use hashlib for cross-process determinism (hash() is randomized by PYTHONHASHSEED)
+            seed_str = f"{miner_uid}:{revision}".encode()
+            test_seed = int(hashlib.sha256(seed_str).hexdigest()[:8], 16) % (2**31)
             np.random.seed(test_seed)
             test_observations = [
                 np.random.uniform(-1, 1, size=observation_shape).astype(np.float32)
@@ -238,12 +240,16 @@ class PolicyVerifier:
         except Exception as e:
             if "exceeds maximum" in str(e):
                 raise
-            # Log but continue if we can't check size (might be private repo, etc.)
-            logger.warning(
+            # Fail closed: don't download if we can't verify size (security requirement)
+            logger.error(
                 "repo_size_check_failed",
                 repo=repo,
                 error=str(e),
             )
+            raise ValueError(
+                f"Cannot verify repository size for {repo}: {e}. "
+                "Size check is required for security."
+            ) from e
 
         # Download from HuggingFace
         model_path = await asyncio.to_thread(
