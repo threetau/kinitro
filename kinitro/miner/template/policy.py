@@ -2,7 +2,7 @@
 Miner Policy Implementation
 
 This is where you implement your robotics policy.
-The RobotPolicy class is imported by the chute and called during evaluation.
+The RobotPolicy class is imported by the server and called during evaluation.
 
 Your policy receives:
 - Proprioceptive observations: end-effector position + gripper state

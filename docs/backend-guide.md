@@ -13,7 +13,7 @@ This guide explains how to run the evaluation backend for Kinitro. The backend i
 │    - FastAPI server exposing weights API                        │
 │    - Scheduler running periodic evaluation cycles               │
 │    - affinetes containers for isolated simulation               │
-│    - Calls miner Chutes endpoints for policy actions            │
+│    - Calls miner Basilica endpoints for policy actions          │
 │    - Computes epsilon-Pareto scores and weights                 │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ HTTP API
@@ -217,7 +217,7 @@ List all discovered miners.
     {
       "uid": 0,
       "hotkey": "5F...",
-      "endpoint": "https://miner0.chutes.ai",
+      "endpoint": "https://xxx.deployments.basilica.ai",
       "last_evaluated": "2024-01-15T10:30:00Z",
       "status": "active"
     }

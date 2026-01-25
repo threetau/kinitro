@@ -551,7 +551,9 @@ def list_envs():
 def commit(
     repo: str = typer.Option(..., help="HuggingFace repo (user/model)"),
     revision: str = typer.Option(..., help="Commit SHA"),
-    chute_id: str = typer.Option(..., help="Chutes deployment ID"),
+    deployment_id: str = typer.Option(
+        ..., "--deployment-id", "-d", help="Basilica deployment ID (UUID only)"
+    ),
     network: str = typer.Option("finney", help="Network"),
     netuid: int = typer.Option(..., help="Subnet UID"),
     wallet_name: str = typer.Option("default", help="Wallet name"),
@@ -572,7 +574,7 @@ def commit(
     typer.echo(f"Committing model to {network} (netuid={netuid})")
     typer.echo(f"  Repo: {repo}")
     typer.echo(f"  Revision: {revision}")
-    typer.echo(f"  Chute ID: {chute_id}")
+    typer.echo(f"  Deployment ID: {deployment_id}")
 
     success = commit_model(
         subtensor=subtensor,
@@ -580,7 +582,7 @@ def commit(
         netuid=netuid,
         repo=repo,
         revision=revision,
-        chute_id=chute_id,
+        deployment_id=deployment_id,
     )
 
     if success:
@@ -642,7 +644,7 @@ def show_commitment(
         typer.echo("\nParsed commitment:")
         typer.echo(f"  Repo: {parsed['huggingface_repo']}")
         typer.echo(f"  Revision: {parsed['revision_sha']}")
-        typer.echo(f"  Chute ID: {parsed['chute_id']}")
+        typer.echo(f"  Deployment ID: {parsed['deployment_id']}")
         if parsed["docker_image"]:
             typer.echo(f"  Docker Image: {parsed['docker_image']}")
     else:
@@ -847,126 +849,176 @@ def init_miner(
     typer.echo("  2. Add your model weights to the directory")
     typer.echo("  3. Test locally: uvicorn server:app --port 8001")
     typer.echo("  4. Upload to HuggingFace: huggingface-cli upload user/repo .")
-    typer.echo("  5. Deploy to Chutes: kinitro chutes-push --repo user/repo --revision SHA")
-    typer.echo("  6. Commit to chain: kinitro commit --repo ... --revision ... --chute-id ...")
+    typer.echo("  5. Deploy to Basilica: kinitro basilica-push --repo user/repo --revision SHA")
+    typer.echo(
+        "  6. Or use one-command deploy: kinitro miner-deploy -r user/repo -p . --netuid ..."
+    )
 
 
-@app.command("chutes-push")
-def chutes_push(
+@app.command("basilica-push")
+def basilica_push(
     repo: str = typer.Option(..., "--repo", "-r", help="HuggingFace repository ID"),
     revision: str = typer.Option(..., "--revision", help="HuggingFace commit SHA"),
-    chutes_api_key: str | None = typer.Option(
-        None, "--api-key", envvar="CHUTES_API_KEY", help="Chutes API key"
+    deployment_name: str | None = typer.Option(
+        None, "--name", "-n", help="Deployment name (default: derived from repo)"
     ),
-    chute_user: str | None = typer.Option(
-        None, "--user", envvar="CHUTE_USER", help="Chutes username"
+    gpu_count: int = typer.Option(0, "--gpu-count", help="Number of GPUs (0 for CPU-only)"),
+    min_gpu_memory_gb: int | None = typer.Option(None, "--min-vram", help="Minimum GPU VRAM in GB"),
+    memory: str = typer.Option("512Mi", "--memory", help="Memory allocation"),
+    basilica_api_token: str | None = typer.Option(
+        None, "--api-token", envvar="BASILICA_API_TOKEN", help="Basilica API token"
     ),
-    gpu_count: int = typer.Option(1, "--gpu-count", help="Number of GPUs"),
-    min_vram_gb: int = typer.Option(8, "--min-vram", help="Minimum VRAM in GB"),
+    hf_token: str | None = typer.Option(
+        None, "--hf-token", envvar="HF_TOKEN", help="HuggingFace token for private repos"
+    ),
+    timeout: int = typer.Option(600, "--timeout", help="Deployment timeout in seconds"),
 ):
     """
-    Deploy policy to Chutes.
+    Deploy policy to Basilica.
 
-    Generates a Chute configuration and deploys your policy server.
-    Requires CHUTES_API_KEY and CHUTE_USER environment variables.
+    Deploys your robotics policy server to Basilica's GPU serverless platform.
+    The policy is downloaded from HuggingFace and served via FastAPI.
+
+    Requires BASILICA_API_TOKEN environment variable or --api-token.
 
     Example:
-        robo chutes-push --repo user/robo-policy --revision abc123
+        kinitro basilica-push --repo user/policy --revision abc123
+
+        # With custom name
+        kinitro basilica-push --repo user/policy --revision abc123 --name my-policy
+
+        # With more GPU memory
+        kinitro basilica-push --repo user/policy --revision abc123 --min-vram 24
     """
     import os
-    import subprocess
-    import textwrap
-    from pathlib import Path
 
     # Validate required credentials
-    api_key = chutes_api_key or os.environ.get("CHUTES_API_KEY")
-    user = chute_user or os.environ.get("CHUTE_USER")
+    api_token = basilica_api_token or os.environ.get("BASILICA_API_TOKEN")
 
-    if not api_key:
-        typer.echo("Error: CHUTES_API_KEY not configured", err=True)
-        typer.echo("Set it via --api-key or CHUTES_API_KEY environment variable")
+    if not api_token:
+        typer.echo("Error: BASILICA_API_TOKEN not configured", err=True)
+        typer.echo("Set it via --api-token or BASILICA_API_TOKEN environment variable")
+        typer.echo("\nTo get a token, run: basilica tokens create")
         raise typer.Exit(1)
 
-    if not user:
-        typer.echo("Error: CHUTE_USER not configured", err=True)
-        typer.echo("Set it via --user or CHUTE_USER environment variable")
+    # Import Basilica SDK
+    try:
+        from basilica import BasilicaClient
+    except ImportError:
+        typer.echo("Error: basilica-sdk not installed", err=True)
+        typer.echo("Run: pip install basilica-sdk")
         raise typer.Exit(1)
 
-    typer.echo("Deploying to Chutes:")
+    # Derive deployment name from repo
+    name = deployment_name or repo.replace("/", "-").lower()
+    # Ensure name is DNS-safe (lowercase, alphanumeric and hyphens only)
+    name = "".join(c if c.isalnum() or c == "-" else "-" for c in name).strip("-")[:63]
+
+    typer.echo("Deploying to Basilica:")
     typer.echo(f"  Repo: {repo}")
     typer.echo(f"  Revision: {revision[:12]}...")
-    typer.echo(f"  User: {user}")
-    typer.echo(f"  GPU: {gpu_count}x (min {min_vram_gb}GB VRAM)")
+    typer.echo(f"  Deployment Name: {name}")
+    typer.echo(f"  GPU: {gpu_count}x (min {min_gpu_memory_gb}GB VRAM)")
+    typer.echo(f"  Memory: {memory}")
 
-    # Generate Chute configuration for robotics policy server
-    import time
+    # Create client
+    client = BasilicaClient(api_key=api_token)
 
-    chute_name = repo.replace("/", "-")
-    image_tag = f"{revision[:8]}-{int(time.time()) % 10000}"  # revision + timestamp
-    chute_config = textwrap.dedent(f'''
+    # Generate deployment source code
+    hf_token_str = hf_token or ""
+    source_code = f'''
 import os
-from chutes.chute import Chute, NodeSelector
-from chutes.image import Image
+import sys
+import subprocess
 
-os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+print("Starting Kinitro Policy Server...")
+print(f"HF_REPO: {{os.environ.get('HF_REPO', 'not set')}}")
+print(f"HF_REVISION: {{os.environ.get('HF_REVISION', 'not set')}}")
 
-# Build the image from Chutes base (has 'chutes' user for post-processing)
-image = Image("{user}", "{chute_name}", "{image_tag}", readme="Kinitro miner policy from {repo}")
-# Use default parachutes base image (don't call from_base to keep default)
-image.run_command("pip install --no-cache-dir huggingface_hub uvicorn fastapi torch numpy gymnasium pillow pydantic")
-image.run_command("python -c \\"from huggingface_hub import snapshot_download; snapshot_download('{repo}', revision='{revision}', local_dir='/app')\\"")
-image.set_workdir("/app")
-image.with_entrypoint("uvicorn server:app --host 0.0.0.0 --port 8000")
+# Download model from HuggingFace
+from huggingface_hub import snapshot_download
 
-chute = Chute(
-    username="{user}",
-    name="{chute_name}",
-    image=image,
-    readme="{repo}",
-    node_selector=NodeSelector(
-        gpu_count={gpu_count},
-        min_vram_gb_per_gpu={min_vram_gb},
-    ),
-    # Keep chute warm for 8 hours to ensure validators can reach endpoint
-    shutdown_after_seconds=28800,
+hf_token = os.environ.get("HF_TOKEN") or None
+print("Downloading model from HuggingFace...")
+snapshot_download(
+    "{repo}",
+    revision="{revision}",
+    local_dir="/app",
+    token=hf_token,
 )
-''')
+print("Model downloaded successfully!")
 
-    tmp_file = Path("tmp_kinitro_chute.py")
-    tmp_file.write_text(chute_config)
+# Change to /app directory and add to Python path
+os.chdir("/app")
+sys.path.insert(0, "/app")
 
+# Start the FastAPI server from /app directory
+print("Starting uvicorn server on port 8000...")
+subprocess.run([
+    sys.executable, "-m", "uvicorn",
+    "server:app",
+    "--host", "0.0.0.0",
+    "--port", "8000",
+], cwd="/app")
+'''
+
+    # Choose image based on GPU requirement
+    if gpu_count > 0:
+        image = "pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime"
+    else:
+        image = "python:3.11-slim"
+
+    # Build deployment configuration
+    deploy_kwargs = {
+        "name": name,
+        "source": source_code,
+        "image": image,
+        "port": 8000,
+        "memory": memory,
+        "cpu": "500m",
+        "pip_packages": [
+            "fastapi",
+            "uvicorn",
+            "numpy",
+            "huggingface-hub",
+            "pydantic",
+            "pillow",
+        ],
+        "env": {
+            "HF_REPO": repo,
+            "HF_REVISION": revision,
+        },
+        "timeout": timeout,
+    }
+
+    # Add GPU settings only if GPU is requested
+    if gpu_count > 0:
+        deploy_kwargs["gpu_count"] = gpu_count
+        if min_gpu_memory_gb:
+            deploy_kwargs["min_gpu_memory_gb"] = min_gpu_memory_gb
+
+    # Add HF token if provided
+    if hf_token_str:
+        deploy_kwargs["env"]["HF_TOKEN"] = hf_token_str
+
+    # Deploy
+    typer.echo("\nDeploying to Basilica (this may take several minutes)...")
     try:
-        env = {**os.environ, "CHUTES_API_KEY": api_key}
+        deployment = client.deploy(**deploy_kwargs)
+    except Exception as e:
+        typer.echo(f"\nDeployment failed: {e}", err=True)
+        raise typer.Exit(1)
 
-        # Step 1: Build the image first
-        typer.echo("\nBuilding image (this may take several minutes)...")
-        build_cmd = ["chutes", "build", f"{tmp_file.stem}:chute", "--wait"]
-        result = subprocess.run(build_cmd, env=env, input=b"y\n")
-
-        if result.returncode != 0:
-            typer.echo("Image build failed!", err=True)
-            raise typer.Exit(1)
-
-        typer.echo("Image built successfully!")
-
-        # Step 2: Deploy the chute
-        typer.echo("\nDeploying chute...")
-        deploy_cmd = ["chutes", "deploy", f"{tmp_file.stem}:chute", "--accept-fee"]
-        result = subprocess.run(deploy_cmd, env=env, input=b"y\n")
-
-        if result.returncode != 0:
-            typer.echo("Chutes deployment failed!", err=True)
-            raise typer.Exit(1)
-
-        typer.echo("\nDeployment submitted!")
-        typer.echo("Check the Chutes dashboard for your chute_id")
-        typer.echo("\nNext step:")
-        typer.echo(
-            f"  kinitro commit --repo {repo} --revision {revision} --chute-id YOUR_CHUTE_ID --netuid ..."
-        )
-
-    finally:
-        tmp_file.unlink(missing_ok=True)
+    typer.echo("\n" + "=" * 60)
+    typer.echo("DEPLOYMENT SUCCESSFUL")
+    typer.echo("=" * 60)
+    typer.echo(f"  Name: {deployment.name}")
+    typer.echo(f"  URL: {deployment.url}")
+    typer.echo(f"  State: {deployment.state}")
+    typer.echo("=" * 60)
+    typer.echo("\nNext step - commit on-chain:")
+    typer.echo(f"  kinitro commit --repo {repo} --revision {revision} \\")
+    typer.echo(f"    --endpoint {deployment.url} --netuid YOUR_NETUID")
 
 
 @app.command("miner-deploy")
@@ -978,14 +1030,17 @@ def miner_deploy(
     revision: str | None = typer.Option(
         None, "--revision", help="HuggingFace commit SHA (required if --skip-upload)"
     ),
-    chute_id: str | None = typer.Option(
-        None, "--chute-id", help="Chutes deployment ID (required if --skip-chutes)"
+    deployment_id: str | None = typer.Option(
+        None, "--deployment-id", "-d", help="Basilica deployment ID (required if --skip-deploy)"
+    ),
+    deployment_name: str | None = typer.Option(
+        None, "--name", "-n", help="Deployment name (default: derived from repo)"
     ),
     message: str = typer.Option(
         "Model update", "--message", "-m", help="Commit message for HuggingFace upload"
     ),
     skip_upload: bool = typer.Option(False, "--skip-upload", help="Skip HuggingFace upload"),
-    skip_chutes: bool = typer.Option(False, "--skip-chutes", help="Skip Chutes deployment"),
+    skip_deploy: bool = typer.Option(False, "--skip-deploy", help="Skip Basilica deployment"),
     skip_commit: bool = typer.Option(False, "--skip-commit", help="Skip on-chain commit"),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Show what would be done without executing"
@@ -994,16 +1049,20 @@ def miner_deploy(
     netuid: int = typer.Option(..., "--netuid", help="Subnet UID"),
     wallet_name: str = typer.Option("default", "--wallet-name", help="Wallet name"),
     hotkey_name: str = typer.Option("default", "--hotkey-name", help="Hotkey name"),
-    chutes_api_key: str | None = typer.Option(None, "--chutes-api-key", envvar="CHUTES_API_KEY"),
-    chute_user: str | None = typer.Option(None, "--chute-user", envvar="CHUTE_USER"),
+    basilica_api_token: str | None = typer.Option(
+        None, "--api-token", envvar="BASILICA_API_TOKEN", help="Basilica API token"
+    ),
     hf_token: str | None = typer.Option(None, "--hf-token", envvar="HF_TOKEN"),
+    gpu_count: int = typer.Option(0, "--gpu-count", help="Number of GPUs (0 for CPU-only)"),
+    min_gpu_memory_gb: int | None = typer.Option(None, "--min-vram", help="Minimum GPU VRAM in GB"),
+    memory: str = typer.Option("512Mi", "--memory", help="Memory allocation"),
 ):
     """
     One-command deployment: Upload -> Deploy -> Commit.
 
     Combines the miner deployment workflow into a single command:
     1. Upload policy to HuggingFace (skip with --skip-upload)
-    2. Deploy to Chutes (skip with --skip-chutes)
+    2. Deploy to Basilica (skip with --skip-deploy)
     3. Commit on-chain (skip with --skip-commit)
 
     Examples:
@@ -1013,13 +1072,14 @@ def miner_deploy(
         # Skip upload (already on HuggingFace)
         kinitro miner-deploy -r user/policy --skip-upload --revision abc123 --netuid 123
 
+        # Skip deployment (already deployed)
+        kinitro miner-deploy -r user/policy --skip-upload --revision abc123 \\
+            --skip-deploy --endpoint https://my-policy.basilica.ai --netuid 123
+
         # Dry run to see what would happen
         kinitro miner-deploy -r user/policy -p ./my-policy --netuid 123 --dry-run
     """
     import os
-    import subprocess
-    import textwrap
-    from pathlib import Path
 
     # Validate arguments
     if not skip_upload and not policy_path:
@@ -1030,13 +1090,12 @@ def miner_deploy(
         typer.echo("Error: --revision is required when --skip-upload is set", err=True)
         raise typer.Exit(1)
 
-    if skip_chutes and not chute_id:
-        typer.echo("Error: --chute-id is required when --skip-chutes is set", err=True)
+    if skip_deploy and not deployment_id:
+        typer.echo("Error: --deployment-id is required when --skip-deploy is set", err=True)
         raise typer.Exit(1)
 
     # Get credentials from env if not provided
-    api_key = chutes_api_key or os.environ.get("CHUTES_API_KEY")
-    user = chute_user or os.environ.get("CHUTE_USER")
+    api_token = basilica_api_token or os.environ.get("BASILICA_API_TOKEN")
     hf = hf_token or os.environ.get("HF_TOKEN")
 
     # Validate credentials
@@ -1044,19 +1103,18 @@ def miner_deploy(
         if not skip_upload and not hf:
             typer.echo("Error: HF_TOKEN not configured", err=True)
             raise typer.Exit(1)
-        if not skip_chutes and not api_key:
-            typer.echo("Error: CHUTES_API_KEY not configured", err=True)
-            raise typer.Exit(1)
-        if not skip_chutes and not user:
-            typer.echo("Error: CHUTE_USER not configured", err=True)
+        if not skip_deploy and not api_token:
+            typer.echo("Error: BASILICA_API_TOKEN not configured", err=True)
+            typer.echo("Set it via --api-token or BASILICA_API_TOKEN environment variable")
+            typer.echo("\nTo get a token, run: basilica tokens create")
             raise typer.Exit(1)
 
     # Determine steps
     steps = []
     if not skip_upload:
         steps.append("upload")
-    if not skip_chutes:
-        steps.append("chutes")
+    if not skip_deploy:
+        steps.append("deploy")
     if not skip_commit:
         steps.append("commit")
 
@@ -1068,8 +1126,8 @@ def miner_deploy(
         typer.echo(f"  Policy Path: {policy_path}")
     if revision:
         typer.echo(f"  Revision: {revision}")
-    if chute_id:
-        typer.echo(f"  Chute ID: {chute_id}")
+    if deployment_id:
+        typer.echo(f"  Deployment ID: {deployment_id}")
     typer.echo(f"  Steps: {' -> '.join(steps) if steps else 'none'}")
     if dry_run:
         typer.echo("  Mode: DRY RUN")
@@ -1114,131 +1172,139 @@ def miner_deploy(
     else:
         typer.echo(f"\nSkipping upload, using revision: {revision[:12]}...")
 
-    # Step 2: Deploy to Chutes
-    if not skip_chutes:
+    # Step 2: Deploy to Basilica
+    if not skip_deploy:
         step_num = 2 if not skip_upload else 1
-        typer.echo(f"\n[{step_num}/{len(steps)}] Deploying to Chutes...")
+        typer.echo(f"\n[{step_num}/{len(steps)}] Deploying to Basilica...")
 
         if dry_run:
             typer.echo(f"  [DRY RUN] Would deploy {repo}@{revision[:12]}...")
-            chute_id = "dry-run-chute-id"
+            deployment_id = "dry-run-deployment-id"
         else:
-            # Generate Chute config using working pattern
-            import time
-
-            chute_name = f"{user}-{repo.split('/')[-1]}"
-            image_tag = f"{revision[:8]}-{int(time.time()) % 10000}"
-            chute_config = textwrap.dedent(f'''
-import os
-from chutes.chute import Chute, NodeSelector
-from chutes.image import Image
-
-os.environ["NO_PROXY"] = "localhost,127.0.0.1"
-
-# Build the image (uses default parachutes/python:3.12 base)
-image = Image("{user}", "{chute_name}", "{image_tag}", readme="Policy server for {repo}")
-image.run_command("pip install --no-cache-dir huggingface_hub uvicorn fastapi torch numpy gymnasium pillow pydantic")
-image.run_command("python -c \\"from huggingface_hub import snapshot_download; snapshot_download('{repo}', revision='{revision}', local_dir='/app')\\"")
-image.set_workdir("/app")
-image.with_entrypoint("uvicorn server:app --host 0.0.0.0 --port 8000")
-
-chute = Chute(
-    username="{user}",
-    name="{chute_name}",
-    image=image,
-    readme="{repo}",
-    node_selector=NodeSelector(gpu_count=1, min_vram_gb_per_gpu=16),
-    # Keep chute warm for 8 hours to ensure validators can reach endpoint
-    shutdown_after_seconds=28800,
-)
-''')
-
-            tmp_file = Path("tmp_kinitro_chute.py")
-            tmp_file.write_text(chute_config)
-
+            # Import Basilica SDK
             try:
-                env = {**os.environ, "CHUTES_API_KEY": api_key}
+                from basilica import BasilicaClient
+            except ImportError:
+                typer.echo("Error: basilica-sdk not installed", err=True)
+                typer.echo("Run: pip install basilica-sdk")
+                raise typer.Exit(1)
 
-                # Step 2a: Build the image first (with --wait to wait for completion)
-                typer.echo("  Building image (this may take several minutes)...")
-                build_cmd = ["chutes", "build", f"{tmp_file.stem}:chute", "--wait"]
-                build_result = subprocess.run(
-                    build_cmd,
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    input="y\n",
-                    timeout=600,  # 10 minute timeout for build
-                )
+            # Derive deployment name
+            name = deployment_name or repo.replace("/", "-").lower()
+            name = "".join(c if c.isalnum() or c == "-" else "-" for c in name).strip("-")[:63]
 
-                if build_result.returncode != 0:
-                    typer.echo(f"  Build failed: {build_result.stderr}", err=True)
-                    typer.echo(f"  Build output: {build_result.stdout}", err=True)
-                    raise typer.Exit(1)
-                typer.echo("  Image built successfully!")
+            typer.echo(f"  Deployment Name: {name}")
 
-                # Step 2b: Deploy the chute
-                typer.echo("  Deploying chute...")
-                deploy_cmd = ["chutes", "deploy", f"{tmp_file.stem}:chute", "--accept-fee"]
-                deploy_result = subprocess.run(
-                    deploy_cmd,
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    input="y\n",
-                    timeout=120,  # 2 minute timeout for deploy
-                )
+            # Create client
+            client = BasilicaClient(api_key=api_token)
 
-                if deploy_result.returncode != 0:
-                    typer.echo(f"  Deploy failed: {deploy_result.stderr}", err=True)
-                    typer.echo(f"  Deploy output: {deploy_result.stdout}", err=True)
-                    raise typer.Exit(1)
-                typer.echo("  Chute deployed successfully!")
+            # Generate deployment source code
+            hf_token_str = hf or ""
+            source_code = f'''
+import os
+import sys
+import subprocess
 
-                # Try to get chute_id from Chutes API
-                try:
-                    import aiohttp
+print("Starting Kinitro Policy Server...")
+print(f"HF_REPO: {{os.environ.get('HF_REPO', 'not set')}}")
+print(f"HF_REVISION: {{os.environ.get('HF_REVISION', 'not set')}}")
 
-                    async def get_chute():
-                        async with aiohttp.ClientSession() as session:
-                            async with session.get(
-                                "https://api.chutes.ai/chutes/", headers={"Authorization": api_key}
-                            ) as r:
-                                if r.status == 200:
-                                    data = await r.json()
-                                    chutes = (
-                                        data.get("items", data) if isinstance(data, dict) else data
-                                    )
-                                    for c in reversed(chutes):
-                                        if c.get("readme") == repo or c.get("model_name") == repo:
-                                            return c.get("chute_id")
-                        return None
+# Download model from HuggingFace
+from huggingface_hub import snapshot_download
 
-                    chute_id = asyncio.run(get_chute())
-                except Exception:
-                    chute_id = None
+hf_token = os.environ.get("HF_TOKEN") or None
+print("Downloading model from HuggingFace...")
+snapshot_download(
+    "{repo}",
+    revision="{revision}",
+    local_dir="/app",
+    token=hf_token,
+)
+print("Model downloaded successfully!")
 
-                if chute_id:
-                    typer.echo(f"  Chute ID: {chute_id}")
+# Change to /app directory and add to Python path
+os.chdir("/app")
+sys.path.insert(0, "/app")
+
+# Start the FastAPI server from /app directory
+print("Starting uvicorn server on port 8000...")
+subprocess.run([
+    sys.executable, "-m", "uvicorn",
+    "server:app",
+    "--host", "0.0.0.0",
+    "--port", "8000",
+], cwd="/app")
+'''
+
+            # Choose image based on GPU requirement
+            if gpu_count > 0:
+                image = "pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime"
+            else:
+                image = "python:3.11-slim"
+
+            # Build deployment configuration
+            deploy_kwargs = {
+                "name": name,
+                "source": source_code,
+                "image": image,
+                "port": 8000,
+                "memory": memory,
+                "cpu": "500m",
+                "pip_packages": [
+                    "fastapi",
+                    "uvicorn",
+                    "numpy",
+                    "huggingface-hub",
+                    "pydantic",
+                    "pillow",
+                ],
+                "env": {
+                    "HF_REPO": repo,
+                    "HF_REVISION": revision,
+                },
+                "timeout": 600,
+            }
+
+            # Add GPU settings only if GPU is requested
+            if gpu_count > 0:
+                deploy_kwargs["gpu_count"] = gpu_count
+                if min_gpu_memory_gb:
+                    deploy_kwargs["min_gpu_memory_gb"] = min_gpu_memory_gb
+
+            # Add HF token if provided
+            if hf_token_str:
+                deploy_kwargs["env"]["HF_TOKEN"] = hf_token_str
+
+            # Deploy
+            typer.echo("  Deploying (this may take several minutes)...")
+            try:
+                deployment = client.deploy(**deploy_kwargs)
+                endpoint_url = deployment.url
+                # Extract deployment ID from URL (e.g., https://UUID.deployments.basilica.ai -> UUID)
+                if endpoint_url and ".deployments.basilica.ai" in endpoint_url:
+                    deployment_id = endpoint_url.split("//")[1].split(".")[0]
                 else:
-                    typer.echo("  Deployment submitted. Check Chutes dashboard for chute_id.")
-                    typer.echo("  You may need to run commit separately with --chute-id")
-                    if not skip_commit:
-                        typer.echo("  Skipping commit step (no chute_id)")
-                        skip_commit = True
-
-            finally:
-                tmp_file.unlink(missing_ok=True)
+                    # Fallback: use the full URL if format is unexpected
+                    deployment_id = endpoint_url
+                typer.echo("  Deployment successful!")
+                typer.echo(f"  URL: {endpoint_url}")
+                typer.echo(f"  Deployment ID: {deployment_id}")
+                typer.echo(f"  State: {deployment.state}")
+            except Exception as e:
+                typer.echo(f"  Deployment failed: {e}", err=True)
+                raise typer.Exit(1)
     else:
-        typer.echo(f"\nSkipping Chutes deployment, using chute_id: {chute_id}")
+        typer.echo(f"\nSkipping deployment, using deployment ID: {deployment_id}")
 
     # Step 3: Commit on-chain
-    if not skip_commit and chute_id:
+    if not skip_commit and deployment_id:
         step_num = len(steps)
         typer.echo(f"\n[{step_num}/{len(steps)}] Committing on-chain...")
 
         if dry_run:
-            typer.echo(f"  [DRY RUN] Would commit {repo}@{revision[:12]}... with chute {chute_id}")
+            typer.echo(
+                f"  [DRY RUN] Would commit {repo}@{revision[:12]}... with deployment_id {deployment_id}"
+            )
         else:
             import bittensor as bt
 
@@ -1255,7 +1321,7 @@ chute = Chute(
                 netuid=netuid,
                 repo=repo,
                 revision=revision,
-                chute_id=chute_id,
+                deployment_id=deployment_id,
             )
 
             if success:
@@ -1273,7 +1339,7 @@ chute = Chute(
     typer.echo("=" * 60)
     typer.echo(f"  Repository: {repo}")
     typer.echo(f"  Revision: {revision[:12] if revision else 'N/A'}...")
-    typer.echo(f"  Chute ID: {chute_id or 'N/A'}")
+    typer.echo(f"  Deployment ID: {deployment_id or 'N/A'}")
     typer.echo("=" * 60)
 
 

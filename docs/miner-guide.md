@@ -7,7 +7,7 @@ This guide explains how to participate as a miner in Kinitro. As a miner, you'll
 The evaluation flow:
 1. You train a robotics policy (locally or on your own infrastructure)
 2. You upload your model weights to HuggingFace
-3. You deploy your policy server to [Chutes](https://chutes.ai) (required for mainnet)
+3. You deploy your policy server to [Basilica](https://basilica.ai) (required for mainnet)
 4. You commit your endpoint info on-chain so validators can find you
 5. Validators periodically evaluate your policy across multiple environments
 6. You earn rewards based on how well your policy generalizes
@@ -16,10 +16,10 @@ The evaluation flow:
 
 - **Training**: GPU compute for training your policy
 - **HuggingFace Account**: For storing your model weights
-- **Chutes Account**: For deploying your policy server (required for mainnet)
+- **Basilica Account**: For deploying your policy server (required for mainnet)
 - **Bittensor Wallet**: For registering as a miner and committing your endpoint
 
-> **Important**: For mainnet (Finney), you **must** deploy via Chutes. Self-hosted endpoints are only supported for local testing and development.
+> **Important**: For mainnet (Finney), you **must** deploy via Basilica. Self-hosted endpoints are only supported for local testing and development.
 
 ## Quick Start Summary
 
@@ -35,8 +35,7 @@ uvicorn server:app --port 8001
 
 # 4. One-command deployment (upload + deploy + commit)
 export HF_TOKEN="your-huggingface-token"
-export CHUTES_API_KEY="your-chutes-api-key"
-export CHUTE_USER="your-chutes-username"
+export BASILICA_API_TOKEN="your-basilica-api-token"
 
 uv run kinitro miner-deploy \
   --repo your-username/kinitro-policy \
@@ -51,14 +50,14 @@ Or do each step separately:
 # Upload to HuggingFace
 huggingface-cli upload your-username/kinitro-policy .
 
-# Deploy to Chutes
-uv run kinitro chutes-push --repo your-username/kinitro-policy --revision YOUR_HF_SHA
+# Deploy to Basilica
+uv run kinitro basilica-push --repo your-username/kinitro-policy --revision YOUR_HF_SHA
 
 # Commit on-chain
 uv run kinitro commit \
   --repo your-username/kinitro-policy \
   --revision YOUR_HF_COMMIT_SHA \
-  --chute-id YOUR_CHUTE_ID \
+  --endpoint YOUR_BASILICA_URL \
   --netuid YOUR_NETUID
 ```
 
@@ -73,9 +72,9 @@ cd my-policy
 ```
 
 This creates:
-- `server.py` - FastAPI server with `/reset` and `/act` endpoints (for local testing)
+- `server.py` - FastAPI server with `/reset` and `/act` endpoints (for local testing and Basilica deployment)
 - `policy.py` - Policy implementation template (edit this!)
-- `chute.py` - Chutes deployment configuration with `@chute.cord()` endpoints
+- `basilica_deploy.py` - Basilica deployment script
 - `Dockerfile` - For containerizing your policy (optional, for self-hosted)
 - `requirements.txt` - Python dependencies
 
@@ -151,7 +150,7 @@ See `policy.py` for example implementations of VLA and Diffusion policies.
 
 ## Step 4: Test Locally
 
-Test your policy using the FastAPI server before deploying to Chutes:
+Test your policy using the FastAPI server before deploying to Basilica:
 
 ```bash
 cd my-policy
@@ -174,9 +173,7 @@ curl -X POST http://localhost:8001/act \
   -d '{"observation": [0.0, 0.5, 0.2, 1.0]}'
 ```
 
-The `server.py` file provides the same endpoints as the Chutes deployment (`/health`, `/reset`, `/act`) but runs as a standard FastAPI server. This lets you test your policy logic locally before deploying.
-
-> **Note**: The `server.py` uses FastAPI decorators while `chute.py` uses `@chute.cord()` decorators, but both implement the same API interface.
+The `server.py` file provides the endpoints (`/health`, `/reset`, `/act`) that validators will call. This lets you test your policy logic locally before deploying to Basilica.
 
 ## Step 5: Upload to HuggingFace
 
@@ -199,90 +196,25 @@ huggingface-cli upload your-username/kinitro-policy ./my-policy
 git ls-remote https://huggingface.co/your-username/kinitro-policy HEAD
 ```
 
-## Step 6: Deploy to Chutes (Required for Mainnet)
+## Step 6: Deploy to Basilica (Required for Mainnet)
 
-[Chutes](https://chutes.ai) provides serverless GPU inference. **Deployment via Chutes is required for mainnet participation.**
+[Basilica](https://basilica.ai) provides serverless container inference. **Deployment via Basilica is required for mainnet participation.**
 
 ### Prerequisites
 
-1. **Create a Chutes account** at [chutes.ai](https://chutes.ai)
-2. **Register your Chutes account with your mining hotkey** - this links your Chutes deployment to your miner identity
-3. **Fund your Chutes account** with TAO to pay for GPU compute time
-4. **Get your Chutes API key** from the Chutes dashboard
-5. **Install the Chutes SDK**: `pip install chutes`
-
-### Understanding chute.py
-
-The miner template includes a `chute.py` file that defines your Chutes deployment. This file:
-
-1. **Configures the Docker image** - installs dependencies and downloads your model from HuggingFace
-2. **Defines the Chute** - specifies GPU requirements and metadata
-3. **Implements `@chute.cord()` endpoints** - wraps your policy as HTTP endpoints (`/health`, `/reset`, `/act`)
-
-The key difference from `server.py` is that Chutes uses `@chute.cord()` decorators instead of FastAPI routes:
-
-```python
-from chutes.chute import Chute, NodeSelector
-from chutes.image import Image
-
-# Configure image build
-image = Image("your-username", "your-policy-name", "v1")
-image.run_command("pip install torch numpy ...")
-image.run_command('python -c "from huggingface_hub import snapshot_download; ..."')
-
-# Define the chute
-chute = Chute(
-    username="your-username",
-    name="your-policy-name", 
-    image=image,
-    node_selector=NodeSelector(gpu_count=1, min_vram_gb_per_gpu=16),
-)
-
-# Define endpoints with @chute.cord()
-@chute.cord(public_api_path="/health", public_api_method="GET")
-async def health() -> HealthResponse:
-    ...
-
-@chute.cord(public_api_path="/reset", public_api_method="POST")
-async def reset(request: ResetRequest) -> ResetResponse:
-    ...
-
-@chute.cord(public_api_path="/act", public_api_method="POST")
-async def act(request: ActRequest) -> ActResponse:
-    ...
-```
-
-### Configure Your Deployment
-
-Edit `chute.py` to set your configuration:
-
-```python
-# Your Chutes username
-CHUTES_USER = os.environ.get("CHUTE_USER", "your-username")
-
-# Name for your chute
-CHUTE_NAME = f"{CHUTES_USER}-kinitro-policy"
-
-# HuggingFace repo (set via environment or hardcode)
-HF_REPO = os.environ.get("HF_REPO", "your-username/kinitro-policy")
-HF_REVISION = os.environ.get("HF_REVISION", "main")
-
-# GPU requirements - adjust based on your model size
-GPU_COUNT = 1
-MIN_VRAM_GB = 16
-```
+1. **Create a Basilica account** at [basilica.ai](https://basilica.ai)
+2. **Get your Basilica API token** by [using the cli](https://docs.basilica.ai/cli#account-management)
 
 ### Deploy Using kinitro CLI (Recommended)
 
-The easiest way to deploy is using the `kinitro chutes-push` command:
+The easiest way to deploy is using the `kinitro basilica-push` command:
 
 ```bash
 # Set credentials
-export CHUTES_API_KEY="your-api-key"
-export CHUTE_USER="your-username"
+export BASILICA_API_TOKEN="your-api-token"
 
-# Deploy to Chutes
-uv run kinitro chutes-push \
+# Deploy to Basilica
+uv run kinitro basilica-push \
   --repo your-username/kinitro-policy \
   --revision YOUR_HUGGINGFACE_COMMIT_SHA \
   --gpu-count 1 \
@@ -290,45 +222,40 @@ uv run kinitro chutes-push \
 ```
 
 This command:
-1. Generates a `chute.py` configuration
-2. Builds the Docker image on Chutes infrastructure
-3. Deploys the chute
-4. Returns the `chute_id` for on-chain commitment
-
-### Deploy Manually with Chutes CLI
-
-Alternatively, deploy directly with the chutes CLI:
-
-```bash
-# Set credentials
-export CHUTES_API_KEY="your-api-key"
-
-# Deploy from your policy directory
-cd my-policy
-chutes deploy chute:chute --accept-fee
-```
+1. Downloads your policy from HuggingFace
+2. Builds a container image with your policy
+3. Deploys to Basilica
+4. Returns the endpoint URL for on-chain commitment
 
 ### Verify Deployment
 
-After deployment, note your **chute_id** and **slug**. You can verify your deployment:
+After deployment, note your **endpoint URL**. You can verify your deployment:
 
 ```bash
-# List your chutes
-chutes chutes list
-
-# Test the endpoint (replace with your slug)
-curl -X GET "https://YOUR-SLUG.chutes.ai/health" \
-  -H "Authorization: Bearer $CHUTES_API_KEY"
+# Test the endpoint (replace with your URL)
+curl https://YOUR-DEPLOYMENT-ID.deployments.basilica.ai/health
 ```
 
-The chute slug follows the pattern: `{username}-{chute-name}` (e.g., `myuser-myuser-kinitro-policy`).
+### GPU vs CPU Deployments
 
-### Keep Your Chute Warm
+For testing, you can deploy without GPU:
 
-Chutes auto-shutdown after inactivity. To ensure validators can reach your endpoint:
-- Set `shutdown_after_seconds` in your chute config (e.g., `28800` for 8 hours)
-- Monitor your Chutes dashboard for uptime
-- Fund your account to maintain availability
+```bash
+uv run kinitro basilica-push \
+  --repo your-username/kinitro-policy \
+  --revision YOUR_HF_SHA \
+  --gpu-count 0  # CPU-only for testing
+```
+
+For production with GPU:
+
+```bash
+uv run kinitro basilica-push \
+  --repo your-username/kinitro-policy \
+  --revision YOUR_HF_SHA \
+  --gpu-count 1 \
+  --min-vram 16
+```
 
 ## Local Testing (Development Only)
 
@@ -349,14 +276,14 @@ You can then test with a local validator backend by committing your local endpoi
 uv run kinitro commit \
   --repo your-username/kinitro-policy \
   --revision $(git rev-parse HEAD) \
-  --chute-id http://localhost:8001 \
+  --endpoint http://localhost:8001 \
   --netuid 2 \
   --network local \
   --wallet-name test-wallet \
   --hotkey-name hotkey0
 ```
 
-> **Warning**: Self-hosted endpoints are NOT supported on mainnet. You must deploy via Chutes for your commitment to be valid.
+> **Warning**: Self-hosted endpoints are NOT supported on mainnet. You must deploy via Basilica for your commitment to be valid.
 
 ## Step 7: Commit On-Chain
 
@@ -365,13 +292,13 @@ Register your policy endpoint on-chain so validators can find and evaluate you.
 The commitment includes three pieces of information:
 - **model**: Your HuggingFace repository (e.g., `your-username/kinitro-policy`)
 - **revision**: The HuggingFace commit SHA of your model
-- **chute_id**: Your Chutes deployment ID
+- **endpoint**: Your Basilica deployment URL
 
 ```bash
 uv run kinitro commit \
   --repo your-username/kinitro-policy \
   --revision YOUR_HUGGINGFACE_COMMIT_SHA \
-  --chute-id YOUR_CHUTE_DEPLOYMENT_ID \
+  --endpoint YOUR_BASILICA_URL \
   --netuid YOUR_SUBNET_ID \
   --network finney \
   --wallet-name your-wallet \
@@ -383,13 +310,13 @@ uv run kinitro commit \
 The commitment is stored on-chain as compact JSON to fit within chain limits:
 
 ```json
-{"m":"your-username/kinitro-policy","r":"abc123def456...","c":"chute_xyz789..."}
+{"m":"your-username/kinitro-policy","r":"abc123def456...","e":"https://xxx.deployments.basilica.ai"}
 ```
 
 Where:
 - `m` = HuggingFace model repository
 - `r` = HuggingFace revision (commit SHA)
-- `c` = Chutes deployment ID
+- `e` = Basilica endpoint URL
 
 ### Verify Your Commitment
 
@@ -405,8 +332,8 @@ uv run kinitro show-commitment \
 
 When you update your model:
 1. Upload the new weights to HuggingFace
-2. Deploy the updated model to Chutes (or update existing deployment)
-3. Commit the new revision and chute_id on-chain
+2. Deploy the updated model to Basilica
+3. Commit the new revision and endpoint on-chain
 
 Validators will automatically pick up your new endpoint at the next evaluation cycle.
 
@@ -498,23 +425,22 @@ Key implications:
 ### Policy not being evaluated
 
 1. Check your on-chain commitment: `uv run kinitro show-commitment --netuid ... --wallet-name ...`
-2. Verify your Chutes deployment is "hot" (running) - check the Chutes dashboard
-3. Verify your endpoint is accessible: `curl YOUR_CHUTE_ENDPOINT/health`
+2. Verify your Basilica deployment is running - check the Basilica dashboard
+3. Verify your endpoint is accessible: `curl YOUR_BASILICA_ENDPOINT/health`
 4. Ensure the revision in your commitment matches the deployed model
 5. Check validator logs for errors
 
-### Chutes deployment issues
+### Basilica deployment issues
 
-- **"Cold" Chute**: Your deployment may have auto-shutdown. Fund your account and redeploy.
-- **Rate limits**: Ensure your Chutes account has sufficient balance for GPU time.
-- **Deployment failures**: Check Chutes logs in the dashboard.
+- **Deployment not running**: Check your Basilica dashboard for status.
+- **Deployment failures**: Check Basilica logs in the dashboard.
 
 ### Slow responses / timeouts
 
 - Optimize your model for inference speed
-- Use GPU acceleration (configure appropriate GPU in Chute config)
+- Use GPU acceleration (configure appropriate GPU in Basilica config)
 - Consider action chunking to reduce per-step latency
-- Ensure your Chutes deployment has adequate GPU resources
+- Ensure your Basilica deployment has adequate GPU resources
 
 ### Low success rates
 
@@ -530,7 +456,7 @@ Key implications:
 - Check that the revision SHA matches your HuggingFace commit
 - Commitment must be under ~128 bytes (uses compact JSON with short keys)
 
-### Testing Chutes Endpoints
+### Testing Endpoints
 
 #### Local Testing (Before Deployment)
 
@@ -554,40 +480,23 @@ curl -X POST http://localhost:8001/act \
 
 #### Remote Testing (After Deployment)
 
-Test your deployed chute endpoints:
+Test your deployed Basilica endpoint:
 
 ```bash
-export CHUTES_API_KEY="your-api-key"
-SLUG="your-username-your-chute-name"
+ENDPOINT="https://YOUR-DEPLOYMENT-ID.deployments.basilica.ai"
 
 # Health check
-curl -X GET "https://${SLUG}.chutes.ai/health" \
-  -H "Authorization: Bearer $CHUTES_API_KEY"
+curl "${ENDPOINT}/health"
 
 # Reset
-curl -X POST "https://${SLUG}.chutes.ai/reset" \
-  -H "Authorization: Bearer $CHUTES_API_KEY" \
+curl -X POST "${ENDPOINT}/reset" \
   -H "Content-Type: application/json" \
   -d '{"task_config": {"task_name": "pick-place-v3", "seed": 42}}'
 
 # Act
-curl -X POST "https://${SLUG}.chutes.ai/act" \
-  -H "Authorization: Bearer $CHUTES_API_KEY" \
+curl -X POST "${ENDPOINT}/act" \
   -H "Content-Type: application/json" \
   -d '{"observation": [0.0, 0.0, 0.0, 1.0], "images": null}'
-```
-
-#### View Chute Logs
-
-If your chute is having issues, view the logs:
-
-```bash
-# List your chutes to get instance ID
-chutes chutes list
-
-# View logs (replace INSTANCE_ID)
-curl -s "https://api.chutes.ai/instances/INSTANCE_ID/logs/?backfill=1000" \
-  -H "Authorization: Bearer $CHUTES_API_KEY" | jq .
 ```
 
 ## Example Training Setup
@@ -624,5 +533,5 @@ for name, env_cls in mt.train_classes.items():
 - [Backend Guide](./backend-guide.md) - For subnet operators
 - [MetaWorld Documentation](https://github.com/Farama-Foundation/Metaworld)
 - [Bittensor Docs](https://docs.bittensor.com/)
-- [Chutes Documentation](https://docs.chutes.ai/)
+- [Basilica Documentation](https://docs.basilica.ai/)
 - Template code in `/kinitro/miner/template/`

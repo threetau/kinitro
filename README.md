@@ -41,7 +41,7 @@ This rewards true generalists over specialists.
 
 ## Architecture
 
-The subnet uses a **split service architecture** with miners deployed on **Chutes**:
+The subnet uses a **split service architecture** with miners deployed on **Basilica**:
 
 ```mermaid
 flowchart TB
@@ -72,7 +72,7 @@ flowchart TB
         Vn["Validator N"]
     end
 
-    subgraph Chutes["Chutes (Miner Policy Servers)"]
+    subgraph Basilica["Basilica (Miner Policy Servers)"]
         M1["Miner 1"]
         Mn["Miner N"]
     end
@@ -109,8 +109,8 @@ flowchart TB
 
 ### Evaluation Flow
 
-1. **Miners** deploy policy servers to **Chutes** and commit their endpoint on-chain
-2. **Scheduler** reads miner commitments from chain to discover Chutes endpoints
+1. **Miners** deploy policy servers to **Basilica** and commit their endpoint on-chain
+2. **Scheduler** reads miner commitments from chain to discover Basilica endpoints
 3. **Scheduler** creates evaluation tasks in PostgreSQL (task pool)
 4. **Executor(s)** fetch tasks from API (`POST /v1/tasks/fetch`)
 5. **Executor** runs MuJoCo simulation, calls miner endpoints for actions
@@ -151,11 +151,10 @@ uvicorn server:app --port 8001
 # 4. Upload to HuggingFace
 huggingface-cli upload your-username/kinitro-policy .
 
-# 5. Deploy to Chutes
-export CHUTES_API_KEY="your-api-key"
-export CHUTE_USER="your-username"
+# 5. Deploy to Basilica
+export BASILICA_API_TOKEN="your-api-token"
 
-uv run kinitro chutes-push \
+uv run kinitro basilica-push \
   --repo your-username/kinitro-policy \
   --revision YOUR_HF_COMMIT_SHA \
   --gpu-count 1 --min-vram 16
@@ -164,7 +163,7 @@ uv run kinitro chutes-push \
 uv run kinitro commit \
   --repo your-username/kinitro-policy \
   --revision YOUR_HF_COMMIT_SHA \
-  --chute-id YOUR_CHUTE_ID \
+  --endpoint YOUR_BASILICA_URL \
   --netuid YOUR_NETUID \
   --network finney
 ```

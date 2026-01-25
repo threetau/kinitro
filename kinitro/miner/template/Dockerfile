@@ -6,7 +6,7 @@
 # Test:  docker run -p 8000:8000 your-username/robo-policy:v1
 # Push:  docker push your-username/robo-policy:v1
 #
-# Deploy to Chutes: see chute.py for configuration
+# Deploy to Basilica: kinitro basilica-push --repo user/policy --revision abc123
 
 FROM python:3.11-slim
 

@@ -6,17 +6,16 @@ that validators can query during evaluation.
 
 DEPLOYMENT OPTIONS:
 
-1. Chutes Platform (Recommended):
-   - Use chute.py for Chutes deployment
-   - Run: chutes deploy chute:chute --accept-fee
-   - Or use kinitro CLI: kinitro chutes-push --repo YOUR_HF_REPO
+1. Basilica Platform (Recommended):
+   - Use kinitro CLI: kinitro basilica-push --repo YOUR_HF_REPO --revision YOUR_REVISION
+   - Or use one-command deploy: kinitro miner-deploy -r YOUR_HF_REPO -p . --netuid YOUR_NETUID
 
 2. Self-Hosted:
    - Run this server directly with uvicorn
    - Ensure your endpoint is publicly accessible
 
 After deployment, commit your policy on-chain:
-    kinitro commit --chute-id YOUR_CHUTE_ID --netuid YOUR_NETUID
+    kinitro commit --endpoint YOUR_ENDPOINT_URL --netuid YOUR_NETUID
 
 Endpoints:
     POST /reset - Reset policy for new episode
@@ -26,9 +25,6 @@ Endpoints:
 Usage:
     # Local testing
     uvicorn server:app --host 0.0.0.0 --port 8000
-
-    # Deploy to Chutes (use chute.py instead)
-    chutes deploy chute:chute --accept-fee
 """
 
 import json
@@ -45,7 +41,7 @@ from policy import RobotPolicy
 from pydantic import BaseModel
 
 # =============================================================================
-# Structured Logging (matches chute.py for consistency)
+# Structured Logging
 # =============================================================================
 
 
