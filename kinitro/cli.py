@@ -1137,8 +1137,8 @@ def miner_deploy(
     typer.echo("=" * 60)
 
     # Maximum allowed repo size (same as verification limit)
-    MAX_REPO_SIZE_GB = 5.0
-    MAX_REPO_SIZE_BYTES = int(MAX_REPO_SIZE_GB * 1024 * 1024 * 1024)
+    max_repo_size_gb = 5.0
+    max_repo_size_bytes = int(max_repo_size_gb * 1024 * 1024 * 1024)
 
     # Step 1: Upload to HuggingFace
     if not skip_upload:
@@ -1163,17 +1163,17 @@ def miner_deploy(
                             filepath = _os.path.join(dirpath, filename)
                             total_size += _os.path.getsize(filepath)
 
-                if total_size > MAX_REPO_SIZE_BYTES:
+                if total_size > max_repo_size_bytes:
                     size_gb = total_size / (1024 * 1024 * 1024)
                     typer.echo(
                         f"Error: Policy folder size ({size_gb:.2f}GB) exceeds maximum "
-                        f"allowed ({MAX_REPO_SIZE_GB}GB)",
+                        f"allowed ({max_repo_size_gb}GB)",
                         err=True,
                     )
                     raise typer.Exit(1)
 
                 typer.echo(
-                    f"  Folder size: {total_size / (1024 * 1024):.2f}MB (max: {MAX_REPO_SIZE_GB}GB)"
+                    f"  Folder size: {total_size / (1024 * 1024):.2f}MB (max: {max_repo_size_gb}GB)"
                 )
 
                 api = HfApi(token=hf)
