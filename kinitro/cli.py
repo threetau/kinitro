@@ -927,7 +927,7 @@ def basilica_push(
 
     # Generate deployment source code
     hf_token_str = hf_token or ""
-    source_code = f'''
+    source_code = f"""
 import os
 import sys
 import subprocess
@@ -961,7 +961,7 @@ subprocess.run([
     "--host", "0.0.0.0",
     "--port", "8000",
 ], cwd="/app")
-'''
+"""
 
     # Choose image based on GPU requirement
     if gpu_count > 0:
@@ -1237,7 +1237,7 @@ def miner_deploy(
 
             # Generate deployment source code
             hf_token_str = hf or ""
-            source_code = f'''
+            source_code = f"""
 import os
 import sys
 import subprocess
@@ -1271,7 +1271,7 @@ subprocess.run([
     "--host", "0.0.0.0",
     "--port", "8000",
 ], cwd="/app")
-'''
+"""
 
             # Choose image based on GPU requirement
             if gpu_count > 0:
@@ -1423,8 +1423,8 @@ def test_env(
     typer.echo(f"Testing environment: {env_id}")
 
     env = get_environment(env_id)
-    typer.echo(f"  Proprioceptive observation shape: {env.observation_shape}")
-    typer.echo(f"  Action shape: {env.action_shape}")
+    typer.echo(f"  Canonical observation shape: {env.observation_shape}")
+    typer.echo(f"  Canonical action shape: {env.action_shape}")
 
     # Check for camera support
     has_cameras = hasattr(env, "num_cameras") and env.num_cameras > 0
@@ -1468,7 +1468,7 @@ def test_env(
         typer.echo(f"  Episode {ep + 1} initial obs: {obs}")
 
         # Storage for trajectory
-        observations = [obs.copy()]
+        observations = [obs.to_payload(include_images=True)]
         actions = []
         rewards = []
         dones = []
@@ -1479,10 +1479,10 @@ def test_env(
         if recording and save_images and has_cameras and hasattr(env, "get_observation"):
             typer.echo("    Capturing initial images...")
             full_obs = env.get_observation()
-            for cam_name, img in full_obs.camera_views.items():
+            for cam_name, img in full_obs.rgb.items():
                 if cam_name not in images:
                     images[cam_name] = []
-                images[cam_name].append(img.copy())
+                images[cam_name].append(np.array(img))
             typer.echo("    Done.")
 
         ep_reward = 0.0
@@ -1498,8 +1498,8 @@ def test_env(
 
             # Record trajectory data
             if recording:
-                observations.append(obs.copy())
-                actions.append(action.copy())
+                observations.append(obs.to_payload(include_images=True))
+                actions.append(action)
                 rewards.append(reward)
                 dones.append(done)
                 # Convert info to serializable format
@@ -1512,10 +1512,10 @@ def test_env(
                     if step_idx % 100 == 0:
                         typer.echo(f"    Step {step_idx}...")
                     full_obs = env.get_observation()
-                    for cam_name, img in full_obs.camera_views.items():
+                    for cam_name, img in full_obs.rgb.items():
                         if cam_name not in images:
                             images[cam_name] = []
-                        images[cam_name].append(img.copy())
+                        images[cam_name].append(np.array(img))
 
             if done:
                 break
@@ -1548,8 +1548,8 @@ def test_env(
             # Save trajectory as numpy archive
             np.savez_compressed(
                 ep_dir / "trajectory.npz",
-                observations=np.array(observations),
-                actions=np.array(actions),
+                observations=np.array(observations, dtype=object),
+                actions=np.array(actions, dtype=object),
                 rewards=np.array(rewards),
                 dones=np.array(dones),
             )
@@ -1641,6 +1641,8 @@ def mock_miner(
     from fastapi import FastAPI
     from pydantic import BaseModel
 
+    from kinitro.rl_interface import CanonicalAction, CanonicalObservation
+
     mock_app = FastAPI(title="Mock Miner Policy Server")
 
     class TaskConfig(BaseModel):
@@ -1658,11 +1660,10 @@ def mock_miner(
         episode_id: str | None = None
 
     class ActRequest(BaseModel):
-        observation: list[float]
-        images: dict[str, list] | None = None
+        obs: CanonicalObservation
 
     class ActResponse(BaseModel):
-        action: list[float]
+        action: CanonicalAction
 
     class HealthResponse(BaseModel):
         status: str
@@ -1689,10 +1690,12 @@ def mock_miner(
     @mock_app.post("/act", response_model=ActResponse)
     async def act(request: ActRequest):
         if random_actions:
-            action = np.random.uniform(-1, 1, size=4).tolist()
+            twist = np.random.uniform(-1, 1, size=6)
+            gripper = float(np.random.uniform(0, 1))
         else:
-            # Zero action (no movement)
-            action = [0.0, 0.0, 0.0, 0.0]
+            twist = np.zeros(6)
+            gripper = 0.0
+        action = CanonicalAction(twist_ee_norm=twist.tolist(), gripper_01=gripper)
         return ActResponse(action=action)
 
     typer.echo(f"Starting mock miner server on {host}:{port}")

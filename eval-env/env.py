@@ -25,6 +25,7 @@ import numpy as np
 # Import from kinitro package (installed in container via PYTHONPATH)
 from kinitro.environments import get_environment
 from kinitro.environments.registry import get_all_environment_ids
+from kinitro.rl_interface import CanonicalAction
 
 
 class Actor:
@@ -222,15 +223,7 @@ class Actor:
                 )
 
             # Build request payload
-            payload = {"observation": obs.tolist()}
-
-            # Add images if available and requested
-            if use_images and hasattr(env, "get_images"):
-                try:
-                    images = env.get_images()
-                    payload["images"] = {k: v.tolist() for k, v in images.items()}
-                except Exception:
-                    pass  # Skip images if rendering fails
+            payload = {"obs": obs.to_payload(include_images=use_images)}
 
             # Get action from miner
             action_start = time.time()
@@ -241,7 +234,9 @@ class Actor:
                     payload=payload,
                     timeout=action_timeout,
                 )
-                action = np.array(response.get("action", []))
+                action = response.get("action", {})
+                if not isinstance(action, dict) or "twist_ee_norm" not in action:
+                    action = CanonicalAction.from_array(action).model_dump(mode="python")
             except httpx.TimeoutException:
                 return self._build_error_result(
                     env_id=env_id,
@@ -262,16 +257,6 @@ class Actor:
                 )
 
             action_times.append(time.time() - action_start)
-
-            # Validate action shape
-            expected_shape = env.action_shape
-            if action.shape != expected_shape:
-                # Try to fix common issues
-                if action.ndim == 0:
-                    action = np.array([float(action)])
-                action = action.flatten()[: expected_shape[0]]
-                if len(action) < expected_shape[0]:
-                    action = np.pad(action, (0, expected_shape[0] - len(action)))
 
             # Step environment
             obs, reward, done, info = env.step(action)

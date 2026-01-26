@@ -33,12 +33,13 @@ import time
 from contextlib import contextmanager
 from typing import Any
 
-import numpy as np
 from fastapi import FastAPI, HTTPException
 
 # Import your policy implementation
 from policy import RobotPolicy
 from pydantic import BaseModel
+
+from kinitro.rl_interface import CanonicalAction, CanonicalObservation
 
 # =============================================================================
 # Structured Logging
@@ -172,15 +173,13 @@ class ResetResponse(BaseModel):
 class ActRequest(BaseModel):
     """Request body for /act endpoint."""
 
-    observation: list[float]
-    images: dict[str, list] | None = None  # Camera images as nested lists
-    seed: int | None = None  # Optional: seed for deterministic inference (verification)
+    obs: CanonicalObservation
 
 
 class ActResponse(BaseModel):
     """Response body for /act endpoint."""
 
-    action: list[float]
+    action: CanonicalAction
 
 
 class HealthResponse(BaseModel):
@@ -274,11 +273,10 @@ async def act(request: ActRequest):
     You have approximately 500ms to respond (configurable by validator).
 
     Args:
-        request: Contains observation (proprioceptive state) and
-                 optional camera images
+        request: Contains canonical observation (proprioceptive + vision)
 
     Returns:
-        Action as list of floats
+        Canonical action payload
     """
     global _request_count, _error_count
     _request_count += 1
@@ -286,32 +284,11 @@ async def act(request: ActRequest):
     try:
         policy = get_policy()
 
-        # Set seed if provided (for deterministic verification)
-        if request.seed is not None:
-            import random
-
-            random.seed(request.seed)
-            np.random.seed(request.seed)
-            try:
-                import torch
-
-                torch.manual_seed(request.seed)
-                if torch.cuda.is_available():
-                    torch.cuda.manual_seed_all(request.seed)
-            except ImportError:
-                pass  # torch not available
-
-        # Convert observation to numpy
-        obs = np.array(request.observation, dtype=np.float32)
-
-        # Convert images if provided
-        images = None
-        if request.images:
-            images = {k: np.array(v) for k, v in request.images.items()}
+        obs = request.obs
 
         # Get action from policy (measure timing)
         start = time.time()
-        action = await policy.act(obs, images, seed=request.seed)
+        action = await policy.act(obs)
         duration_ms = (time.time() - start) * 1000
 
         # Log periodically (every 100 requests) or if slow
@@ -320,21 +297,24 @@ async def act(request: ActRequest):
                 "Act request",
                 duration_ms=round(duration_ms, 2),
                 request_count=_request_count,
-                obs_dim=len(request.observation),
-                has_images=request.images is not None,
+                obs_dim=len(obs.proprio_array()),
+                has_images=bool(obs.rgb),
             )
 
-        # Handle both NumPy arrays and lists/tuples
-        if hasattr(action, "tolist"):
-            action = action.tolist()
-        return ActResponse(action=action)
+        if isinstance(action, CanonicalAction):
+            canonical_action = action
+        elif isinstance(action, dict):
+            canonical_action = CanonicalAction.model_validate(action)
+        else:
+            canonical_action = CanonicalAction.from_array(action)
+        return ActResponse(action=canonical_action)
     except Exception as e:
         _error_count += 1
         logger.error(
             "Act failed",
             error=str(e),
             error_type=type(e).__name__,
-            obs_dim=len(request.observation) if request.observation else 0,
+            obs_dim=len(request.obs.proprio_array()) if request.obs else 0,
         )
         raise HTTPException(status_code=500, detail=str(e))
 
