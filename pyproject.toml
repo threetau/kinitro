@@ -38,10 +38,19 @@ dependencies = [
     "basilica-sdk>=0.1.0",
     # HuggingFace Hub for model uploads
     "huggingface-hub>=0.20.0",
+    "pytest>=9.0.2",
+    "pandas>=3.0.0",
+    "shapely>=2.1.2",
+    "moviepy==1.0.3",
+    "networkx>=3.6.1",
+    "python-fcl>=0.7.0.10",
 ]
 
 [project.optional-dependencies]
 # Optional environment families
+procthor = [
+    "ai2thor>=5.0.0",
+]
 # dm-control = [
 #     "dm_control>=1.0.0",
 # ]
@@ -86,6 +95,10 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: end-to-end integration tests",
+    "metaworld: requires MuJoCo + MetaWorld runtime",
+]
 
 [tool.mypy]
 python_version = "3.12"
