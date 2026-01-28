@@ -117,7 +117,7 @@ class RobotActor:
         ee_lin_vel = np.array(observation["ee_lin_vel_mps"], dtype=np.float32)
         ee_ang_vel = np.array(observation["ee_ang_vel_rps"], dtype=np.float32)
         gripper_state = float(observation["gripper_01"])
-        _proprio = np.concatenate([ee_pos, ee_quat, ee_lin_vel, ee_ang_vel, [gripper_state]])  # noqa: F841
+        _proprio = np.concatenate([ee_pos, ee_quat, ee_lin_vel, ee_ang_vel, [gripper_state]])
 
         camera_images = observation.get("rgb", {})
         images = {}

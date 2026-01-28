@@ -38,7 +38,6 @@ dependencies = [
     "basilica-sdk>=0.1.0",
     # HuggingFace Hub for model uploads
     "huggingface-hub>=0.20.0",
-    "pytest>=9.0.2",
     "pandas>=3.0.0",
     "shapely>=2.1.2",
     "moviepy==1.0.3",
@@ -66,7 +65,7 @@ procthor = [
 # ]
 # Development
 dev = [
-    "pytest>=7.0.0",
+    "pytest>=9.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
     "ruff>=0.1.0",

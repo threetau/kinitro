@@ -126,9 +126,10 @@ def main() -> None:
         obs, reward, done, info = env.step(action)
         total_reward += reward
 
-        # Display frame
-        if obs.rgb and "ego" in obs.rgb:
-            frame = np.array(obs.rgb["ego"], dtype=np.uint8)
+        # Display frame (use obs.images to handle base64 decoding)
+        images = obs.images
+        if images and "ego" in images:
+            frame = images["ego"]
 
             if show_window:
                 # Add text overlay

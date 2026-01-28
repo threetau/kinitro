@@ -366,17 +366,15 @@ class MetaWorldEnvironment(RoboticsEnvironment):
             pass
 
         if ee_lin_vel is None:
-            if self._prev_ee_pos is None:
+            if self._prev_ee_pos is None or self._control_dt is None:
                 ee_lin_vel = np.zeros(3, dtype=np.float32)
             else:
                 ee_lin_vel = (ee_pos - self._prev_ee_pos) / self._control_dt
 
         if ee_ang_vel is None:
-            if self._prev_ee_quat is None:
-                ee_ang_vel = np.zeros(3, dtype=np.float32)
-            else:
-                delta = ee_quat - self._prev_ee_quat
-                ee_ang_vel = delta[:3] / self._control_dt
+            # Fallback: return zeros since proper quaternion-to-angular-velocity
+            # conversion requires computing relative rotation, not subtraction
+            ee_ang_vel = np.zeros(3, dtype=np.float32)
 
         gripper_norm = float(np.clip((gripper_state + 1.0) / 2.0, 0.0, 1.0))
 

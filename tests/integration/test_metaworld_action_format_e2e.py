@@ -28,8 +28,6 @@ class TestMetaWorldActionFormatE2E:
         _ensure_cpu_rendering()
 
         # Hard-fail if dependencies are missing.
-        import metaworld  # noqa: F401
-        import mujoco  # noqa: F401
 
     def _make_env(self, action_format: str = "auto") -> MetaWorldEnvironment:
         return MetaWorldEnvironment(

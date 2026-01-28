@@ -289,8 +289,11 @@ class Actor:
                     payload=payload,
                     timeout=action_timeout,
                 )
-                action = response.get("action", {})
-                if not isinstance(action, dict) or "twist_ee_norm" not in action:
+                action = response.get("action")
+                if action is None:
+                    # Missing action - use zeros
+                    action = CanonicalAction.from_array([]).model_dump(mode="python")
+                elif not isinstance(action, dict) or "twist_ee_norm" not in action:
                     action = CanonicalAction.from_array(action).model_dump(mode="python")
             except httpx.TimeoutException:
                 return self._build_error_result(
