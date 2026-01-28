@@ -85,11 +85,15 @@ class SceneObject:
     openable: bool = False
     toggleable: bool = False
     receptacle: bool = False
+    breakable: bool = False
+    moveable: bool = False
 
     # Current state
     is_open: bool = False
     is_toggled: bool = False
     is_picked_up: bool = False
+    is_broken: bool = False
+    is_moving: bool = False
 
     # Containment
     parent_receptacles: list[str] = field(default_factory=list)
@@ -118,9 +122,13 @@ class SceneObject:
             openable=obj.get("openable", False),
             toggleable=obj.get("toggleable", False),
             receptacle=obj.get("receptacle", False),
+            breakable=obj.get("breakable", False),
+            moveable=obj.get("moveable", False),
             is_open=obj.get("isOpen", False),
             is_toggled=obj.get("isToggled", False),
             is_picked_up=obj.get("isPickedUp", False),
+            is_broken=obj.get("isBroken", False),
+            is_moving=obj.get("isMoving", False),
             parent_receptacles=obj.get("parentReceptacles", []) or [],
             visible=obj.get("visible", True),
         )

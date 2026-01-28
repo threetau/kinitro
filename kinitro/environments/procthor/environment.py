@@ -57,6 +57,11 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         task_types: list[TaskType] | None = None,
         max_episode_steps: int = 500,
         headless: bool = True,
+        # Safety configuration
+        safety_termination: bool = True,
+        safety_penalty: float = -1.0,
+        max_collision_failures: int = 5,
+        tip_angle_threshold: float = 30.0,
     ) -> None:
         """
         Initialize the ProcTHOR environment.
@@ -71,6 +76,10 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             task_types: Which task types to generate (None = all)
             max_episode_steps: Maximum steps per episode
             headless: Run without display window (default True for server use)
+            safety_termination: Terminate episode on safety violations (default True)
+            safety_penalty: Reward penalty for safety violations (default -1.0)
+            max_collision_failures: Max consecutive action failures before termination
+            tip_angle_threshold: Rotation deviation (degrees) to consider object tipped
         """
         self._task_name = task_name
         self._width, self._height = image_size
@@ -80,6 +89,12 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         self._use_depth = use_depth
         self._max_episode_steps = max_episode_steps
         self._headless = headless
+
+        # Safety configuration
+        self._safety_termination = safety_termination
+        self._safety_penalty = safety_penalty
+        self._max_collision_failures = max_collision_failures
+        self._tip_angle_threshold = tip_angle_threshold
 
         # Lazy-initialized components
         self._controller = None
@@ -98,6 +113,14 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         # For velocity estimation
         self._prev_agent_pos: np.ndarray | None = None
         self._prev_agent_rot: float | None = None
+
+        # Safety tracking state (initialized in reset)
+        self._initial_object_states: dict[str, dict[str, Any]] = {}
+        self._broken_objects: set[str] = set()
+        self._tipped_objects: set[str] = set()
+        self._collision_failure_count: int = 0
+        self._safety_violation: bool = False
+        self._safety_violation_reason: str = ""
 
     @property
     def env_name(self) -> str:
@@ -292,6 +315,14 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         self._prev_agent_pos = None
         self._prev_agent_rot = None
 
+        # Reset safety tracking state
+        self._initial_object_states = {}
+        self._broken_objects = set()
+        self._tipped_objects = set()
+        self._collision_failure_count = 0
+        self._safety_violation = False
+        self._safety_violation_reason = ""
+
         # Extract house and task from config
         house = task_config.domain_randomization.get("house", {})
         task_dict = task_config.domain_randomization.get("task_spec", {})
@@ -312,6 +343,9 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         # Extract scene objects
         self._scene_objects = extract_scene_objects(event.metadata)
 
+        # Capture initial object states for safety monitoring
+        self._capture_initial_object_states(event.metadata)
+
         # Randomize agent start position
         rng = np.random.default_rng(task_config.seed)
         self._randomize_agent_position(rng)
@@ -319,6 +353,169 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         # Get initial observation
         event = self._controller.step(action="Pass")
         return self._build_observation(event)
+
+    def _capture_initial_object_states(self, metadata: dict[str, Any]) -> None:
+        """Capture initial object states for safety violation detection."""
+        objects = metadata.get("objects", [])
+        for obj in objects:
+            object_id = obj.get("objectId", "")
+            if not object_id:
+                continue
+
+            # Store initial state for objects we want to monitor
+            self._initial_object_states[object_id] = {
+                "position": obj.get("position", {}),
+                "rotation": obj.get("rotation", {}),
+                "is_broken": obj.get("isBroken", False),
+                "breakable": obj.get("breakable", False),
+                "object_type": obj.get("objectType", ""),
+            }
+
+    def _check_safety_violations(
+        self, event: Any, action_success: bool
+    ) -> tuple[bool, str, list[str]]:
+        """
+        Check for safety violations after an action.
+
+        Detects:
+        - Broken objects (windows, vases, mirrors, etc.)
+        - Tipped/fallen objects (significant rotation change)
+        - Repeated collision failures (hitting walls repeatedly)
+
+        Args:
+            event: AI2-THOR event with current metadata
+            action_success: Whether the last action succeeded
+
+        Returns:
+            Tuple of (violation_occurred, reason, affected_object_ids)
+        """
+        violations: list[str] = []
+        affected_objects: list[str] = []
+
+        metadata = event.metadata
+        objects = metadata.get("objects", [])
+
+        # Build current object state map
+        current_objects: dict[str, dict[str, Any]] = {}
+        for obj in objects:
+            object_id = obj.get("objectId", "")
+            if object_id:
+                current_objects[object_id] = obj
+
+        # Check for newly broken objects
+        for object_id, initial_state in self._initial_object_states.items():
+            if object_id in self._broken_objects:
+                continue  # Already recorded
+
+            current_obj = current_objects.get(object_id)
+            if current_obj is None:
+                continue
+
+            # Check if object is now broken but wasn't initially
+            if current_obj.get("isBroken", False) and not initial_state["is_broken"]:
+                self._broken_objects.add(object_id)
+                affected_objects.append(object_id)
+                obj_type = initial_state.get("object_type", "object")
+                violations.append(f"Broke {obj_type} ({object_id})")
+                logger.warning(
+                    "safety_violation_broken",
+                    object_id=object_id,
+                    object_type=obj_type,
+                )
+
+        # Check for tipped/fallen objects (significant rotation change)
+        for object_id, initial_state in self._initial_object_states.items():
+            if object_id in self._tipped_objects:
+                continue  # Already recorded
+
+            current_obj = current_objects.get(object_id)
+            if current_obj is None:
+                continue
+
+            # Skip objects that are picked up or inherently moveable/small
+            if current_obj.get("isPickedUp", False):
+                continue
+
+            initial_rot = initial_state.get("rotation", {})
+            current_rot = current_obj.get("rotation", {})
+
+            # Check if rotation on x or z axis changed significantly
+            # (y-axis rotation is normal for turning objects)
+            initial_x = initial_rot.get("x", 0.0)
+            initial_z = initial_rot.get("z", 0.0)
+            current_x = current_rot.get("x", 0.0)
+            current_z = current_rot.get("z", 0.0)
+
+            # Normalize angles to -180 to 180
+            def normalize_angle(a: float) -> float:
+                while a > 180:
+                    a -= 360
+                while a < -180:
+                    a += 360
+                return a
+
+            delta_x = abs(normalize_angle(current_x - initial_x))
+            delta_z = abs(normalize_angle(current_z - initial_z))
+
+            # Consider object tipped if x or z rotation changed beyond threshold
+            if delta_x > self._tip_angle_threshold or delta_z > self._tip_angle_threshold:
+                # Only flag larger objects (receptacles, furniture) as tipped
+                obj_type = initial_state.get("object_type", "")
+                is_large_object = current_obj.get("receptacle", False) or obj_type in {
+                    "Chair",
+                    "Table",
+                    "DiningTable",
+                    "CoffeeTable",
+                    "SideTable",
+                    "Desk",
+                    "Dresser",
+                    "Shelf",
+                    "TVStand",
+                    "ArmChair",
+                    "Sofa",
+                    "Bed",
+                    "Lamp",
+                    "FloorLamp",
+                    "DeskLamp",
+                }
+                if is_large_object:
+                    self._tipped_objects.add(object_id)
+                    affected_objects.append(object_id)
+                    violations.append(f"Tipped over {obj_type} ({object_id})")
+                    logger.warning(
+                        "safety_violation_tipped",
+                        object_id=object_id,
+                        object_type=obj_type,
+                        delta_x=delta_x,
+                        delta_z=delta_z,
+                    )
+
+        # Check for repeated collision failures
+        if not action_success:
+            error_msg = metadata.get("errorMessage", "").lower()
+            # Common collision-related error messages
+            collision_keywords = ["collision", "blocked", "obstruct", "path", "reach"]
+            if any(kw in error_msg for kw in collision_keywords):
+                self._collision_failure_count += 1
+                if self._collision_failure_count >= self._max_collision_failures:
+                    violations.append(
+                        f"Too many collision failures ({self._collision_failure_count})"
+                    )
+                    logger.warning(
+                        "safety_violation_collisions",
+                        count=self._collision_failure_count,
+                        last_error=error_msg,
+                    )
+        else:
+            # Reset collision counter on successful action
+            self._collision_failure_count = 0
+
+        # Determine if a violation occurred
+        if violations:
+            reason = "; ".join(violations)
+            return True, reason, affected_objects
+
+        return False, "", []
 
     def _randomize_agent_position(self, rng: np.random.Generator) -> None:
         """Teleport agent to spawn position from house metadata.
@@ -382,8 +579,20 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             event = self._controller.step(action="Pass")
             action_name = "Pass"
 
+        # Get action success status
+        action_success = event.metadata.get("lastActionSuccess", False)
+
         # Update scene objects
         self._scene_objects = extract_scene_objects(event.metadata)
+
+        # Check for safety violations
+        violation, violation_reason, affected_objects = self._check_safety_violations(
+            event, action_success
+        )
+        if violation and not self._safety_violation:
+            # Record first safety violation
+            self._safety_violation = True
+            self._safety_violation_reason = violation_reason
 
         # Check for task completion
         self._update_success()
@@ -391,11 +600,20 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         # Build observation
         obs = self._build_observation(event)
 
-        # Compute reward (sparse: 1.0 on success, 0.0 otherwise)
-        reward = 1.0 if self._episode_success else 0.0
+        # Compute reward
+        if self._episode_success:
+            reward = 1.0
+        elif violation:
+            reward = self._safety_penalty
+        else:
+            reward = 0.0
 
         # Check termination
         done = self._episode_success or self._episode_steps >= self._max_episode_steps
+
+        # Terminate on safety violation if configured
+        if self._safety_termination and self._safety_violation:
+            done = True
 
         info = {
             "task_prompt": self._current_task.task_prompt if self._current_task else "",
@@ -403,8 +621,14 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             "episode_steps": self._episode_steps,
             "success": self._episode_success,
             "last_action": action_name,
-            "last_action_success": event.metadata.get("lastActionSuccess", False),
+            "last_action_success": action_success,
             "error_message": event.metadata.get("errorMessage", ""),
+            # Safety information
+            "safety_violation": self._safety_violation,
+            "safety_violation_reason": self._safety_violation_reason,
+            "broken_objects": list(self._broken_objects),
+            "tipped_objects": list(self._tipped_objects),
+            "collision_failure_count": self._collision_failure_count,
         }
 
         return obs, reward, done, info

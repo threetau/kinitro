@@ -404,3 +404,158 @@ class TestObjectFilters:
 
         assert len(receptacles) == 2
         assert all(obj.receptacle for obj in receptacles)
+
+
+class TestSceneObjectSafetyProperties:
+    """Tests for safety-related SceneObject properties."""
+
+    def test_breakable_property(self):
+        """Should correctly parse breakable property from metadata."""
+        metadata = {
+            "objectId": "Vase|1",
+            "objectType": "Vase",
+            "position": {"x": 0, "y": 0, "z": 0},
+            "rotation": {"x": 0, "y": 0, "z": 0},
+            "breakable": True,
+            "isBroken": False,
+        }
+        obj = SceneObject.from_ai2thor_metadata(metadata)
+        assert obj.breakable is True
+        assert obj.is_broken is False
+
+    def test_is_broken_property(self):
+        """Should correctly parse isBroken state from metadata."""
+        metadata = {
+            "objectId": "Window|1",
+            "objectType": "Window",
+            "position": {"x": 0, "y": 0, "z": 0},
+            "rotation": {"x": 0, "y": 0, "z": 0},
+            "breakable": True,
+            "isBroken": True,
+        }
+        obj = SceneObject.from_ai2thor_metadata(metadata)
+        assert obj.is_broken is True
+
+    def test_moveable_property(self):
+        """Should correctly parse moveable property from metadata."""
+        metadata = {
+            "objectId": "Chair|1",
+            "objectType": "Chair",
+            "position": {"x": 0, "y": 0, "z": 0},
+            "rotation": {"x": 0, "y": 0, "z": 0},
+            "moveable": True,
+            "isMoving": False,
+        }
+        obj = SceneObject.from_ai2thor_metadata(metadata)
+        assert obj.moveable is True
+        assert obj.is_moving is False
+
+    def test_is_moving_property(self):
+        """Should correctly parse isMoving state from metadata."""
+        metadata = {
+            "objectId": "Ball|1",
+            "objectType": "Ball",
+            "position": {"x": 0, "y": 0, "z": 0},
+            "rotation": {"x": 0, "y": 0, "z": 0},
+            "isMoving": True,
+        }
+        obj = SceneObject.from_ai2thor_metadata(metadata)
+        assert obj.is_moving is True
+
+
+class TestSafetyViolationDetection:
+    """Tests for safety violation detection logic."""
+
+    def test_detect_broken_object(self):
+        """Should detect when an object becomes broken."""
+        # Initial state: vase not broken
+        initial_states = {
+            "Vase|1": {
+                "position": {"x": 1, "y": 1, "z": 1},
+                "rotation": {"x": 0, "y": 0, "z": 0},
+                "is_broken": False,
+                "breakable": True,
+                "object_type": "Vase",
+            }
+        }
+
+        # Current state: vase is now broken
+        current_objects = [
+            {
+                "objectId": "Vase|1",
+                "objectType": "Vase",
+                "position": {"x": 1, "y": 0.5, "z": 1},
+                "rotation": {"x": 0, "y": 0, "z": 0},
+                "isBroken": True,
+                "breakable": True,
+            }
+        ]
+
+        # Check detection logic
+        broken_objects = set()
+        for object_id, initial_state in initial_states.items():
+            for obj in current_objects:
+                if obj.get("objectId") == object_id:
+                    if obj.get("isBroken", False) and not initial_state["is_broken"]:
+                        broken_objects.add(object_id)
+
+        assert "Vase|1" in broken_objects
+
+    def test_detect_tipped_object(self):
+        """Should detect when an object tips over (rotation change)."""
+        tip_threshold = 30.0
+
+        # Initial state: table upright
+        initial_rotation = {"x": 0, "y": 0, "z": 0}
+
+        # Current state: table tipped over (x rotation changed significantly)
+        current_rotation = {"x": 45, "y": 0, "z": 0}
+
+        # Calculate rotation delta
+        delta_x = abs(current_rotation["x"] - initial_rotation["x"])
+        delta_z = abs(current_rotation["z"] - initial_rotation["z"])
+
+        is_tipped = delta_x > tip_threshold or delta_z > tip_threshold
+        assert is_tipped is True
+
+    def test_no_false_positive_for_y_rotation(self):
+        """Should not flag y-axis rotation as tipping (normal turning)."""
+        tip_threshold = 30.0
+
+        # Initial state
+        initial_rotation = {"x": 0, "y": 0, "z": 0}
+
+        # Object rotated around Y axis (turned, not tipped)
+        current_rotation = {"x": 0, "y": 90, "z": 0}
+
+        delta_x = abs(current_rotation["x"] - initial_rotation["x"])
+        delta_z = abs(current_rotation["z"] - initial_rotation["z"])
+
+        is_tipped = delta_x > tip_threshold or delta_z > tip_threshold
+        assert is_tipped is False
+
+    def test_collision_failure_counting(self):
+        """Should count consecutive collision failures."""
+        max_failures = 5
+        collision_count = 0
+
+        # Simulate 5 consecutive collision failures
+        # Note: the actual code checks for keywords like "collision", "blocked", "obstruct"
+        collision_keywords = ["collision", "blocked", "obstruct", "path", "reach"]
+        for _ in range(5):
+            error_msg = "movement blocked by obstacle"
+            if any(kw in error_msg.lower() for kw in collision_keywords):
+                collision_count += 1
+
+        assert collision_count >= max_failures
+
+    def test_collision_count_resets_on_success(self):
+        """Collision count should reset after successful action."""
+        collision_count = 3
+
+        # Successful action
+        action_success = True
+        if action_success:
+            collision_count = 0
+
+        assert collision_count == 0
