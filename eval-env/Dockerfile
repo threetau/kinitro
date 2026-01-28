@@ -62,4 +62,8 @@ ENV PYTHONPATH="/app:${PYTHONPATH}"
 # Copy the eval environment Actor
 COPY env.py /app/
 
+# NOTE: AI2-THOR downloads its Unity binary (~800MB) on first use.
+# For faster startup in production, mount a persistent volume at ~/.ai2thor
+# to cache the download across container restarts.
+
 # Affinetes will inject its HTTP server - do not set CMD/ENTRYPOINT
