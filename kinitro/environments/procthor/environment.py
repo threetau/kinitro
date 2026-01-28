@@ -432,7 +432,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             if current_obj is None:
                 continue
 
-            # Skip objects that are picked up or inherently moveable/small
+            # Skip objects that are picked up (agent is intentionally manipulating them)
             if current_obj.get("isPickedUp", False):
                 continue
 
@@ -626,6 +626,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             # Safety information
             "safety_violation": self._safety_violation,
             "safety_violation_reason": self._safety_violation_reason,
+            "safety_affected_objects": affected_objects,  # Objects affected this step
             "broken_objects": list(self._broken_objects),
             "tipped_objects": list(self._tipped_objects),
             "collision_failure_count": self._collision_failure_count,
