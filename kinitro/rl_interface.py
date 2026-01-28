@@ -50,8 +50,8 @@ class CanonicalObservation(BaseModel):
     # Images stored as base64-encoded dicts or nested lists (for backward compat)
     rgb: dict[str, dict | list] = Field(default_factory=dict)
     depth: dict | list | None = None
-    cam_intrinsics_K: list[list[float]] | None = None
-    cam_extrinsics_T_world_cam: list[list[float]] | None = None
+    cam_intrinsics_K: list[list[float]] | None = None  # noqa: N815 (CV convention)
+    cam_extrinsics_T_world_cam: list[list[float]] | None = None  # noqa: N815 (CV convention)
     # Internal storage for numpy arrays (not serialized)
     _rgb_arrays: dict[str, np.ndarray] = {}
     _depth_array: np.ndarray | None = None
