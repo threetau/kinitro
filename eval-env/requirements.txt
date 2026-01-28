@@ -12,7 +12,9 @@ metaworld @ git+https://github.com/Farama-Foundation/Metaworld.git
 
 # AI2-THOR / ProcTHOR environments
 ai2thor>=5.0.0
-procthor>=0.0.1.dev2
+# Install procthor from git to get the latest house specification fix (Dec 2022)
+# The PyPI version 0.0.1.dev2 has incompatible material format with newer AI2-THOR builds
+procthor @ git+https://github.com/allenai/procthor.git
 
 # Image processing for camera rendering
 Pillow>=10.0.0
@@ -20,6 +22,14 @@ opencv-python>=4.8.0
 
 # Numerics
 numpy>=1.24.0
+
+# ProcTHOR house generation dependencies (runtime imports not in procthor's requirements)
+pandas>=2.0.0
+shapely>=2.0.0
+networkx>=3.0
+moviepy>=1.0.0,<2.0.0
+attrs>=23.0.0
+python-fcl>=0.7.0
 
 # Logging
 structlog>=23.0.0

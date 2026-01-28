@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
 import structlog
 
 from kinitro.environments.procthor.task_types import SceneObject
@@ -54,12 +53,14 @@ class HouseGenerator:
                 "Install with: pip install procthor"
             ) from exc
 
-    def generate_house(self, seed: int) -> dict[str, Any]:
+    def generate_house(self, seed: int, controller: Any = None) -> dict[str, Any]:
         """
-        Generate a procedural house from a seed.
+        Generate a procedural house from a seed using ProcTHOR.
 
         Args:
             seed: Random seed for reproducible generation
+            controller: Optional AI2-THOR controller to use for generation.
+                       If not provided, ProcTHOR will create its own.
 
         Returns:
             House specification dictionary compatible with AI2-THOR
@@ -69,77 +70,54 @@ class HouseGenerator:
 
         self._ensure_procthor()
 
-        rng = np.random.default_rng(seed)
-
-        # Determine number of rooms
-        num_rooms = int(rng.integers(*self._num_rooms_range))
-
         # Generate house using procthor
         try:
             from procthor.generation import HouseGenerator as PTHouseGenerator
+            from procthor.generation.room_specs import PROCTHOR10K_ROOM_SPEC_SAMPLER
 
-            generator = PTHouseGenerator(seed=seed)
-            house = generator.generate(num_rooms=num_rooms)
-            house_dict = house.to_dict() if hasattr(house, "to_dict") else house
+            # ProcTHOR requires a 'split' parameter and a room_spec_sampler
+            # Use 'train' split and the default PROCTHOR10K room specs
+            # Pass controller if provided to avoid creating a new one
+            generator = PTHouseGenerator(
+                split="train",
+                seed=seed,
+                room_spec_sampler=PROCTHOR10K_ROOM_SPEC_SAMPLER,
+                controller=controller,
+            )
+            result = generator.sample()
+            # sample() returns (House, Dict) tuple
+            house = result[0] if isinstance(result, tuple) else result
+            # House object has .data attribute which is the dict we need
+            # (newer procthor versions don't have to_dict, but have .data)
+            if hasattr(house, "data") and isinstance(house.data, dict):
+                house_dict: dict[str, Any] = house.data
+            elif hasattr(house, "to_dict"):
+                house_dict = house.to_dict()
+            else:
+                # Fallback: parse from JSON
+                import json
+
+                house_dict = json.loads(house.to_json())
         except Exception as e:
             logger.warning(
                 "procthor_generation_failed",
                 seed=seed,
                 error=str(e),
             )
-            # Fall back to a simple house spec
-            house_dict = self._generate_fallback_house(seed)
+            raise RuntimeError(f"ProcTHOR house generation failed: {e}") from e
 
         if self._use_cache:
             self._house_cache[seed] = house_dict
 
         return house_dict
 
-    def _generate_fallback_house(self, seed: int) -> dict[str, Any]:
+    def get_scene_name(self, house: dict[str, Any]) -> dict[str, Any]:
         """
-        Generate a simple fallback house specification.
+        Get the scene specification to pass to AI2-THOR controller.
 
-        This is used when ProcTHOR generation fails or for testing.
-        Uses pre-built iTHOR FloorPlans as fallback.
+        For ProcTHOR procedural houses, this returns the house dict itself.
         """
-        rng = np.random.default_rng(seed)
-
-        # Use existing iTHOR floor plans as fallback
-        # These are the kitchen (1-30), living room (201-230),
-        # bedroom (301-330), bathroom (401-430) scenes
-        room_types = ["Kitchen", "LivingRoom", "Bedroom", "Bathroom"]
-        floor_plan_ranges = {
-            "Kitchen": (1, 30),
-            "LivingRoom": (201, 230),
-            "Bedroom": (301, 330),
-            "Bathroom": (401, 430),
-        }
-
-        # Pick a random room type and floor plan
-        room_type = rng.choice(room_types)
-        start, end = floor_plan_ranges[room_type]
-        floor_plan_num = int(rng.integers(start, end + 1))
-
-        return {
-            "scene_name": f"FloorPlan{floor_plan_num}",
-            "is_procedural": False,
-            "room_type": room_type,
-            "seed": seed,
-        }
-
-    def get_scene_name(self, house: dict[str, Any]) -> dict[str, Any] | str:
-        """
-        Get the scene name to pass to AI2-THOR controller.
-
-        For procedural houses, this returns the house dict itself.
-        For fallback houses, this returns the iTHOR scene name.
-        """
-        if house.get("is_procedural", True):
-            # Procedural house - return the full spec
-            return house
-        else:
-            # Fallback to iTHOR scene
-            return house["scene_name"]
+        return house
 
     def clear_cache(self) -> None:
         """Clear the house cache."""

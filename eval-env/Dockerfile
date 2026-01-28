@@ -71,15 +71,29 @@ ENV MESA_GL_VERSION_OVERRIDE=3.3
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Pre-download AI2-THOR Linux64 binary (~800MB) to avoid runtime download.
-# NOTE: This binary only works on native x86_64 Linux, not under emulation.
+# Pre-download AI2-THOR Linux64 binaries (~800MB each) to avoid runtime download.
+# NOTE: These binaries only work on native x86_64 Linux, not under emulation.
+# We download multiple commits to support different use cases:
+# 1. Default ai2thor commit (for standard iTHOR scenes)
+# 2. ProcTHOR nanna branch commit (for procedural house generation)
+#    - fdb56f1c53c9 is the most recent nanna commit with a build available
+# At runtime, when branch="nanna" is specified, AI2-THOR will query GitHub
+# for recent commits and select the first one with an available build.
 RUN python -c "\
 import os; \
 import ai2thor.build; \
 import ai2thor.platform; \
 releases_dir = os.path.join(os.path.expanduser('~'), '.ai2thor/releases'); \
+# Download default ai2thor binary \
 build = ai2thor.build.Build(ai2thor.platform.Linux64, ai2thor.build.COMMIT_ID, False, releases_dir=releases_dir); \
 build.download(); \
+print(f'Downloaded default ai2thor: {ai2thor.build.COMMIT_ID}'); \
+# Download ProcTHOR nanna branch commit (most recent with build available) \
+# This commit is required for procedural house generation (branch='nanna', scene='Procedural') \
+nanna_commit = 'fdb56f1c53c9a4a9d7bc1babcf81cdb6c232890a'; \
+build2 = ai2thor.build.Build(ai2thor.platform.Linux64, nanna_commit, False, releases_dir=releases_dir); \
+build2.download(); \
+print(f'Downloaded nanna commit: {nanna_commit}'); \
 "
 
 # Copy the kinitro environments package (copied by build-eval-env command)

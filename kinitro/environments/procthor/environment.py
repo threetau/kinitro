@@ -117,10 +117,13 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         except ImportError as exc:
             raise ImportError("ai2thor is required. Install with: pip install ai2thor") from exc
 
+        # For procedural house generation, we need to use the nanna branch of AI2-THOR.
+        # The nanna branch has builds available (e.g., fdb56f1c53c9) that support CreateHouse.
+        # Note: We hardcode 'nanna' instead of using PROCTHOR_INITIALIZATION because newer
+        # procthor versions changed to 'main' branch, which has no builds available.
         controller_kwargs = {
             "agentMode": "arm",
             "massThreshold": None,
-            "scene": "FloorPlan1",  # Will be reset with actual scene
             "visibilityDistance": self._visibility_distance,
             "gridSize": self._grid_size,
             "renderDepthImage": self._use_depth,
@@ -128,6 +131,9 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             "width": self._width,
             "height": self._height,
             "fieldOfView": self._field_of_view,
+            # ProcTHOR requires branch='nanna' and scene='Procedural' for house generation
+            "branch": "nanna",
+            "scene": "Procedural",
         }
 
         # For headless mode, we have two options:
@@ -199,7 +205,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             pass
 
         # Start Xvfb
-        display_num = display.lstrip(":")
+        display.lstrip(":")
         try:
             subprocess.Popen(
                 [
@@ -232,8 +238,9 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         """
         self._ensure_controller()
 
-        # Generate house
-        house = self._house_generator.generate_house(seed)
+        # Generate house - pass our controller to avoid ProcTHOR creating its own
+        # (which would trigger a separate binary download)
+        house = self._house_generator.generate_house(seed, controller=self._controller)
         scene_name = self._house_generator.get_scene_name(house)
 
         # Reset to the scene to get object metadata

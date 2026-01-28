@@ -30,15 +30,57 @@ Usage (from backend):
     )
 """
 
+import os
+import subprocess
 import time
 
 import httpx
 import numpy as np
+import structlog
 
 # Import from kinitro package (installed in container via PYTHONPATH)
 from kinitro.environments import get_environment
 from kinitro.environments.registry import get_all_environment_ids
 from kinitro.rl_interface import CanonicalAction
+
+logger = structlog.get_logger()
+
+
+def _start_xvfb_early():
+    """
+    Start Xvfb early at module load time to speed up AI2-THOR initialization.
+
+    This runs once when the container starts, before any evaluations.
+    """
+    display = os.environ.get("DISPLAY", ":99")
+
+    # Check if X server is already running
+    try:
+        result = subprocess.run(
+            ["xdpyinfo", "-display", display],
+            capture_output=True,
+            timeout=2,
+        )
+        if result.returncode == 0:
+            return  # Already running
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # Start Xvfb
+    try:
+        subprocess.Popen(
+            ["Xvfb", display, "-screen", "0", "1024x768x24", "-ac"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        logger.info("xvfb_started", display=display)
+        time.sleep(0.5)  # Brief wait for Xvfb to initialize
+    except FileNotFoundError:
+        pass  # Xvfb not installed (maybe on non-Linux)
+
+
+# Start Xvfb at import time for faster AI2-THOR startup
+_start_xvfb_early()
 
 
 class Actor:
