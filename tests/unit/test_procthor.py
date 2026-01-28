@@ -115,7 +115,7 @@ class TestTaskFeasibility:
             is_picked_up=False,
         )
 
-        feasible, reason = check_task_feasibility(TaskType.PICKUP, obj)
+        feasible, _reason = check_task_feasibility(TaskType.PICKUP, obj)
         assert feasible is True
 
     def test_pickup_not_pickupable(self):
@@ -143,7 +143,7 @@ class TestTaskFeasibility:
             is_picked_up=True,
         )
 
-        feasible, reason = check_task_feasibility(TaskType.PICKUP, obj)
+        feasible, _reason = check_task_feasibility(TaskType.PICKUP, obj)
         assert feasible is False
 
     def test_open_feasible(self):
@@ -157,7 +157,7 @@ class TestTaskFeasibility:
             is_open=False,
         )
 
-        feasible, reason = check_task_feasibility(TaskType.OPEN, obj)
+        feasible, _reason = check_task_feasibility(TaskType.OPEN, obj)
         assert feasible is True
 
     def test_open_already_open(self):
@@ -171,7 +171,7 @@ class TestTaskFeasibility:
             is_open=True,
         )
 
-        feasible, reason = check_task_feasibility(TaskType.OPEN, obj)
+        feasible, _reason = check_task_feasibility(TaskType.OPEN, obj)
         assert feasible is False
 
     def test_place_requires_receptacle(self):

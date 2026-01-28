@@ -205,7 +205,6 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             pass
 
         # Start Xvfb
-        display.lstrip(":")
         try:
             subprocess.Popen(
                 [
@@ -527,6 +526,12 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         task = self._current_task
         target_id = task.target_object_id
 
+        # PICKUP success is based on inventory, not scene objects
+        # Check this first since picked-up objects may not appear in scene
+        if task.task_type == TaskType.PICKUP:
+            self._episode_success = self._holding_object == target_id
+            return
+
         # Find the target object in current scene state
         target_obj = None
         for obj in self._scene_objects:
@@ -535,16 +540,12 @@ class ProcTHOREnvironment(RoboticsEnvironment):
                 break
 
         if target_obj is None and target_id:
-            # Object not found - might have been picked up
+            # Object not found in scene
             self._episode_success = False
             return
 
         # Check completion based on task type
-        if task.task_type == TaskType.PICKUP:
-            # Success if object is in inventory
-            self._episode_success = self._holding_object == target_id
-
-        elif task.task_type == TaskType.PLACE:
+        if task.task_type == TaskType.PLACE:
             # Success if object is on destination receptacle
             if target_obj is not None and task.destination_object_id:
                 self._episode_success = task.destination_object_id in target_obj.parent_receptacles
@@ -665,14 +666,15 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         yaw_deg = float(rotation.get("y", 0.0))
         quat = self._yaw_to_quaternion(yaw_deg)
 
-        # Estimate velocities
+        # Estimate velocities (AI2-THOR default timestep is 0.02s)
+        dt = 0.02
         if self._prev_agent_pos is None:
             lin_vel = np.zeros(3, dtype=np.float32)
             ang_vel = np.zeros(3, dtype=np.float32)
         else:
-            lin_vel = pos - self._prev_agent_pos
+            lin_vel = (pos - self._prev_agent_pos) / dt
             yaw_diff = yaw_deg - (self._prev_agent_rot or 0.0)
-            ang_vel = np.array([0.0, np.deg2rad(yaw_diff), 0.0], dtype=np.float32)
+            ang_vel = np.array([0.0, np.deg2rad(yaw_diff) / dt, 0.0], dtype=np.float32)
 
         self._prev_agent_pos = pos.copy()
         self._prev_agent_rot = yaw_deg

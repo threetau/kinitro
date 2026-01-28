@@ -12,7 +12,7 @@ from kinitro.rl_interface import CanonicalAction
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="AI2-THOR manipulation exploration script")
-    parser.add_argument("--env-id", default="procthor/manip-v0")
+    parser.add_argument("--env-id", default="ai2thor/manip-v0")
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--steps", type=int, default=50)
     parser.add_argument("--sleep", type=float, default=0.0)
@@ -43,7 +43,7 @@ def main() -> None:
             twist[3] = 0.5
 
         action = CanonicalAction(twist_ee_norm=twist.tolist(), gripper_01=0.0)
-        obs, reward, done, info = env.step(action)
+        obs, _reward, done, info = env.step(action)
         print(
             f"step={step_idx:03d} action={info.get('last_action')} "
             f"success={info.get('last_action_success')} rgb={bool(obs.rgb)}"
