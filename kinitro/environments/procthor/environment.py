@@ -56,6 +56,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         use_depth: bool = False,
         task_types: list[TaskType] | None = None,
         max_episode_steps: int = 500,
+        headless: bool = True,
     ) -> None:
         """
         Initialize the ProcTHOR environment.
@@ -69,6 +70,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             use_depth: Whether to render depth images
             task_types: Which task types to generate (None = all)
             max_episode_steps: Maximum steps per episode
+            headless: Run without display window (default True for server use)
         """
         self._task_name = task_name
         self._width, self._height = image_size
@@ -77,6 +79,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         self._grid_size = grid_size
         self._use_depth = use_depth
         self._max_episode_steps = max_episode_steps
+        self._headless = headless
 
         # Lazy-initialized components
         self._controller = None
@@ -114,19 +117,33 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         except ImportError as exc:
             raise ImportError("ai2thor is required. Install with: pip install ai2thor") from exc
 
-        # Initialize with arm agent for manipulation
-        self._controller = Controller(
-            agentMode="arm",
-            massThreshold=None,
-            scene="FloorPlan1",  # Will be reset with actual scene
-            visibilityDistance=self._visibility_distance,
-            gridSize=self._grid_size,
-            renderDepthImage=self._use_depth,
-            renderInstanceSegmentation=False,
-            width=self._width,
-            height=self._height,
-            fieldOfView=self._field_of_view,
-        )
+        controller_kwargs = {
+            "agentMode": "arm",
+            "massThreshold": None,
+            "scene": "FloorPlan1",  # Will be reset with actual scene
+            "visibilityDistance": self._visibility_distance,
+            "gridSize": self._grid_size,
+            "renderDepthImage": self._use_depth,
+            "renderInstanceSegmentation": False,
+            "width": self._width,
+            "height": self._height,
+            "fieldOfView": self._field_of_view,
+        }
+
+        # Try headless mode first if requested
+        if self._headless:
+            try:
+                self._controller = Controller(headless=True, **controller_kwargs)
+                return
+            except Exception as e:
+                logger.warning(
+                    "headless_mode_failed",
+                    error=str(e),
+                    msg="Falling back to headed mode",
+                )
+
+        # Fall back to headed mode
+        self._controller = Controller(headless=False, **controller_kwargs)
 
     def generate_task(self, seed: int) -> TaskConfig:
         """

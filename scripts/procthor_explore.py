@@ -37,10 +37,19 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
 
+    # Run headless by default; only show display window if explicitly requested
+    # (i.e., when --no-display is NOT set and we have cv2)
+    show_window = HAS_CV2 and not args.no_display
+    headless = not show_window
+
+    if show_window:
+        print("Running with display window (use --no-display for headless)")
+
     print("Creating ProcTHOR environment...")
     env = ProcTHOREnvironment(
         image_size=(400, 400),
         field_of_view=90,
+        headless=headless,
     )
 
     print(f"Generating task with seed={args.seed}...")
@@ -70,9 +79,8 @@ def main() -> None:
         video_writer = cv2.VideoWriter(args.save_video, fourcc, 10.0, (400, 400))
         print(f"Recording video to: {args.save_video}")
 
-    # Setup display window
-    show_display = HAS_CV2 and not args.no_display
-    if show_display:
+    # Setup display window (reuse show_window from above)
+    if show_window:
         cv2.namedWindow("ProcTHOR", cv2.WINDOW_NORMAL)
         cv2.resizeWindow("ProcTHOR", 600, 600)
 
@@ -122,7 +130,7 @@ def main() -> None:
         if obs.rgb and "ego" in obs.rgb:
             frame = np.array(obs.rgb["ego"], dtype=np.uint8)
 
-            if show_display:
+            if show_window:
                 # Add text overlay
                 display_frame = frame.copy()
                 cv2.putText(
@@ -191,7 +199,7 @@ def main() -> None:
         video_writer.release()
         print(f"Video saved to: {args.save_video}")
 
-    if show_display:
+    if show_window:
         cv2.destroyAllWindows()
 
     env.close()
