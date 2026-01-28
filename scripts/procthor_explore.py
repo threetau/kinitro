@@ -77,7 +77,11 @@ def main() -> None:
     if args.save_video and HAS_CV2:
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         video_writer = cv2.VideoWriter(args.save_video, fourcc, 10.0, (400, 400))
-        print(f"Recording video to: {args.save_video}")
+        if not video_writer.isOpened():
+            print(f"Warning: Failed to open video writer for {args.save_video}")
+            video_writer = None
+        else:
+            print(f"Recording video to: {args.save_video}")
 
     # Setup display window (reuse show_window from above)
     if show_window:
