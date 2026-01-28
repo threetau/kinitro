@@ -318,33 +318,30 @@ class TestTaskGenerator:
 class TestHouseGenerator:
     """Tests for house generation."""
 
-    def test_fallback_house(self):
-        """Fallback house should have expected structure."""
+    def test_get_scene_name_procedural(self):
+        """Should return house dict for procedural houses."""
         generator = HouseGenerator()
-        house = generator._generate_fallback_house(seed=42)
-
-        assert "scene_name" in house
-        assert "is_procedural" in house
-        assert house["is_procedural"] is False
-        assert house["scene_name"].startswith("FloorPlan")
-
-    def test_deterministic_fallback(self):
-        """Same seed should produce same fallback house."""
-        generator = HouseGenerator()
-
-        house1 = generator._generate_fallback_house(seed=42)
-        house2 = generator._generate_fallback_house(seed=42)
-
-        assert house1["scene_name"] == house2["scene_name"]
-
-    def test_get_scene_name_fallback(self):
-        """Should return scene name string for fallback houses."""
-        generator = HouseGenerator()
-        house = {"scene_name": "FloorPlan1", "is_procedural": False}
+        house = {"rooms": [{"id": "room1"}], "metadata": {"agent": {}}}
 
         scene = generator.get_scene_name(house)
 
-        assert scene == "FloorPlan1"
+        # For procedural houses, get_scene_name returns the house dict itself
+        assert scene == house
+
+    def test_cache_enabled(self):
+        """Cache should be enabled by default."""
+        generator = HouseGenerator()
+        assert generator._use_cache is True
+        assert generator._house_cache == {}
+
+    def test_clear_cache(self):
+        """Should clear house cache."""
+        generator = HouseGenerator()
+        generator._house_cache[42] = {"test": "house"}
+
+        generator.clear_cache()
+
+        assert generator._house_cache == {}
 
 
 class TestObjectFilters:

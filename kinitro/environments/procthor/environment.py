@@ -569,6 +569,82 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             if target_obj is not None:
                 self._episode_success = not target_obj.is_toggled
 
+    def _compute_camera_intrinsics(self) -> list[list[float]]:
+        """
+        Compute camera intrinsics matrix K from FOV and image size.
+
+        The intrinsics matrix K is:
+            [fx  0  cx]
+            [0  fy  cy]
+            [0   0   1]
+
+        Where:
+            fx, fy = focal lengths in pixels
+            cx, cy = principal point (image center)
+        """
+        # Principal point at image center
+        cx = self._width / 2.0
+        cy = self._height / 2.0
+
+        # Focal length from vertical FOV
+        # tan(fov/2) = (height/2) / fy
+        # fy = (height/2) / tan(fov/2)
+        fov_rad = np.deg2rad(self._field_of_view)
+        fy = (self._height / 2.0) / np.tan(fov_rad / 2.0)
+
+        # AI2-THOR uses square pixels, so fx = fy
+        fx = fy
+
+        return [
+            [fx, 0.0, cx],
+            [0.0, fy, cy],
+            [0.0, 0.0, 1.0],
+        ]
+
+    def _compute_camera_extrinsics(self, event: Any) -> list[list[float]]:
+        """
+        Compute camera extrinsics matrix T_world_cam (4x4).
+
+        This is the transformation from camera frame to world frame.
+        AI2-THOR provides camera position and rotation in world coordinates.
+        """
+        # Get camera pose from agent metadata
+        agent = event.metadata.get("agent", {})
+        camera_position = agent.get("cameraPosition", agent.get("position", {}))
+        camera_horizon = agent.get("cameraHorizon", 0.0)  # Pitch in degrees
+        rotation = agent.get("rotation", {})
+
+        # Position
+        x = camera_position.get("x", 0.0)
+        y = camera_position.get("y", 0.0)
+        z = camera_position.get("z", 0.0)
+
+        # Rotation: AI2-THOR uses Y-up, with yaw around Y and pitch (horizon) around X
+        yaw_deg = rotation.get("y", 0.0)
+        pitch_deg = camera_horizon  # Positive = looking down
+
+        yaw = np.deg2rad(yaw_deg)
+        pitch = np.deg2rad(pitch_deg)
+
+        # Rotation matrix: R = Ry(yaw) @ Rx(pitch)
+        # Ry = [[cos, 0, sin], [0, 1, 0], [-sin, 0, cos]]
+        # Rx = [[1, 0, 0], [0, cos, -sin], [0, sin, cos]]
+        cy_r, sy_r = np.cos(yaw), np.sin(yaw)
+        cp_r, sp_r = np.cos(pitch), np.sin(pitch)
+
+        # Combined rotation matrix (yaw then pitch)
+        r00, r01, r02 = cy_r, sy_r * sp_r, sy_r * cp_r
+        r10, r11, r12 = 0.0, cp_r, -sp_r
+        r20, r21, r22 = -sy_r, cy_r * sp_r, cy_r * cp_r
+
+        # 4x4 transformation matrix [R | t; 0 0 0 1]
+        return [
+            [r00, r01, r02, x],
+            [r10, r11, r12, y],
+            [r20, r21, r22, z],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+
     def _build_observation(self, event: Any) -> CanonicalObservation:
         """Build canonical observation from AI2-THOR event."""
         agent = event.metadata.get("agent", {})
@@ -614,6 +690,10 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         if self._use_depth and hasattr(event, "depth_frame") and event.depth_frame is not None:
             depth = event.depth_frame
 
+        # Compute camera matrices
+        cam_intrinsics = self._compute_camera_intrinsics()
+        cam_extrinsics = self._compute_camera_extrinsics(event)
+
         return CanonicalObservation(
             ee_pos_m=pos.tolist(),
             ee_quat_xyzw=quat.tolist(),
@@ -622,8 +702,8 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             gripper_01=gripper_01,
             rgb=rgb,
             depth=depth,
-            cam_intrinsics_K=None,
-            cam_extrinsics_T_world_cam=None,
+            cam_intrinsics_K=cam_intrinsics,
+            cam_extrinsics_T_world_cam=cam_extrinsics,
         )
 
     def _yaw_to_quaternion(self, yaw_deg: float) -> np.ndarray:
