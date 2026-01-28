@@ -2,18 +2,31 @@
 Affinetes-compatible robotics evaluation environment.
 
 This Actor class runs inside an affinetes-managed container and:
-1. Manages MuJoCo/MetaWorld simulation
+1. Manages robotics simulation (MetaWorld/MuJoCo, ProcTHOR/AI2-THOR)
 2. Queries miner policy endpoints (on Basilica or self-hosted) for actions
 3. Returns evaluation scores
+
+Supported environments:
+- metaworld/*: MuJoCo-based manipulation tasks (pick-place, push, etc.)
+- procthor/*: AI2-THOR procedural house tasks (pickup, open, toggle, etc.)
 
 Usage (from backend):
     import affinetes as af_env
 
     env = af_env.load_env(image="kinitro/eval-env:v1")
+
+    # MetaWorld evaluation
     result = await env.evaluate(
         task_id=123,
         base_url="https://xxx.deployments.basilica.ai",
-        task_name="pick-place-v3"
+        env_id="metaworld/pick-place-v3"
+    )
+
+    # ProcTHOR evaluation
+    result = await env.evaluate(
+        task_id=456,
+        base_url="https://xxx.deployments.basilica.ai",
+        env_id="procthor/v0"
     )
 """
 

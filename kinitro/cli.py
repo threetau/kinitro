@@ -759,6 +759,9 @@ def build_eval_env(
     eval_env_kinitro = eval_env_path / "kinitro"
     eval_env_environments = eval_env_kinitro / "environments"
 
+    # Also need rl_interface.py for the Actor
+    rl_interface_src = kinitro_package_dir / "rl_interface.py"
+
     try:
         # Create kinitro package structure in eval-env
         eval_env_kinitro.mkdir(exist_ok=True)
@@ -777,6 +780,11 @@ def build_eval_env(
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
         )
         typer.echo("  Copied environments module to build context")
+
+        # Copy rl_interface.py
+        if rl_interface_src.exists():
+            shutil.copy(rl_interface_src, eval_env_kinitro / "rl_interface.py")
+            typer.echo("  Copied rl_interface module to build context")
 
         # Build the image
         result_tag = affinetes.build_image_from_env(

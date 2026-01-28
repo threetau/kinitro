@@ -1,7 +1,11 @@
 # Kinitro Evaluation Environment for Affinetes
 #
-# This container runs MuJoCo/MetaWorld simulation and queries miner
-# policy endpoints to get actions. Used by validators via affinetes.
+# This container runs robotics simulations and queries miner policy
+# endpoints to get actions. Used by validators via affinetes.
+#
+# Supported environments:
+#   - MetaWorld (MuJoCo-based manipulation tasks)
+#   - ProcTHOR (AI2-THOR procedural house environments)
 #
 # Build with the kinitro CLI:
 #   kinitro build-eval-env --tag kinitro/eval-env:v1
@@ -16,7 +20,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for MuJoCo rendering + git for pip installs
+# Install system dependencies for:
+# - MuJoCo rendering (EGL/OpenGL)
+# - AI2-THOR (X11/Vulkan)
+# - Git for pip installs
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     libgl1 \
@@ -28,10 +35,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libegl1 \
     libglvnd0 \
     libglx0 \
+    # AI2-THOR dependencies
+    xvfb \
+    libvulkan1 \
+    vulkan-tools \
+    mesa-vulkan-drivers \
     && rm -rf /var/lib/apt/lists/*
 
 # Set MuJoCo rendering to use EGL (for headless GPU rendering)
 ENV MUJOCO_GL=egl
+
+# AI2-THOR headless mode via Xvfb
+ENV DISPLAY=:0
 
 # Copy requirements and install dependencies
 COPY requirements.txt /app/

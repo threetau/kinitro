@@ -10,14 +10,22 @@ mujoco>=3.0.0
 # MetaWorld environments
 metaworld @ git+https://github.com/Farama-Foundation/Metaworld.git
 
+# AI2-THOR / ProcTHOR environments
+ai2thor>=5.0.0
+procthor>=0.0.1.dev2
+
 # Image processing for camera rendering
 Pillow>=10.0.0
+opencv-python>=4.8.0
 
 # Numerics
 numpy>=1.24.0
 
 # Logging
 structlog>=23.0.0
+
+# Data validation (for rl_interface)
+pydantic>=2.0.0
 
 # Required by gymnasium (metaworld dependency)
 packaging>=21.0
