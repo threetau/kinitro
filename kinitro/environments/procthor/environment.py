@@ -322,24 +322,48 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         return self._build_observation(event)
 
     def _randomize_agent_position(self, rng: np.random.Generator) -> None:
-        """Randomize agent starting position."""
-        event = self._controller.step(action="GetReachablePositions")
-        positions = event.metadata.get("actionReturn", [])
+        """Teleport agent to spawn position from house metadata.
 
-        if not positions:
-            return
+        For procedural houses, we use the spawn position from house metadata
+        since GetReachablePositions may not work reliably.
+        """
+        # Get spawn position from house metadata
+        house_metadata = self._current_house.get("metadata", {})
+        agent_spawn = house_metadata.get("agent", {})
 
-        # Pick a random reachable position
-        pos = positions[rng.integers(0, len(positions))]
-        rotation = float(rng.choice([0, 90, 180, 270]))
+        if agent_spawn.get("position"):
+            # Use position from house metadata
+            pos = agent_spawn["position"]
+            rotation = agent_spawn.get("rotation", {"x": 0, "y": 0, "z": 0})
+            horizon = agent_spawn.get("horizon", 30)
 
-        self._controller.step(
-            action="Teleport",
-            position=pos,
-            rotation={"x": 0.0, "y": rotation, "z": 0.0},
-            horizon=30.0,
-            standing=True,
-        )
+            # Optionally randomize rotation
+            if rng is not None:
+                rotation = {"x": 0.0, "y": float(rng.choice([0, 90, 180, 270])), "z": 0.0}
+
+            self._controller.step(
+                action="Teleport",
+                position=pos,
+                rotation=rotation,
+                horizon=float(horizon),
+                standing=True,
+            )
+        else:
+            # Fallback: try GetReachablePositions
+            event = self._controller.step(action="GetReachablePositions")
+            positions = event.metadata.get("actionReturn", [])
+
+            if positions:
+                pos = positions[rng.integers(0, len(positions))]
+                rotation = float(rng.choice([0, 90, 180, 270]))
+
+                self._controller.step(
+                    action="Teleport",
+                    position=pos,
+                    rotation={"x": 0.0, "y": rotation, "z": 0.0},
+                    horizon=30.0,
+                    standing=True,
+                )
 
     def step(
         self, action: CanonicalAction | dict[str, Any] | np.ndarray
