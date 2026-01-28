@@ -604,15 +604,15 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         # Gripper state (0 = empty, 1 = holding)
         gripper_01 = 1.0 if self._holding_object else 0.0
 
-        # RGB image
+        # RGB image - pass numpy array directly (will be base64 encoded)
         rgb = {}
         if event.frame is not None:
-            rgb["ego"] = event.frame.tolist()
+            rgb["ego"] = event.frame
 
-        # Depth (optional)
+        # Depth (optional) - pass numpy array directly
         depth = None
         if self._use_depth and hasattr(event, "depth_frame") and event.depth_frame is not None:
-            depth = event.depth_frame.tolist()
+            depth = event.depth_frame
 
         return CanonicalObservation(
             ee_pos_m=pos.tolist(),
