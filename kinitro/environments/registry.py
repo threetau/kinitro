@@ -34,17 +34,6 @@ def _make_procthor_env(task: str) -> EnvFactory:
     return factory
 
 
-def _make_ai2thor_manip_env(task: str) -> EnvFactory:
-    """Create factory for AI2-THOR manipulation environment (legacy POC)."""
-
-    def factory() -> RoboticsEnvironment:
-        from kinitro.environments.ai2thor_env import AI2ThorManipulationEnvironment
-
-        return AI2ThorManipulationEnvironment(task_name=task)
-
-    return factory
-
-
 # ===========================================================================
 # ENVIRONMENT REGISTRY
 # ===========================================================================
@@ -69,10 +58,6 @@ ENVIRONMENTS: dict[str, EnvFactory] = {
     # Scene-grounded tasks in procedurally generated houses
     # =========================================================================
     "procthor/v0": _make_procthor_env("procthor-v0"),
-    # =========================================================================
-    # LEGACY: AI2-THOR Manipulation (POC)
-    # =========================================================================
-    "ai2thor/manip-v0": _make_ai2thor_manip_env("manip-v0"),
 }
 
 
@@ -118,12 +103,12 @@ def get_environments_by_family(family: str) -> list[str]:
 
 def get_available_families() -> list[str]:
     """Get list of available environment families."""
-    return ["metaworld", "procthor", "ai2thor"]
+    return ["metaworld", "procthor"]
 
 
 def is_family_available(family: str) -> bool:
     """Check if an environment family is available."""
-    return family in {"metaworld", "procthor", "ai2thor"}
+    return family in {"metaworld", "procthor"}
 
 
 def register_environment(env_id: str, factory: EnvFactory) -> None:
