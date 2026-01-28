@@ -1425,6 +1425,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "affinetes" },
+    { name = "ai2thor" },
     { name = "aiohttp" },
     { name = "alembic" },
     { name = "asyncpg" },
@@ -1476,6 +1477,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "affinetes", git = "https://github.com/AffineFoundation/affinetes.git" },
+    { name = "ai2thor", specifier = ">=5.0.0" },
     { name = "ai2thor", marker = "extra == 'procthor'", specifier = ">=5.0.0" },
     { name = "aiohttp", specifier = ">=3.9.0" },
     { name = "alembic", specifier = ">=1.14.0" },

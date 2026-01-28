@@ -45,6 +45,7 @@ dependencies = [
     "networkx>=3.6.1",
     "python-fcl>=0.7.0.10",
     "procthor>=0.0.1.dev2",
+    "ai2thor>=5.0.0",
 ]
 
 [project.optional-dependencies]
