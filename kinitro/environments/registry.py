@@ -24,7 +24,18 @@ def _make_metaworld_env(task: str) -> EnvFactory:
 
 
 def _make_procthor_env(task: str) -> EnvFactory:
-    """Create factory for ProcTHOR manipulation environment."""
+    """Create factory for ProcTHOR procedural environment."""
+
+    def factory() -> RoboticsEnvironment:
+        from kinitro.environments.procthor import ProcTHOREnvironment
+
+        return ProcTHOREnvironment(task_name=task)
+
+    return factory
+
+
+def _make_ai2thor_manip_env(task: str) -> EnvFactory:
+    """Create factory for AI2-THOR manipulation environment (legacy POC)."""
 
     def factory() -> RoboticsEnvironment:
         from kinitro.environments.ai2thor_env import AI2ThorManipulationEnvironment
@@ -54,9 +65,14 @@ ENVIRONMENTS: dict[str, EnvFactory] = {
     "metaworld/button-press-v3": _make_metaworld_env("button-press-topdown-v3"),
     "metaworld/peg-insert-v3": _make_metaworld_env("peg-insert-side-v3"),
     # =========================================================================
-    # MANIPULATION (ProcTHOR via AI2-THOR)
-    # ========================================================================
-    "procthor/manip-v0": _make_procthor_env("manip-v0"),
+    # PROCEDURAL EMBODIED AI (ProcTHOR)
+    # Scene-grounded tasks in procedurally generated houses
+    # =========================================================================
+    "procthor/v0": _make_procthor_env("procthor-v0"),
+    # =========================================================================
+    # LEGACY: AI2-THOR Manipulation (POC)
+    # =========================================================================
+    "ai2thor/manip-v0": _make_ai2thor_manip_env("manip-v0"),
 }
 
 
@@ -102,12 +118,12 @@ def get_environments_by_family(family: str) -> list[str]:
 
 def get_available_families() -> list[str]:
     """Get list of available environment families."""
-    return ["metaworld", "procthor"]
+    return ["metaworld", "procthor", "ai2thor"]
 
 
 def is_family_available(family: str) -> bool:
     """Check if an environment family is available."""
-    return family in {"metaworld", "procthor"}
+    return family in {"metaworld", "procthor", "ai2thor"}
 
 
 def register_environment(env_id: str, factory: EnvFactory) -> None:

@@ -78,7 +78,7 @@ class CanonicalObservation(BaseModel):
             return np.concatenate([proprio, *image_arrays]).astype(np.float32)
         return proprio
 
-    def without_images(self) -> "CanonicalObservation":
+    def without_images(self) -> CanonicalObservation:
         return self.model_copy(update={"rgb": {}})
 
     def to_payload(self, include_images: bool = True) -> dict[str, Any]:
@@ -102,19 +102,22 @@ class CanonicalAction(BaseModel):
         return np.array([*self.twist_ee_norm, self.gripper_01], dtype=np.float32)
 
     @classmethod
-    def from_array(cls, array: Any, gripper_default: float = 0.0) -> "CanonicalAction":
+    def from_array(cls, array: Any, gripper_default: float = 0.0) -> CanonicalAction:
         arr = np.array(array, dtype=np.float32).flatten()
         twist = np.zeros(6, dtype=np.float32)
         gripper = gripper_default
 
         if arr.size == 4:
+            # MetaWorld format: [x, y, z, gripper] where gripper is in [-1, 1]
             twist[:3] = arr[:3]
             gripper = float(np.clip((arr[3] + 1.0) / 2.0, 0.0, 1.0))
         else:
+            # Standard format: [twist(6), gripper(1)]
             if arr.size:
                 twist[: min(6, arr.size)] = arr[: min(6, arr.size)]
             if arr.size > 6:
-                gripper = float(arr[6])
+                # Gripper should be in [0, 1]; clip if out of range
+                gripper = float(np.clip(arr[6], 0.0, 1.0))
 
         return cls(twist_ee_norm=twist.tolist(), gripper_01=float(gripper))
 

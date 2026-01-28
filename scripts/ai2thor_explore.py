@@ -6,6 +6,7 @@ import time
 import numpy as np
 
 from kinitro.environments import get_environment
+from kinitro.environments.ai2thor_env import AI2ThorManipulationEnvironment
 from kinitro.rl_interface import CanonicalAction
 
 
@@ -21,7 +22,7 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
-    env = get_environment(args.env_id)
+    env: AI2ThorManipulationEnvironment = get_environment(args.env_id)
     if args.scene and hasattr(env, "_scene"):
         env._scene = args.scene
 
