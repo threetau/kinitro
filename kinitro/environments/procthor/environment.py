@@ -130,20 +130,96 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             "fieldOfView": self._field_of_view,
         }
 
-        # Try headless mode first if requested
-        if self._headless:
-            try:
-                self._controller = Controller(headless=True, **controller_kwargs)
-                return
-            except Exception as e:
-                logger.warning(
-                    "headless_mode_failed",
-                    error=str(e),
-                    msg="Falling back to headed mode",
-                )
+        # For headless mode, we have two options:
+        # 1. CloudRendering - requires Vulkan/GPU (faster, but needs hardware)
+        # 2. Linux64 + Xvfb - works anywhere, but slower
+        #
+        # Set AI2THOR_PLATFORM=Linux64 to skip CloudRendering attempt
+        import os
 
-        # Fall back to headed mode
-        self._controller = Controller(headless=False, **controller_kwargs)
+        platform_override = os.environ.get("AI2THOR_PLATFORM", "").lower()
+
+        if self._headless and platform_override != "linux64":
+            # Try CloudRendering if Vulkan appears to be available
+            if self._vulkan_available():
+                try:
+                    from ai2thor.platform import CloudRendering
+
+                    self._controller = Controller(platform=CloudRendering, **controller_kwargs)
+                    logger.info("ai2thor_initialized", mode="CloudRendering")
+                    return
+                except Exception as e:
+                    logger.warning(
+                        "cloud_rendering_failed",
+                        error=str(e),
+                        msg="Falling back to Xvfb + Linux64",
+                    )
+
+        # Start Xvfb for headless X11 rendering (fallback for non-GPU environments)
+        if self._headless:
+            self._start_xvfb()
+
+        # Use Linux64 platform with X server / Xvfb display
+        self._controller = Controller(**controller_kwargs)
+        logger.info("ai2thor_initialized", mode="Linux64")
+
+    def _vulkan_available(self) -> bool:
+        """Check if Vulkan appears to be available."""
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                ["vulkaninfo"],
+                capture_output=True,
+                timeout=5,
+            )
+            # vulkaninfo returns 0 if Vulkan devices are found
+            return result.returncode == 0 and b"GPU" in result.stdout
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+
+    def _start_xvfb(self) -> None:
+        """Start Xvfb for headless X11 rendering if not already running."""
+        import os
+        import subprocess
+
+        display = os.environ.get("DISPLAY", ":0")
+
+        # Check if Xvfb is already running on this display
+        try:
+            result = subprocess.run(
+                ["xdpyinfo", "-display", display],
+                capture_output=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                logger.info("xvfb_already_running", display=display)
+                return
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Start Xvfb
+        display_num = display.lstrip(":")
+        try:
+            subprocess.Popen(
+                [
+                    "Xvfb",
+                    display,
+                    "-screen",
+                    "0",
+                    f"{self._width}x{self._height}x24",
+                    "-ac",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            logger.info("xvfb_started", display=display)
+            # Give Xvfb a moment to start
+            import time
+
+            time.sleep(1)
+        except FileNotFoundError:
+            logger.warning("xvfb_not_found", msg="Xvfb not installed, continuing without it")
 
     def generate_task(self, seed: int) -> TaskConfig:
         """
