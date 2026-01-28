@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TypeVar
+
 import numpy as np
 import structlog
 
@@ -17,6 +19,8 @@ from kinitro.environments.procthor.task_types import (
     TaskType,
     check_task_feasibility,
 )
+
+T = TypeVar("T")
 
 logger = structlog.get_logger()
 
@@ -73,7 +77,7 @@ def format_object_name(object_type: str) -> str:
     return "".join(result)
 
 
-def _random_choice[T](items: list[T], rng: np.random.Generator) -> T | None:
+def _random_choice(items: list[T], rng: np.random.Generator) -> T | None:  # noqa: UP047
     """Select a random item from a list using the generator."""
     if not items:
         return None
