@@ -253,10 +253,11 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         gripper = float(np.clip(canonical_action.gripper_01, 0.0, 1.0))
 
         # Execute action based on twist and gripper
-        event = self._execute_action(twist, gripper)
+        event, action_name = self._execute_action(twist, gripper)
 
         if event is None:
             event = self._controller.step(action="Pass")
+            action_name = "Pass"
 
         # Update scene objects
         self._scene_objects = extract_scene_objects(event.metadata)
@@ -278,13 +279,14 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             "task_type": (self._current_task.task_type.value if self._current_task else ""),
             "episode_steps": self._episode_steps,
             "success": self._episode_success,
+            "last_action": action_name,
             "last_action_success": event.metadata.get("lastActionSuccess", False),
             "error_message": event.metadata.get("errorMessage", ""),
         }
 
         return obs, reward, done, info
 
-    def _execute_action(self, twist: np.ndarray, gripper: float) -> Any:
+    def _execute_action(self, twist: np.ndarray, gripper: float) -> tuple[Any, str]:
         """
         Map canonical action to AI2-THOR actions.
 
@@ -292,18 +294,22 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         1. Gripper actions (pickup/release)
         2. Navigation (body movement/rotation)
         3. Arm movement
-        """
-        event = None
 
+        Returns:
+            Tuple of (event, action_name)
+        """
         # Handle gripper state changes
         if gripper > self.GRIPPER_PICKUP_THRESHOLD and self._holding_object is None:
-            event = self._try_pickup()
-        elif gripper < self.GRIPPER_RELEASE_THRESHOLD and self._holding_object is not None:
-            event = self._try_release()
+            event, action_name = self._try_pickup()
+            if event is not None:
+                self._prev_gripper_state = gripper
+                return event, action_name
 
-        if event is not None:
-            self._prev_gripper_state = gripper
-            return event
+        if gripper < self.GRIPPER_RELEASE_THRESHOLD and self._holding_object is not None:
+            event, action_name = self._try_release()
+            if event is not None:
+                self._prev_gripper_state = gripper
+                return event, action_name
 
         # Navigation: rotation (yaw)
         if abs(twist[5]) > self.ROTATE_THRESHOLD:  # yaw rotation
@@ -315,15 +321,16 @@ class ProcTHOREnvironment(RoboticsEnvironment):
                 speed=1,
                 fixedDeltaTime=0.02,
             )
-            return event
+            return event, "RotateAgent"
 
         # Navigation: look up/down (pitch)
         if abs(twist[3]) > self.ROTATE_THRESHOLD:  # pitch rotation
             if twist[3] > 0:
                 event = self._controller.step(action="LookDown")
+                return event, "LookDown"
             else:
                 event = self._controller.step(action="LookUp")
-            return event
+                return event, "LookUp"
 
         # Navigation: body movement
         forward = twist[2] * self.MOVE_SCALE
@@ -338,7 +345,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
                 speed=1,
                 fixedDeltaTime=0.02,
             )
-            return event
+            return event, "MoveAgent"
 
         # Arm movement (vertical)
         if abs(twist[1]) > self.MOVE_THRESHOLD:
@@ -351,12 +358,12 @@ class ProcTHOREnvironment(RoboticsEnvironment):
                 returnToStart=True,
                 fixedDeltaTime=0.02,
             )
-            return event
+            return event, "MoveArmBase"
 
         # No significant action - pass
-        return self._controller.step(action="Pass")
+        return None, "Pass"
 
-    def _try_pickup(self) -> Any:
+    def _try_pickup(self) -> tuple[Any, str]:
         """Attempt to pick up an object."""
         # Get objects the arm can pick up
         event = self._controller.last_event
@@ -373,19 +380,19 @@ class ProcTHOREnvironment(RoboticsEnvironment):
                 inventory = event.metadata.get("inventoryObjects", [])
                 if inventory:
                     self._holding_object = inventory[0].get("objectId")
-            return event
+            return event, "PickupObject"
 
-        return None
+        return None, "PickupObject"
 
-    def _try_release(self) -> Any:
+    def _try_release(self) -> tuple[Any, str]:
         """Attempt to release held object."""
         if self._holding_object is None:
-            return None
+            return None, "ReleaseObject"
 
         event = self._controller.step(action="ReleaseObject")
         if event.metadata.get("lastActionSuccess", False):
             self._holding_object = None
-        return event
+        return event, "ReleaseObject"
 
     def _update_success(self) -> None:
         """Check if the current task has been completed."""
