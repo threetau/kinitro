@@ -695,11 +695,19 @@ def build(
         typer.echo("Push successful!")
 
 
-@app.command()
-def build_eval_env(
-    tag: str = typer.Option(
-        "kinitro/eval-env:v1",
-        help="Docker tag for eval environment image",
+# Available environment families for build-env command
+AVAILABLE_ENV_FAMILIES = ["metaworld", "procthor"]
+
+
+@app.command("build-env")
+def build_env(
+    family: str = typer.Argument(
+        ...,
+        help=f"Environment family to build: {', '.join(AVAILABLE_ENV_FAMILIES)}",
+    ),
+    tag: str | None = typer.Option(
+        None,
+        help="Docker tag (default: kinitro/<family>:v1)",
     ),
     push: bool = typer.Option(False, help="Push to registry after building"),
     registry: str | None = typer.Option(
@@ -709,86 +717,106 @@ def build_eval_env(
     quiet: bool = typer.Option(False, help="Suppress build output"),
 ):
     """
-    Build the evaluation environment Docker image using affinetes.
+    Build an environment-specific Docker image using affinetes.
 
-    This image is used by affinetes to run evaluations. It contains:
-    - MuJoCo + MetaWorld simulation environment
-    - HTTP client for calling miner policy endpoints
-    - The kinitro environments module
+    This creates a focused Docker image containing only the dependencies
+    for a specific environment family, resulting in smaller images and
+    faster builds compared to the monolithic eval-env image.
 
-    The built image is used by the backend scheduler when running evaluations.
+    Environment families:
+      - metaworld: MuJoCo-based manipulation tasks (~400MB image)
+      - procthor: AI2-THOR procedural house tasks (~1.5GB image, x86_64 Linux only)
 
     Examples:
-        # Build locally
-        kinitro build-eval-env --tag kinitro/eval-env:v1
+        # Build MetaWorld environment
+        kinitro build-env metaworld --tag kinitro/metaworld:v1
 
-        # Build and push to Docker Hub
-        kinitro build-eval-env --tag eval-env:v1 --push --registry docker.io/myuser
+        # Build ProcTHOR environment
+        kinitro build-env procthor --tag kinitro/procthor:v1
+
+        # Build and push to registry
+        kinitro build-env metaworld --push --registry docker.io/myuser
     """
     import shutil
     from pathlib import Path
 
     import affinetes
 
-    # Find the eval-env directory and kinitro package
-    kinitro_package_dir = Path(__file__).parent
-    root_dir = kinitro_package_dir.parent
-    eval_env_path = root_dir / "eval-env"
-    environments_src = kinitro_package_dir / "environments"
-
-    if not (eval_env_path / "env.py").exists():
-        typer.echo(f"env.py not found at {eval_env_path}", err=True)
-        typer.echo("Make sure you're running from within the kinitro package.")
+    # Validate family
+    if family not in AVAILABLE_ENV_FAMILIES:
+        typer.echo(
+            f"Unknown environment family: {family}. Available: {', '.join(AVAILABLE_ENV_FAMILIES)}",
+            err=True,
+        )
         raise typer.Exit(1)
 
-    if not (eval_env_path / "Dockerfile").exists():
-        typer.echo(f"Dockerfile not found at {eval_env_path}", err=True)
+    # Default tag if not provided
+    if tag is None:
+        tag = f"kinitro/{family}:v1"
+
+    # Find the environment directory and kinitro package
+    kinitro_package_dir = Path(__file__).parent
+    root_dir = kinitro_package_dir.parent
+    env_path = root_dir / "environments" / family
+    environments_src = kinitro_package_dir / "environments"
+
+    if not env_path.exists():
+        typer.echo(f"Environment directory not found at {env_path}", err=True)
+        raise typer.Exit(1)
+
+    if not (env_path / "env.py").exists():
+        typer.echo(f"env.py not found at {env_path}", err=True)
+        raise typer.Exit(1)
+
+    if not (env_path / "Dockerfile").exists():
+        typer.echo(f"Dockerfile not found at {env_path}", err=True)
         raise typer.Exit(1)
 
     if not environments_src.exists():
         typer.echo(f"environments module not found at {environments_src}", err=True)
         raise typer.Exit(1)
 
-    typer.echo(f"Building eval environment image: {tag}")
-    typer.echo(f"  Environment path: {eval_env_path}")
+    typer.echo(f"Building {family} environment image: {tag}")
+    typer.echo(f"  Environment path: {env_path}")
     if push:
         typer.echo(f"  Push: True (registry: {registry or 'from tag'})")
 
-    # Copy kinitro/environments to eval-env/kinitro/environments for the build
-    # This avoids duplicating the code in the repo
-    eval_env_kinitro = eval_env_path / "kinitro"
-    eval_env_environments = eval_env_kinitro / "environments"
+    # Copy kinitro/environments to env/kinitro/environments for the build
+    env_kinitro = env_path / "kinitro"
+    env_environments = env_kinitro / "environments"
 
     # Also need rl_interface.py for the Actor
     rl_interface_src = kinitro_package_dir / "rl_interface.py"
 
     try:
-        # Create kinitro package structure in eval-env
-        eval_env_kinitro.mkdir(exist_ok=True)
+        # Create kinitro package structure
+        env_kinitro.mkdir(exist_ok=True)
 
         # Create __init__.py for kinitro package
-        (eval_env_kinitro / "__init__.py").write_text(
+        (env_kinitro / "__init__.py").write_text(
             '"""Kinitro package subset for eval environment."""\n'
         )
 
-        # Copy environments module
-        if eval_env_environments.exists():
-            shutil.rmtree(eval_env_environments)
+        # Copy environments module (filtered based on family)
+        if env_environments.exists():
+            shutil.rmtree(env_environments)
+
+        # Copy the full environments module
         shutil.copytree(
             environments_src,
-            eval_env_environments,
+            env_environments,
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
         )
         typer.echo("  Copied environments module to build context")
 
         # Copy rl_interface.py
         if rl_interface_src.exists():
-            shutil.copy(rl_interface_src, eval_env_kinitro / "rl_interface.py")
+            shutil.copy(rl_interface_src, env_kinitro / "rl_interface.py")
             typer.echo("  Copied rl_interface module to build context")
 
         # Build the image
         result_tag = affinetes.build_image_from_env(
-            env_path=str(eval_env_path),
+            env_path=str(env_path),
             image_tag=tag,
             nocache=no_cache,
             quiet=quiet,
@@ -806,12 +834,13 @@ def build_eval_env(
 
     finally:
         # Clean up the copied kinitro directory
-        if eval_env_kinitro.exists():
-            shutil.rmtree(eval_env_kinitro)
+        if env_kinitro.exists():
+            shutil.rmtree(env_kinitro)
             typer.echo("  Cleaned up temporary build files")
 
-    typer.echo("\nTo use this image in the backend, ensure your config has:")
-    typer.echo(f"  eval_image: {result_tag}")
+    typer.echo(f"\nTo use this image in the backend for {family}/* environments:")
+    typer.echo("  eval_images:")
+    typer.echo(f"    {family}: {result_tag}")
 
 
 @app.command()

@@ -1,13 +1,12 @@
-# Kinitro Evaluation Environment for Affinetes
+# ProcTHOR Evaluation Environment for Affinetes
 #
-# This container runs robotics simulations and queries miner policy
-# endpoints to get actions. Used by validators via affinetes.
+# This container runs AI2-THOR procedural house simulations and queries
+# miner policy endpoints to get actions. Used by validators via affinetes.
 #
 # Supported environments:
-#   - MetaWorld (MuJoCo-based manipulation tasks) - works on all platforms
-#   - ProcTHOR (AI2-THOR procedural house environments) - requires native x86_64 Linux
+#   - procthor/v0 (with task types: PICKUP, PLACE, OPEN, CLOSE, TOGGLE_ON, TOGGLE_OFF)
 #
-# IMPORTANT: ProcTHOR/AI2-THOR Requirements:
+# IMPORTANT: Platform Requirements:
 #   AI2-THOR's Unity binary only works on native x86_64 Linux. It will NOT work:
 #   - On ARM64 hosts (Apple Silicon Macs)
 #   - Under QEMU x86_64 emulation (Unity's Mono JIT crashes)
@@ -18,7 +17,7 @@
 #   - nvidia-docker with CloudRendering (faster, requires NVIDIA GPU)
 #
 # Build with the kinitro CLI:
-#   kinitro build-eval-env --tag kinitro/eval-env:v1
+#   kinitro build-env procthor --tag kinitro/procthor:v1
 #
 # The CLI command copies the required kinitro/environments module into
 # this directory before building, then cleans up afterward.
@@ -30,10 +29,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for:
-# - MuJoCo rendering (EGL/OpenGL)
-# - AI2-THOR (X11/Xvfb for headless rendering)
-# - Git for pip installs
+# Install system dependencies for AI2-THOR (X11/Xvfb for headless rendering)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     # OpenGL/Mesa libraries
@@ -55,9 +51,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     x11-utils \
     libvulkan1 \
     && rm -rf /var/lib/apt/lists/*
-
-# Set MuJoCo rendering to use EGL (for headless GPU rendering)
-ENV MUJOCO_GL=egl
 
 # AI2-THOR configuration for headless mode
 ENV DISPLAY=:0
@@ -99,7 +92,7 @@ build2.download(); \
 print(f'Downloaded nanna commit: {nanna_commit}'); \
 "
 
-# Copy the kinitro environments package (copied by build-eval-env command)
+# Copy the kinitro environments package (copied by build-env command)
 # This is a subset of the main kinitro package - only environments/ is needed
 COPY kinitro /app/kinitro
 
