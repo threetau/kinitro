@@ -209,6 +209,8 @@ class ProcTHOREnvironment(RoboticsEnvironment):
     def _start_xvfb(self) -> None:
         """Start Xvfb for headless X11 rendering if not already running."""
         display = os.environ.get("DISPLAY", ":0")
+        # Ensure DISPLAY is set in environment for AI2-THOR Controller
+        os.environ.setdefault("DISPLAY", display)
 
         # Check if Xvfb is already running on this display
         try:
@@ -666,8 +668,9 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             return event, "RotateAgent"
 
         # Navigation: look up/down (pitch)
-        if abs(twist[3]) > self.ROTATE_THRESHOLD:  # pitch rotation
-            if twist[3] > 0:
+        # twist[4] = wy (pitch), twist[3] = wx (roll), twist[5] = wz (yaw)
+        if abs(twist[4]) > self.ROTATE_THRESHOLD:  # pitch rotation
+            if twist[4] > 0:
                 event = self._controller.step(action="LookDown")
                 return event, "LookDown"
             else:
