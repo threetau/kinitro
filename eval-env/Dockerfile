@@ -61,8 +61,11 @@ ENV MUJOCO_GL=egl
 
 # AI2-THOR configuration for headless mode
 ENV DISPLAY=:0
-# Skip CloudRendering attempt (requires Vulkan/GPU)
-ENV AI2THOR_PLATFORM=Linux64
+# Note: AI2THOR_PLATFORM is NOT set here - the environment.py code will:
+# 1. Auto-detect Vulkan/GPU and use CloudRendering if available (faster)
+# 2. Fall back to Linux64 + Xvfb if CloudRendering fails
+# Set AI2THOR_PLATFORM=Linux64 at runtime to skip CloudRendering attempt.
+
 # Force software rendering when no GPU available
 ENV LIBGL_ALWAYS_SOFTWARE=1
 ENV MESA_GL_VERSION_OVERRIDE=3.3
