@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import time
 from typing import Any
 
 import numpy as np
@@ -164,8 +167,6 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         # 2. Linux64 + Xvfb - works anywhere, but slower
         #
         # Set AI2THOR_PLATFORM=Linux64 to skip CloudRendering attempt
-        import os
-
         platform_override = os.environ.get("AI2THOR_PLATFORM", "").lower()
 
         if self._headless and platform_override != "linux64":
@@ -194,8 +195,6 @@ class ProcTHOREnvironment(RoboticsEnvironment):
 
     def _vulkan_available(self) -> bool:
         """Check if Vulkan appears to be available."""
-        import subprocess
-
         try:
             result = subprocess.run(
                 ["vulkaninfo"],
@@ -209,9 +208,6 @@ class ProcTHOREnvironment(RoboticsEnvironment):
 
     def _start_xvfb(self) -> None:
         """Start Xvfb for headless X11 rendering if not already running."""
-        import os
-        import subprocess
-
         display = os.environ.get("DISPLAY", ":0")
 
         # Check if Xvfb is already running on this display
@@ -243,8 +239,6 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             )
             logger.info("xvfb_started", display=display)
             # Give Xvfb a moment to start
-            import time
-
             time.sleep(1)
         except FileNotFoundError:
             logger.warning("xvfb_not_found", msg="Xvfb not installed, continuing without it")
@@ -751,8 +745,9 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         task = self._current_task
         target_id = task.target_object_id
 
-        # PICKUP success is based on inventory, not scene objects
-        # Check this first since picked-up objects may not appear in scene
+        # PICKUP success requires picking up the SPECIFIC target object
+        # (not just any object). This is checked against inventory since
+        # picked-up objects may not appear in scene objects list.
         if task.task_type == TaskType.PICKUP:
             self._episode_success = self._holding_object == target_id
             return
