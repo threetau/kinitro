@@ -6,6 +6,8 @@ from typing import Any
 
 import numpy as np
 
+from kinitro.rl_interface import CanonicalAction, CanonicalObservation
+
 
 @dataclass
 class TaskConfig:
@@ -84,16 +86,14 @@ class RoboticsEnvironment(ABC):
         pass
 
     @property
-    @abstractmethod
     def observation_shape(self) -> tuple[int, ...]:
         """Shape of observation array."""
-        pass
+        return (14,)
 
     @property
-    @abstractmethod
     def action_shape(self) -> tuple[int, ...]:
         """Shape of action array."""
-        pass
+        return (7,)
 
     @property
     def action_bounds(self) -> tuple[np.ndarray, np.ndarray]:
@@ -121,7 +121,7 @@ class RoboticsEnvironment(ABC):
         pass
 
     @abstractmethod
-    def reset(self, task_config: TaskConfig) -> np.ndarray:
+    def reset(self, task_config: TaskConfig) -> CanonicalObservation:
         """
         Reset environment with the given task configuration.
 
@@ -129,20 +129,22 @@ class RoboticsEnvironment(ABC):
             task_config: Procedurally generated task specification
 
         Returns:
-            Initial observation as numpy array
+            Initial canonical observation
         """
         pass
 
     @abstractmethod
-    def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, dict[str, Any]]:
+    def step(
+        self, action: CanonicalAction
+    ) -> tuple[CanonicalObservation, float, bool, dict[str, Any]]:
         """
         Execute action in environment.
 
         Args:
-            action: Action array matching action_shape
+            action: Canonical action
 
         Returns:
-            Tuple of (observation, reward, done, info)
+            Tuple of (canonical observation, reward, done, info)
         """
         pass
 

@@ -80,32 +80,37 @@ This creates:
 
 ## Step 2: Understand the Observation Space
 
-Your policy receives **limited observations** to encourage true generalization:
+Your policy receives the **canonical observation** to encourage true generalization:
 
 ### Proprioceptive Observations
-A numpy array with:
-- `[0:3]` - End-effector XYZ position
-- `[3]` - Gripper state (0=closed, 1=open)
+A dictionary with:
+- `ee_pos_m`: End-effector XYZ position (meters)
+- `ee_quat_xyzw`: End-effector quaternion (XYZW)
+- `ee_lin_vel_mps`: End-effector linear velocity (m/s)
+- `ee_ang_vel_rps`: End-effector angular velocity (rad/s)
+- `gripper_01`: Gripper state in [0, 1]
 
 ### Camera Images (Optional)
-A dictionary of RGB images:
+A dictionary of RGB images (nested lists):
 - `corner`: 84x84x3 RGB image from corner camera
-- `gripper`: 84x84x3 RGB image from gripper camera
+- `corner2`: 84x84x3 RGB image from corner camera 2
 
 **Important**: Object positions are NOT provided! You must learn to infer object locations from camera images.
 
 ### Action Space
-Return a numpy array with 4 values (for MetaWorld):
-- `[0:3]` - Delta XYZ movement
-- `[3]` - Gripper action (-1 to close, +1 to open)
+Return a dictionary with:
+- `twist_ee_norm`: 6D twist (vx, vy, vz, wx, wy, wz) in [-1, 1]
+- `gripper_01`: Gripper action in [0, 1]
 
-All values should be in range `[-1, 1]`.
+`twist_ee_norm` values should be in range `[-1, 1]`; `gripper_01` should be in `[0, 1]`.
 
 ## Step 3: Implement Your Policy
 
 Edit `policy.py` to implement your policy. Here's a minimal example:
 
 ```python
+from kinitro.rl_interface import CanonicalAction, CanonicalObservation
+
 class RobotPolicy:
     def __init__(self):
         # Load your trained model
@@ -123,16 +128,13 @@ class RobotPolicy:
         # task_config contains: env_id, task_name, seed
         return uuid.uuid4().hex
     
-    async def act(
-        self,
-        observation: np.ndarray,
-        images: dict[str, np.ndarray] | None = None,
-    ) -> np.ndarray:
+    async def act(self, observation: CanonicalObservation) -> CanonicalAction:
         """Return action for current observation."""
         with torch.no_grad():
-            obs_tensor = torch.FloatTensor(observation).unsqueeze(0)
+            obs_tensor = torch.FloatTensor(observation.proprio_array()).unsqueeze(0)
             action = self.model(obs_tensor)
-            return action.squeeze(0).numpy()
+            twist = action.squeeze(0)[:6].cpu().numpy().tolist()
+        return CanonicalAction(twist_ee_norm=twist, gripper_01=0.0)
     
     async def cleanup(self):
         """Called on shutdown."""
@@ -170,7 +172,7 @@ curl -X POST http://localhost:8001/reset \
 # Get action
 curl -X POST http://localhost:8001/act \
   -H "Content-Type: application/json" \
-  -d '{"observation": [0.0, 0.5, 0.2, 1.0]}'
+  -d '{"obs": {"ee_pos_m": [0.0, 0.5, 0.2], "ee_quat_xyzw": [0.0, 0.0, 0.0, 1.0], "ee_lin_vel_mps": [0.0, 0.0, 0.0], "ee_ang_vel_rps": [0.0, 0.0, 0.0], "gripper_01": 1.0, "rgb": {}}}'
 ```
 
 The `server.py` file provides the endpoints (`/health`, `/reset`, `/act`) that validators will call. This lets you test your policy logic locally before deploying to Basilica.
@@ -404,21 +406,29 @@ Get action for current observation.
 **Request:**
 ```json
 {
-  "observation": [0.0, 0.5, 0.2, 1.0],
-  "images": {
-    "corner": [[[0, 0, 0], ...], ...],
-    "gripper": [[[0, 0, 0], ...], ...]
+  "obs": {
+    "ee_pos_m": [0.0, 0.5, 0.2],
+    "ee_quat_xyzw": [0.0, 0.0, 0.0, 1.0],
+    "ee_lin_vel_mps": [0.0, 0.0, 0.0],
+    "ee_ang_vel_rps": [0.0, 0.0, 0.0],
+    "gripper_01": 1.0,
+    "rgb": {
+      "corner": [[[0, 0, 0], ...], ...],
+      "corner2": [[[0, 0, 0], ...], ...]
+    }
   }
 }
 ```
 
-The `observation` is a list of 4 floats (proprioceptive state).
-The `images` field is optional and contains camera images as nested lists (84x84x3).
+The `obs` field contains canonical observations. The `rgb` field is optional and contains camera images as nested lists (84x84x3).
 
 **Response:**
 ```json
 {
-  "action": [0.1, -0.2, 0.05, 1.0]
+  "action": {
+    "twist_ee_norm": [0.1, -0.2, 0.05, 0.0, 0.0, 0.0],
+    "gripper_01": 1.0
+  }
 }
 ```
 
@@ -493,7 +503,7 @@ curl -X POST http://localhost:8001/reset \
   -d '{"task_config": {"task_name": "pick-place-v3", "seed": 42}}'
 curl -X POST http://localhost:8001/act \
   -H "Content-Type: application/json" \
-  -d '{"observation": [0.0, 0.0, 0.0, 1.0]}'
+  -d '{"obs": {"ee_pos_m": [0.0, 0.0, 0.0], "ee_quat_xyzw": [0.0, 0.0, 0.0, 1.0], "ee_lin_vel_mps": [0.0, 0.0, 0.0], "ee_ang_vel_rps": [0.0, 0.0, 0.0], "gripper_01": 1.0, "rgb": {}}}'
 ```
 
 #### Remote Testing (After Deployment)
@@ -514,7 +524,7 @@ curl -X POST "${ENDPOINT}/reset" \
 # Act
 curl -X POST "${ENDPOINT}/act" \
   -H "Content-Type: application/json" \
-  -d '{"observation": [0.0, 0.0, 0.0, 1.0], "images": null}'
+  -d '{"obs": {"ee_pos_m": [0.0, 0.0, 0.0], "ee_quat_xyzw": [0.0, 0.0, 0.0, 1.0], "ee_lin_vel_mps": [0.0, 0.0, 0.0], "ee_ang_vel_rps": [0.0, 0.0, 0.0], "gripper_01": 1.0, "rgb": {}}}'
 ```
 
 ## Example Training Setup
