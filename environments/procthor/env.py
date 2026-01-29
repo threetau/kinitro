@@ -130,7 +130,7 @@ class Actor:
 
     async def list_environments(self) -> list[str]:
         """List available ProcTHOR environments."""
-        return get_all_environment_ids()
+        return [env_id for env_id in get_all_environment_ids() if env_id.startswith("procthor/")]
 
     async def evaluate(
         self,

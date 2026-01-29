@@ -92,7 +92,7 @@ class Actor:
 
     async def list_environments(self) -> list[str]:
         """List available MetaWorld environments."""
-        return get_all_environment_ids()
+        return [env_id for env_id in get_all_environment_ids() if env_id.startswith("metaworld/")]
 
     async def evaluate(
         self,
