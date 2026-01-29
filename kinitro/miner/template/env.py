@@ -9,30 +9,30 @@ Your policy must implement the RobotActor class with:
 - act(observation): Called each timestep to get action
 - cleanup(): Called when evaluation is complete
 
+Canonical interface:
+- act() receives a dict matching CanonicalObservation
+- act() returns a dict matching CanonicalAction
+
 The policy will be run inside a container and queried by validators
 across multiple MetaWorld robotics environments.
 
-IMPORTANT: Observations are LIMITED to prevent overfitting:
-- Proprioceptive: End-effector XYZ position + gripper state (4 values)
-- Visual: RGB camera images from corner cameras (base64 encoded)
+IMPORTANT: Observations follow the canonical interface:
+- Proprioceptive: ee_pos_m, ee_quat_xyzw, ee_lin_vel_mps, ee_ang_vel_rps, gripper_01
+- Visual: RGB camera images from corner cameras (nested lists)
 - Object positions are NOT exposed - you must learn from visual input!
 """
 
-import base64
-import io
 import os
 from typing import Any
 
 import numpy as np
 
+from kinitro.rl_interface import CanonicalAction
 
-def decode_image(b64_string: str) -> np.ndarray:
-    """Decode base64 PNG string to numpy array."""
-    from PIL import Image
 
-    buffer = io.BytesIO(base64.b64decode(b64_string))
-    img = Image.open(buffer)
-    return np.array(img)
+def decode_image_array(array_data: list) -> np.ndarray:
+    """Decode nested list image data to numpy array."""
+    return np.array(array_data)
 
 
 class RobotActor:
@@ -44,14 +44,18 @@ class RobotActor:
     called for each timestep.
 
     Observation format (dict):
-        - end_effector_pos: [x, y, z] - Robot end-effector position
-        - gripper_state: float - Gripper open/close (0=closed, 1=open)
-        - camera_images: dict[str, str] - Camera views as base64 PNGs
+        - ee_pos_m: [x, y, z]
+        - ee_quat_xyzw: [qx, qy, qz, qw]
+        - ee_lin_vel_mps: [vx, vy, vz]
+        - ee_ang_vel_rps: [wx, wy, wz]
+        - gripper_01: float in [0, 1]
+        - rgb: dict[str, list] - Camera views as nested lists
             - "corner": First corner camera view (84x84 RGB)
             - "corner2": Second corner camera view (84x84 RGB)
 
-    Action format (list[float]):
-        - MetaWorld: 4 values [dx, dy, dz, gripper] in range [-1, 1]
+    Action format (dict):
+        - twist_ee_norm: [vx, vy, vz, wx, wy, wz] in [-1, 1]
+        - gripper_01: float in [0, 1]
     """
 
     def __init__(self):
@@ -68,11 +72,6 @@ class RobotActor:
         self.policy = None
         self.current_env = None
         self.current_task = None
-
-        # Track action dimensions per environment
-        self._action_dims = {
-            "metaworld": 4,
-        }
 
         # Image preprocessing settings
         self._image_size = (84, 84)
@@ -101,48 +100,45 @@ class RobotActor:
         # Example: You might want to condition your policy on the task
         # self.task_embedding = self.encode_task(task_config)
 
-    async def act(self, observation: dict[str, Any]) -> list[float]:
+    async def act(self, observation: dict[str, Any]) -> dict[str, Any]:
         """
         Get action for current observation.
 
         This is called every timestep. You have ~100ms to respond.
 
         Args:
-            observation: Dict containing:
-                - end_effector_pos: [x, y, z] - Robot end-effector position
-                - gripper_state: float - Gripper open/close state
-                - camera_images: dict[str, str] - Camera views as base64 PNGs
+            observation: Dict containing canonical observation fields
 
         Returns:
-            action: Flat list of floats (joint positions/velocities)
-                   Values should be in [-1, 1] range
+            action: Dict containing twist_ee_norm and gripper_01 (CanonicalAction)
         """
-        # Extract proprioceptive observations
-        end_effector_pos = np.array(observation["end_effector_pos"], dtype=np.float32)
-        gripper_state = float(observation["gripper_state"])
-        _proprio = np.concatenate([end_effector_pos, [gripper_state]])  # noqa: F841
+        ee_pos = np.array(observation["ee_pos_m"], dtype=np.float32)
+        ee_quat = np.array(observation["ee_quat_xyzw"], dtype=np.float32)
+        ee_lin_vel = np.array(observation["ee_lin_vel_mps"], dtype=np.float32)
+        ee_ang_vel = np.array(observation["ee_ang_vel_rps"], dtype=np.float32)
+        gripper_state = float(observation["gripper_01"])
+        _proprio = np.concatenate([ee_pos, ee_quat, ee_lin_vel, ee_ang_vel, [gripper_state]])
 
-        # Extract camera images (if available)
-        camera_images = observation.get("camera_images", {})
+        camera_images = observation.get("rgb", {})
         images = {}
-        for cam_name, b64_img in camera_images.items():
-            if b64_img:
-                images[cam_name] = decode_image(b64_img)
+        for cam_name, img_data in camera_images.items():
+            if img_data is not None:
+                images[cam_name] = decode_image_array(img_data)
+
+        _ = images
 
         # =====================================================
         # REPLACE THIS WITH YOUR POLICY
         # =====================================================
 
-        # Determine action dimension based on environment
-        action_dim = self._action_dims.get(self.current_env, 4)
-
-        # Example: Random policy (replace with your trained policy!)
-        # action = self.policy(proprio, images)
-        action = np.random.uniform(-1, 1, size=action_dim)
+        twist = np.random.uniform(-1, 1, size=6)
+        gripper = float(np.random.uniform(0, 1))
 
         # =====================================================
 
-        return action.tolist()
+        return CanonicalAction(twist_ee_norm=twist.tolist(), gripper_01=gripper).model_dump(
+            mode="python"
+        )
 
     async def cleanup(self) -> None:
         """

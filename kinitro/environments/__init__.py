@@ -2,7 +2,7 @@
 Robotics environment registry and utilities.
 
 Provides a unified interface for loading and interacting with various
-robotics simulation environments (MetaWorld, DM Control, ManiSkill).
+robotics simulation environments (MetaWorld, ProcTHOR, DM Control, ManiSkill).
 """
 
 from kinitro.environments.base import EpisodeResult, RoboticsEnvironment, TaskConfig

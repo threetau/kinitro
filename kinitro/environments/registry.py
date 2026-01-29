@@ -23,6 +23,17 @@ def _make_metaworld_env(task: str) -> EnvFactory:
     return factory
 
 
+def _make_procthor_env(task: str) -> EnvFactory:
+    """Create factory for ProcTHOR procedural environment."""
+
+    def factory() -> RoboticsEnvironment:
+        from kinitro.environments.procthor import ProcTHOREnvironment
+
+        return ProcTHOREnvironment(task_name=task)
+
+    return factory
+
+
 # ===========================================================================
 # ENVIRONMENT REGISTRY
 # ===========================================================================
@@ -42,6 +53,11 @@ ENVIRONMENTS: dict[str, EnvFactory] = {
     "metaworld/drawer-close-v3": _make_metaworld_env("drawer-close-v3"),
     "metaworld/button-press-v3": _make_metaworld_env("button-press-topdown-v3"),
     "metaworld/peg-insert-v3": _make_metaworld_env("peg-insert-side-v3"),
+    # =========================================================================
+    # PROCEDURAL EMBODIED AI (ProcTHOR)
+    # Scene-grounded tasks in procedurally generated houses
+    # =========================================================================
+    "procthor/v0": _make_procthor_env("procthor-v0"),
 }
 
 
@@ -87,12 +103,12 @@ def get_environments_by_family(family: str) -> list[str]:
 
 def get_available_families() -> list[str]:
     """Get list of available environment families."""
-    return ["metaworld"]
+    return ["metaworld", "procthor"]
 
 
 def is_family_available(family: str) -> bool:
     """Check if an environment family is available."""
-    return family == "metaworld"
+    return family in {"metaworld", "procthor"}
 
 
 def register_environment(env_id: str, factory: EnvFactory) -> None:

@@ -5,14 +5,16 @@ This is where you implement your robotics policy.
 The RobotPolicy class is imported by the server and called during evaluation.
 
 Your policy receives:
-- Proprioceptive observations: end-effector position + gripper state
+- Canonical observation: ee_pos_m, ee_quat_xyzw, ee_lin_vel_mps, ee_ang_vel_rps, gripper_01
 - Camera images (optional): RGB images from multiple viewpoints
 
 Your policy returns:
-- Action: 4D numpy array with values in [-1, 1]
+- Canonical action: twist_ee_norm (6 values) + gripper_01
 """
 
 import uuid
+
+from kinitro.rl_interface import CanonicalAction, CanonicalObservation
 
 
 class RobotPolicy:
@@ -21,7 +23,7 @@ class RobotPolicy:
 
     Implement the following methods:
     - reset(): Called at the start of each episode
-    - act(): Called every timestep to get action
+    - act(): Called every timestep to get action (CanonicalObservation in, CanonicalAction out)
     """
 
     def __init__(self):
@@ -41,17 +43,15 @@ class RobotPolicy:
         self._episode_id = uuid.uuid4().hex
         return self._episode_id
 
-    async def act(self, observation, images=None, seed=None):
+    async def act(self, observation: CanonicalObservation):
         """
         Get action for current observation.
 
         Args:
-            observation: numpy array of proprioceptive state
-            images: optional dict of camera images
-            seed: optional seed for deterministic inference (used for verification)
+            observation: Canonical observation with proprioception and optional images
 
         Returns:
-            Action as list or numpy array (4D for MetaWorld)
+            CanonicalAction
         """
         # TODO: Replace with your policy inference
         # Example:
@@ -64,7 +64,9 @@ class RobotPolicy:
         # Default: random action (seed is already set by server if provided)
         import numpy as np
 
-        return np.random.uniform(-1, 1, size=4).astype(np.float32)
+        twist = np.random.uniform(-1, 1, size=6)
+        gripper = float(np.random.uniform(0, 1))
+        return CanonicalAction(twist_ee_norm=twist.tolist(), gripper_01=gripper)
 
     async def cleanup(self):
         """Called on shutdown. Override to release resources."""
