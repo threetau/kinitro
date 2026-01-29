@@ -101,14 +101,32 @@ def get_environments_by_family(family: str) -> list[str]:
     return [env_id for env_id in ENVIRONMENTS if env_id.startswith(f"{family}/")]
 
 
+# Family metadata for display purposes
+FAMILY_METADATA: dict[str, dict[str, str]] = {
+    "metaworld": {
+        "name": "METAWORLD",
+        "description": "Manipulation",
+    },
+    "procthor": {
+        "name": "PROCTHOR",
+        "description": "Embodied AI",
+    },
+}
+
+
 def get_available_families() -> list[str]:
     """Get list of available environment families."""
-    return ["metaworld", "procthor"]
+    return list(FAMILY_METADATA.keys())
+
+
+def get_family_metadata(family: str) -> dict[str, str] | None:
+    """Get display metadata for a family (name, description)."""
+    return FAMILY_METADATA.get(family)
 
 
 def is_family_available(family: str) -> bool:
     """Check if an environment family is available."""
-    return family in {"metaworld", "procthor"}
+    return family in FAMILY_METADATA
 
 
 def register_environment(env_id: str, factory: EnvFactory) -> None:

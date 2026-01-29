@@ -529,17 +529,30 @@ def validate(
 @app.command()
 def list_envs():
     """List all available robotics environments."""
-    from kinitro.environments.registry import get_all_environment_ids
+    from kinitro.environments.registry import (
+        get_all_environment_ids,
+        get_available_families,
+        get_environments_by_family,
+        get_family_metadata,
+    )
+
+    all_envs = get_all_environment_ids()
 
     typer.echo("Available Robotics Environments:\n")
 
-    typer.echo("  METAWORLD (Manipulation):")
-    for env_id in get_all_environment_ids():
-        typer.echo(f"    - {env_id}")
+    for family in get_available_families():
+        envs = get_environments_by_family(family)
+        if envs:
+            metadata = get_family_metadata(family)
+            label = (
+                f"{metadata['name']} ({metadata['description']})" if metadata else family.upper()
+            )
+            typer.echo(f"  {label}:")
+            for env_id in envs:
+                typer.echo(f"    - {env_id}")
+            typer.echo()
 
-    typer.echo()
-    total = len(get_all_environment_ids())
-    typer.echo(f"Total: {total} environments available")
+    typer.echo(f"Total: {len(all_envs)} environments available")
 
 
 # =============================================================================
