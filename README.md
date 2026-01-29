@@ -4,7 +4,7 @@ A Bittensor subnet for evaluating generalist robotics policies across diverse si
 
 ## Overview
 
-This subnet incentivizes the development of **generalist robotics policies** - AI systems that can control robots across multiple different tasks and environments. Unlike narrow RL policies trained for single tasks, miners must submit policies that perform well across multiple **MetaWorld manipulation tasks**: pick-and-place, pushing, drawer opening, button pressing, and more.
+This subnet incentivizes the development of **generalist robotics policies** - AI systems that can control robots across multiple different tasks and environments. Unlike narrow RL policies trained for single tasks, miners must submit policies that perform well across a diverse set of simulated robotics environments.
 
 Only policies that **generalize across ALL environments** earn rewards, using ε-Pareto dominance scoring.
 
@@ -195,8 +195,9 @@ docker run -d --name kinitro-postgres \
   -e POSTGRES_USER=kinitro -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=kinitro \
   -p 5432:5432 postgres:15
 
-# 2. Build the evaluation environment
-uv run kinitro build-eval-env --tag kinitro/eval-env:v1
+# 2. Build the evaluation environment images
+uv run kinitro build-env metaworld --tag kinitro/metaworld:v1
+uv run kinitro build-env procthor --tag kinitro/procthor:v1
 
 # 3. Initialize database
 uv run kinitro db init --database-url postgresql://kinitro:secret@localhost/kinitro
@@ -237,14 +238,22 @@ The API service exposes these endpoints:
 
 ### MetaWorld (Manipulation)
 
-- `metaworld/pick-place-v3`
-- `metaworld/push-v3`
-- `metaworld/drawer-open-v3`
-- `metaworld/peg-insert-v3`
-- `metaworld/reach-v3`
-- `metaworld/door-open-v3`
-- `metaworld/drawer-close-v3`
-- `metaworld/button-press-v3`
+MuJoCo-based robot arm manipulation tasks:
+
+- `metaworld/reach-v3` - Move end-effector to target position
+- `metaworld/push-v3` - Push object to goal location
+- `metaworld/pick-place-v3` - Pick up object and place at target
+- `metaworld/door-open-v3` - Open a door
+- `metaworld/drawer-open-v3` - Open a drawer
+- `metaworld/drawer-close-v3` - Close a drawer
+- `metaworld/button-press-v3` - Press a button from top-down
+- `metaworld/peg-insert-v3` - Insert peg into hole
+
+### ProcTHOR (Embodied AI)
+
+AI2-THOR procedural house environments for embodied AI tasks:
+
+- `procthor/v0` - Procedural house tasks (pickup, place, open, close, toggle)
 
 Use `kinitro list-envs` to see all available environments.
 

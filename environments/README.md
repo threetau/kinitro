@@ -22,10 +22,10 @@ environments/
 Use the `kinitro build-env` command to build environment-specific Docker images:
 
 ```bash
-# Build MetaWorld environment (~400MB image)
+# Build MetaWorld environment (~1GB image)
 kinitro build-env metaworld --tag kinitro/metaworld:v1
 
-# Build ProcTHOR environment (~1.5GB image)
+# Build ProcTHOR environment (~3GB image)
 kinitro build-env procthor --tag kinitro/procthor:v1
 
 # Build and push to registry
@@ -50,7 +50,7 @@ MuJoCo-based manipulation tasks for robot arm control.
 
 **Platform:** Works on any platform (Linux, macOS, Windows)
 
-**Image size:** ~400MB
+**Image size:** ~1GB
 
 ### ProcTHOR
 
@@ -67,7 +67,7 @@ AI2-THOR procedural house environments for embodied AI tasks.
 
 **Platform:** Requires native x86_64 Linux (does NOT work on ARM64 or under emulation)
 
-**Image size:** ~1.5GB
+**Image size:** ~3GB (includes pre-downloaded AI2-THOR binaries)
 
 ## Backend Configuration
 
@@ -81,16 +81,15 @@ eval_images:
 
 Or use a single image tag that gets automatically selected based on the `env_id` prefix.
 
-## Migration from eval-env/
+## Adding New Environment Families
 
-The old `eval-env/` directory contained a monolithic image with all environments. This has been deprecated in favor of the per-environment structure for:
+To add a new environment family:
 
-1. **Smaller images** - Only include dependencies you need
-2. **Faster builds** - Build only what you need
-3. **Better platform compatibility** - MetaWorld works everywhere, ProcTHOR is x86_64 Linux only
-4. **Cleaner separation** - Each environment is self-contained
+1. Create a new directory under `environments/` (e.g., `environments/myenv/`)
+2. Add `Dockerfile`, `env.py` (Actor class), and `requirements.txt`
+3. Register environments in `kinitro/environments/registry.py`:
+   - Add entries to `ENVIRONMENTS` dict
+   - Add metadata to `FAMILY_METADATA` dict
+4. Build with `kinitro build-env myenv --tag kinitro/myenv:v1`
 
-To migrate:
-1. Replace `kinitro build-eval-env` with `kinitro build-env <family>`
-2. Update your backend config to use per-family images
-3. The API remains the same - just the Docker images are different
+The CLI and list commands will automatically pick up the new family.
