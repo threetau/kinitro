@@ -17,7 +17,7 @@
 #   - nvidia-docker with CloudRendering (faster, requires NVIDIA GPU)
 #
 # Build with the kinitro CLI:
-#   kinitro build-env procthor --tag kinitro/procthor:v1
+#   kinitro env build procthor --tag kinitro/procthor:v1
 #
 # The CLI command copies the required kinitro/environments module into
 # this directory before building, then cleans up afterward.
@@ -92,7 +92,7 @@ build2.download(); \
 print(f'Downloaded nanna commit: {nanna_commit}'); \
 "
 
-# Copy the kinitro environments package (copied by build-env command)
+# Copy the kinitro environments package (copied by env build command)
 # This is a subset of the main kinitro package - only environments/ is needed
 COPY kinitro /app/kinitro
 

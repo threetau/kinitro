@@ -47,6 +47,7 @@ uv sync
 ### 2. Set Up PostgreSQL
 
 Option A - Docker (recommended):
+
 ```bash
 docker run -d \
   --name kinitro-postgres \
@@ -59,6 +60,7 @@ docker run -d \
 ```
 
 Option B - System PostgreSQL:
+
 ```bash
 sudo -u postgres createuser kinitro
 sudo -u postgres createdb kinitro -O kinitro
@@ -71,10 +73,10 @@ The evaluation runs in Docker containers managed by Affinetes. Build separate im
 
 ```bash
 # Build MetaWorld environment (~1GB image, works on any platform)
-uv run kinitro build-env metaworld --tag kinitro/metaworld:v1
+uv run kinitro env build metaworld --tag kinitro/metaworld:v1
 
 # Build ProcTHOR environment (~3GB image, requires x86_64 Linux)
-uv run kinitro build-env procthor --tag kinitro/procthor:v1
+uv run kinitro env build procthor --tag kinitro/procthor:v1
 ```
 
 Each image is self-contained with:
@@ -95,64 +97,110 @@ uv run kinitro db create --database-url postgresql://kinitro:your-secure-passwor
 uv run kinitro db init --database-url postgresql://kinitro:your-secure-password@localhost/kinitro
 ```
 
-### 5. Start the Backend
+### 5. Start the Backend Services
+
+The backend uses a split architecture with three services:
 
 ```bash
-uv run kinitro backend \
+# Terminal 1: API Service (stateless REST API)
+uv run kinitro api \
+  --database-url postgresql://kinitro:your-secure-password@localhost/kinitro
+
+# Terminal 2: Scheduler Service (task generation and scoring)
+uv run kinitro scheduler \
   --netuid YOUR_SUBNET_ID \
   --network finney \
   --database-url postgresql://kinitro:your-secure-password@localhost/kinitro \
   --eval-interval 3600 \
   --episodes-per-env 50
+
+# Terminal 3+: Executor Service(s) (run evaluations - can run multiple)
+uv run kinitro executor \
+  --api-url http://localhost:8000
 ```
 
-The backend will:
-- Start the FastAPI server on port 8000
-- Begin periodic evaluation cycles
-- Discover miners from chain commitments
-- Run evaluations in Docker containers
-- Store results in PostgreSQL
-- Expose weights via REST API
+The services work together:
+
+- **API**: Provides REST endpoints for validators and executors
+- **Scheduler**: Reads miner commitments, creates tasks, computes weights
+- **Executor**: Fetches tasks from API, runs evaluations in Docker containers
 
 ## Configuration
 
-### Command Line Options
+Each service (API, Scheduler, Executor) has its own configuration with service-specific environment variable prefixes.
 
-| Flag | Environment Variable | Default | Description |
-|------|----------------------|---------|-------------|
-| `--host` | `KINITRO_BACKEND_HOST` | `0.0.0.0` | API server bind address |
-| `--port` | `KINITRO_BACKEND_PORT` | `8000` | API server port |
-| `--database-url` | `KINITRO_BACKEND_DATABASE_URL` | - | PostgreSQL connection URL |
-| `--network` | `KINITRO_BACKEND_NETWORK` | `finney` | Bittensor network |
-| `--netuid` | `KINITRO_BACKEND_NETUID` | - | Subnet UID |
-| `--eval-interval` | `KINITRO_BACKEND_EVAL_INTERVAL_SECONDS` | `3600` | Seconds between eval cycles |
-| `--episodes-per-env` | `KINITRO_BACKEND_EPISODES_PER_ENV` | `50` | Episodes per environment |
-| `--log-level` | `KINITRO_BACKEND_LOG_LEVEL` | `INFO` | Logging level |
+### API Service Configuration
 
-### Advanced Settings (Environment Variables)
+| CLI Flag         | Environment Variable       | Default                    | Description               |
+| ---------------- | -------------------------- | -------------------------- | ------------------------- |
+| `--host`         | `KINITRO_API_HOST`         | `0.0.0.0`                  | API server bind address   |
+| `--port`         | `KINITRO_API_PORT`         | `8000`                     | API server port           |
+| `--database-url` | `KINITRO_API_DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection URL |
+| `--log-level`    | `KINITRO_API_LOG_LEVEL`    | `INFO`                     | Logging level             |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINITRO_BACKEND_EVAL_IMAGE_METAWORLD` | `kinitro/metaworld:v1` | Docker image for MetaWorld evaluation |
-| `KINITRO_BACKEND_EVAL_IMAGE_PROCTHOR` | `kinitro/procthor:v1` | Docker image for ProcTHOR evaluation |
-| `KINITRO_BACKEND_EVAL_MEM_LIMIT` | `8g` | Memory limit for eval container |
-| `KINITRO_BACKEND_ACTION_TIMEOUT_MS` | `100` | Timeout for miner responses |
-| `KINITRO_BACKEND_MAX_TIMESTEPS_PER_EPISODE` | `500` | Max steps per episode |
-| `KINITRO_BACKEND_PARETO_TEMPERATURE` | `1.0` | Softmax temperature for weights |
+Additional API settings:
+
+| Environment Variable                       | Default | Description                                  |
+| ------------------------------------------ | ------- | -------------------------------------------- |
+| `KINITRO_API_TASK_STALE_THRESHOLD_SECONDS` | `300`   | Time after which assigned tasks become stale |
+
+### Scheduler Service Configuration
+
+| CLI Flag             | Environment Variable                      | Default                    | Description                 |
+| -------------------- | ----------------------------------------- | -------------------------- | --------------------------- |
+| `--database-url`     | `KINITRO_SCHEDULER_DATABASE_URL`          | `postgresql+asyncpg://...` | PostgreSQL connection URL   |
+| `--network`          | `KINITRO_SCHEDULER_NETWORK`               | `finney`                   | Bittensor network           |
+| `--netuid`           | `KINITRO_SCHEDULER_NETUID`                | `1`                        | Subnet UID                  |
+| `--eval-interval`    | `KINITRO_SCHEDULER_EVAL_INTERVAL_SECONDS` | `3600`                     | Seconds between eval cycles |
+| `--episodes-per-env` | `KINITRO_SCHEDULER_EPISODES_PER_ENV`      | `50`                       | Episodes per environment    |
+| `--log-level`        | `KINITRO_SCHEDULER_LOG_LEVEL`             | `INFO`                     | Logging level               |
+
+Additional Scheduler settings:
+
+| Environment Variable                             | Default | Description                                  |
+| ------------------------------------------------ | ------- | -------------------------------------------- |
+| `KINITRO_SCHEDULER_PARETO_TEMPERATURE`           | `1.0`   | Softmax temperature for weight conversion    |
+| `KINITRO_SCHEDULER_TASK_STALE_THRESHOLD_SECONDS` | `300`   | Time after which assigned tasks become stale |
+| `KINITRO_SCHEDULER_CYCLE_TIMEOUT_SECONDS`        | `7200`  | Maximum time to wait for cycle completion    |
+
+### Executor Service Configuration
+
+| CLI Flag          | Environment Variable                     | Default                 | Description                             |
+| ----------------- | ---------------------------------------- | ----------------------- | --------------------------------------- |
+| `--api-url`       | `KINITRO_EXECUTOR_API_URL`               | `http://localhost:8000` | URL of the Kinitro API service          |
+| `--batch-size`    | `KINITRO_EXECUTOR_BATCH_SIZE`            | `10`                    | Number of tasks to fetch at a time      |
+| `--poll-interval` | `KINITRO_EXECUTOR_POLL_INTERVAL_SECONDS` | `5`                     | Seconds between polling for tasks       |
+| `--eval-image`    | `KINITRO_EXECUTOR_EVAL_IMAGE`            | `kinitro/eval-env:v1`   | Docker image for evaluation             |
+| `--eval-mode`     | `KINITRO_EXECUTOR_EVAL_MODE`             | `docker`                | Evaluation mode: 'docker' or 'basilica' |
+| `--log-level`     | `KINITRO_EXECUTOR_LOG_LEVEL`             | `INFO`                  | Logging level                           |
+
+Additional Executor settings:
+
+| Environment Variable              | Default             | Description                                 |
+| --------------------------------- | ------------------- | ------------------------------------------- |
+| `KINITRO_EXECUTOR_EXECUTOR_ID`    | `executor-<random>` | Unique identifier for this executor         |
+| `KINITRO_EXECUTOR_ENV_IDS`        | `null`              | Filter tasks by environment IDs (JSON list) |
+| `KINITRO_EXECUTOR_EVAL_MEM_LIMIT` | `8g`                | Memory limit for evaluation container       |
+| `KINITRO_EXECUTOR_EVAL_HOSTS`     | `["localhost"]`     | Docker hosts for evaluation (JSON list)     |
+| `KINITRO_EXECUTOR_MAX_TIMESTEPS`  | `500`               | Maximum timesteps per episode               |
+| `KINITRO_EXECUTOR_ACTION_TIMEOUT` | `0.5`               | Timeout for miner responses (seconds)       |
+| `KINITRO_EXECUTOR_EVAL_TIMEOUT`   | `300`               | Timeout for individual evaluation (seconds) |
+| `KINITRO_EXECUTOR_USE_IMAGES`     | `true`              | Include camera images in observations       |
 
 ### Executor Verification Settings
 
 The executor can perform spot-check verification to ensure miners' Basilica deployments match their HuggingFace uploads. This detects miners running modified code.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINITRO_EXECUTOR_VERIFICATION_ENABLED` | `false` | Enable spot-check verification |
-| `KINITRO_EXECUTOR_VERIFICATION_RATE` | `0.05` | Probability of verifying each miner (0.0-1.0) |
-| `KINITRO_EXECUTOR_VERIFICATION_TOLERANCE` | `0.001` | Tolerance for comparing action outputs |
-| `KINITRO_EXECUTOR_VERIFICATION_SAMPLES` | `5` | Number of test observations per verification |
-| `KINITRO_EXECUTOR_VERIFICATION_MAX_REPO_SIZE_GB` | `5.0` | Maximum HuggingFace repo size to download |
+| Variable                                         | Default | Description                                   |
+| ------------------------------------------------ | ------- | --------------------------------------------- |
+| `KINITRO_EXECUTOR_VERIFICATION_ENABLED`          | `false` | Enable spot-check verification                |
+| `KINITRO_EXECUTOR_VERIFICATION_RATE`             | `0.05`  | Probability of verifying each miner (0.0-1.0) |
+| `KINITRO_EXECUTOR_VERIFICATION_TOLERANCE`        | `0.001` | Tolerance for comparing action outputs        |
+| `KINITRO_EXECUTOR_VERIFICATION_SAMPLES`          | `5`     | Number of test observations per verification  |
+| `KINITRO_EXECUTOR_VERIFICATION_MAX_REPO_SIZE_GB` | `5.0`   | Maximum HuggingFace repo size to download     |
 
 When verification is enabled, the executor will:
+
 1. Randomly select miners based on `VERIFICATION_RATE`
 2. Download their policy from HuggingFace
 3. Run local inference with deterministic seeds
@@ -168,6 +216,7 @@ The backend exposes a REST API that validators use to fetch weights.
 ### Health & Status
 
 #### `GET /health`
+
 Health check endpoint.
 
 ```json
@@ -175,6 +224,7 @@ Health check endpoint.
 ```
 
 #### `GET /v1/status`
+
 Current backend status.
 
 ```json
@@ -191,6 +241,7 @@ Current backend status.
 ### Weights (Used by Validators)
 
 #### `GET /v1/weights/latest`
+
 Get the latest computed weights.
 
 ```json
@@ -206,11 +257,13 @@ Get the latest computed weights.
 ```
 
 #### `GET /v1/weights/{block}`
+
 Get weights for a specific block.
 
 ### Scores
 
 #### `GET /v1/scores/latest`
+
 Get latest evaluation scores.
 
 ```json
@@ -233,11 +286,13 @@ Get latest evaluation scores.
 ```
 
 #### `GET /v1/scores/{cycle_id}`
+
 Get scores for a specific evaluation cycle.
 
 ### Miners
 
 #### `GET /v1/miners`
+
 List all discovered miners.
 
 ```json
@@ -257,6 +312,7 @@ List all discovered miners.
 ### Environments
 
 #### `GET /v1/environments`
+
 List enabled evaluation environments.
 
 ## Database Management
@@ -268,6 +324,7 @@ uv run kinitro db status --database-url postgresql://kinitro:pass@localhost/kini
 ```
 
 Shows:
+
 - Total evaluation cycles
 - Unique miners evaluated
 - Latest completed cycle info
@@ -318,10 +375,22 @@ services:
       retries: 5
     restart: always
 
-  backend:
+  api:
     build: .
     command: >
-      kinitro backend
+      kinitro api
+      --database-url postgresql://kinitro:${POSTGRES_PASSWORD}@postgres/kinitro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    restart: always
+
+  scheduler:
+    build: .
+    command: >
+      kinitro scheduler
       --netuid ${NETUID}
       --network ${NETWORK}
       --database-url postgresql://kinitro:${POSTGRES_PASSWORD}@postgres/kinitro
@@ -330,13 +399,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "8000:8000"
+    restart: always
+
+  executor:
+    build: .
+    command: >
+      kinitro executor
+      --api-url http://api:8000
+    depends_on:
+      api:
+        condition: service_started
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock  # Required for affinetes
-    environment:
-      - KINITRO_BACKEND_EVAL_IMAGE_METAWORLD=kinitro/metaworld:v1
-      - KINITRO_BACKEND_EVAL_IMAGE_PROCTHOR=kinitro/procthor:v1
     restart: always
 
 volumes:
@@ -344,6 +418,7 @@ volumes:
 ```
 
 Create `.env`:
+
 ```bash
 POSTGRES_PASSWORD=your-secure-password
 NETUID=123
@@ -353,27 +428,64 @@ EPISODES_PER_ENV=50
 ```
 
 Run:
+
 ```bash
 docker-compose -f docker-compose.backend.yml up -d
 ```
 
-### Systemd Service
+### Systemd Services
+
+Create separate services for each component:
 
 ```bash
-# /etc/systemd/system/kinitro-backend.service
+# /etc/systemd/system/kinitro-api.service
 [Unit]
-Description=Kinitro Subnet Backend
-After=network.target postgresql.service docker.service
+Description=Kinitro API Service
+After=network.target postgresql.service
 
 [Service]
 Type=simple
 User=kinitro
 WorkingDirectory=/opt/kinitro
-Environment=KINITRO_BACKEND_DATABASE_URL=postgresql://kinitro:password@localhost/kinitro
-ExecStart=/opt/kinitro/.venv/bin/python -m kinitro.cli backend \
+ExecStart=/opt/kinitro/.venv/bin/uv run kinitro api \
+  --database-url postgresql://kinitro:password@localhost/kinitro
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+
+# /etc/systemd/system/kinitro-scheduler.service
+[Unit]
+Description=Kinitro Scheduler Service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=kinitro
+WorkingDirectory=/opt/kinitro
+ExecStart=/opt/kinitro/.venv/bin/uv run kinitro scheduler \
   --netuid 123 \
   --network finney \
+  --database-url postgresql://kinitro:password@localhost/kinitro \
   --eval-interval 3600
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+
+# /etc/systemd/system/kinitro-executor.service
+[Unit]
+Description=Kinitro Executor Service
+After=network.target docker.service kinitro-api.service
+
+[Service]
+Type=simple
+User=kinitro
+WorkingDirectory=/opt/kinitro
+ExecStart=/opt/kinitro/.venv/bin/uv run kinitro executor \
+  --api-url http://localhost:8000
 Restart=always
 RestartSec=10
 
@@ -406,16 +518,18 @@ server {
 ### Logs
 
 ```bash
-# Increase verbosity
-uv run kinitro backend --log-level DEBUG ...
+# Increase verbosity (for any service)
+uv run kinitro scheduler --log-level DEBUG ...
+uv run kinitro api --log-level DEBUG ...
 
 # View structured logs
-uv run kinitro backend ... 2>&1 | jq .
+uv run kinitro scheduler ... 2>&1 | jq .
 ```
 
 ### Prometheus Metrics
 
 The backend exposes metrics at `/metrics`:
+
 - `kinitro_eval_cycles_total` - Total evaluation cycles
 - `kinitro_eval_duration_seconds` - Evaluation duration histogram
 - `kinitro_miners_active` - Currently active miners
@@ -437,6 +551,7 @@ curl http://localhost:8000/v1/status
 ### Alerting
 
 Monitor these conditions:
+
 - Backend health endpoint returns non-200
 - No new evaluation cycles in 2x eval_interval
 - Database connection failures
@@ -445,34 +560,40 @@ Monitor these conditions:
 ## Troubleshooting
 
 ### "Database connection failed"
+
 - Check PostgreSQL is running: `docker ps` or `systemctl status postgresql`
 - Verify connection URL format: `postgresql://user:pass@host:port/dbname`
 - Check network connectivity
 
 ### "Failed to build eval container"
+
 - Ensure Docker is running: `docker ps`
 - Check Docker socket permissions: `ls -la /var/run/docker.sock`
 - Verify environment images exist: `docker images | grep kinitro`
 - For ProcTHOR: ensure you're on native x86_64 Linux (not ARM64 or emulated)
 
 ### "No miners found"
+
 - Check subnet has registered miners: `btcli subnet list --netuid YOUR_NETUID`
 - Verify miners have valid commitments
 - Check chain connectivity
 
 ### Evaluation taking too long
+
 - Reduce `--episodes-per-env`
 - Check miner endpoint latency
 - Consider using GPU for simulation
 - Review container resource limits
 
 ### "Container failed to start"
+
 - Check Docker logs: `docker logs <container_id>`
 - Verify image exists: `docker images | grep kinitro`
 - Check memory limits aren't too restrictive
 - Ensure Docker socket is accessible
 
 ### Memory issues
+
 - Increase `KINITRO_BACKEND_EVAL_MEM_LIMIT`
 - Monitor container memory: `docker stats`
 - Consider running fewer concurrent evaluations
@@ -480,15 +601,15 @@ Monitor these conditions:
 ## Security Considerations
 
 1. **Database**: Use strong passwords, restrict network access, enable SSL
-2. **Backend API**: 
+2. **Backend API**:
    - Consider adding authentication for sensitive endpoints
    - Use TLS (HTTPS) in production
    - Rate limit API endpoints
-3. **Docker**: 
+3. **Docker**:
    - Limit container privileges
    - Use non-root user in containers
    - Restrict Docker socket access
-4. **Network**: 
+4. **Network**:
    - Use firewall rules
    - Only expose port 8000 (or via reverse proxy)
 
@@ -497,6 +618,7 @@ Monitor these conditions:
 ### Horizontal Scaling
 
 For high miner counts, run multiple evaluation workers:
+
 - Use a job queue (Redis, RabbitMQ) for evaluation tasks
 - Run multiple backend instances with shared database
 - Load balance API requests
@@ -504,6 +626,7 @@ For high miner counts, run multiple evaluation workers:
 ### GPU Acceleration
 
 For faster simulation:
+
 - Use NVIDIA Docker runtime
 - Set `MUJOCO_GL=egl` for headless rendering
 - Allocate GPU to eval containers

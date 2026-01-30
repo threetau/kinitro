@@ -7,7 +7,7 @@ uvicorn>=0.34.0
 pydantic>=2.0.0
 
 # Basilica SDK (for Basilica deployment)
-# Note: When deploying to Basilica, use kinitro basilica-push
+# Note: When deploying to Basilica, use kinitro miner push
 # basilica-sdk>=0.1.0
 
 # ML frameworks - uncomment as needed for your policy

@@ -22,36 +22,69 @@ services:
       retries: 5
 
   # ==========================================================================
-  # EVALUATION BACKEND
+  # API SERVICE
   # ==========================================================================
-  backend:
+  api:
     build:
       context: .
       dockerfile: Dockerfile
     command: >
-      kinitro backend
+      kinitro api
       --host 0.0.0.0
       --port 8000
       --database-url postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-kinitro}
-      --network ${NETWORK:-finney}
-      --netuid ${NETUID}
-      --eval-interval ${EVAL_INTERVAL:-3600}
-      --episodes-per-env ${EPISODES_PER_ENV:-50}
       --log-level ${LOG_LEVEL:-INFO}
     environment:
-      - KINITRO_BACKEND_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-kinitro}
-      - KINITRO_BACKEND_NETWORK=${NETWORK:-finney}
-      - KINITRO_BACKEND_NETUID=${NETUID}
-      - KINITRO_BACKEND_BASILICA_API_TOKEN=${BASILICA_API_TOKEN:-}
-      - MUJOCO_GL=egl
-    volumes:
-      # Mount Docker socket for Basilica local mode
-      - /var/run/docker.sock:/var/run/docker.sock
+      - KINITRO_API_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-kinitro}
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+
+  # ==========================================================================
+  # SCHEDULER SERVICE
+  # ==========================================================================
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      kinitro scheduler
+      --database-url postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-kinitro}
+      --network ${NETWORK:-finney}
+      --netuid ${NETUID:-26}
+      --eval-interval ${EVAL_INTERVAL:-3600}
+      --episodes-per-env ${EPISODES_PER_ENV:-50}
+      --log-level ${LOG_LEVEL:-INFO}
+    environment:
+      - KINITRO_SCHEDULER_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-kinitro}
+      - KINITRO_SCHEDULER_NETWORK=${NETWORK:-finney}
+      - KINITRO_SCHEDULER_NETUID=${NETUID}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ==========================================================================
+  # EXECUTOR SERVICE
+  # ==========================================================================
+  executor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      kinitro executor
+      --api-url http://api:8000
+      --log-level ${LOG_LEVEL:-INFO}
+    environment:
+      - MUJOCO_GL=egl
+    volumes:
+      # Mount Docker socket for affinetes
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - api
     restart: unless-stopped
     deploy:
       resources:
@@ -73,7 +106,7 @@ services:
       dockerfile: Dockerfile
     command: >
       kinitro validate
-      --backend-url http://backend:8000
+      --backend-url http://api:8000
       --network ${NETWORK:-finney}
       --netuid ${NETUID}
       --wallet-name ${WALLET_NAME:-default}
@@ -88,7 +121,7 @@ services:
       # Mount wallet for signing
       - ${HOME}/.bittensor:/root/.bittensor:ro
     depends_on:
-      - backend
+      - api
     restart: unless-stopped
     deploy:
       resources:

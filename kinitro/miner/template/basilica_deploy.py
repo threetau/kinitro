@@ -10,7 +10,7 @@ DEPLOYMENT OPTIONS:
     BASILICA_API_TOKEN=... HF_REPO=user/policy HF_REVISION=abc123 python basilica_deploy.py
 
 2. Using kinitro CLI (recommended):
-    kinitro basilica-push --repo user/policy --revision abc123
+    kinitro miner push --repo user/policy --revision abc123
 
 After deployment, commit your policy on-chain:
     kinitro commit --endpoint YOUR_DEPLOYMENT_URL --netuid YOUR_NETUID
