@@ -20,7 +20,13 @@ def scores_to_weights(
 
     Returns:
         Dict mapping uid -> normalized weight (sums to 1)
+
+    Raises:
+        ValueError: If temperature is not positive
     """
+    if temperature <= 0:
+        raise ValueError("temperature must be > 0")
+
     if not scores:
         return {}
 
@@ -48,7 +54,7 @@ def scores_to_weights(
             weights = weights * scale + min_weight
         # else: min_weight too high, just normalize
 
-    return {uid: float(w) for uid, w in zip(uids, weights)}
+    return {uid: float(w) for uid, w in zip(uids, weights, strict=True)}
 
 
 def find_subset_winner_with_priority(
