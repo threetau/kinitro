@@ -1,37 +1,33 @@
 """
-Affinetes-compatible robotics evaluation environment.
+Affinetes-compatible MetaWorld evaluation environment.
 
 This Actor class runs inside an affinetes-managed container and:
-1. Manages robotics simulation (MetaWorld/MuJoCo, ProcTHOR/AI2-THOR)
+1. Manages MuJoCo/MetaWorld robotics simulation
 2. Queries miner policy endpoints (on Basilica or self-hosted) for actions
 3. Returns evaluation scores
 
 Supported environments:
-- metaworld/*: MuJoCo-based manipulation tasks (pick-place, push, etc.)
-- procthor/*: AI2-THOR procedural house tasks (pickup, open, toggle, etc.)
+- metaworld/reach-v3: Move end-effector to target position
+- metaworld/push-v3: Push object to goal location
+- metaworld/pick-place-v3: Pick up object and place at target
+- metaworld/door-open-v3: Open a door
+- metaworld/drawer-open-v3: Open a drawer
+- metaworld/drawer-close-v3: Close a drawer
+- metaworld/button-press-v3: Press a button from top-down
+- metaworld/peg-insert-v3: Insert peg into hole
 
 Usage (from backend):
     import affinetes as af_env
 
-    env = af_env.load_env(image="kinitro/eval-env:v1")
+    env = af_env.load_env(image="kinitro/metaworld:v1")
 
-    # MetaWorld evaluation
     result = await env.evaluate(
         task_id=123,
         base_url="https://xxx.deployments.basilica.ai",
         env_id="metaworld/pick-place-v3"
     )
-
-    # ProcTHOR evaluation
-    result = await env.evaluate(
-        task_id=456,
-        base_url="https://xxx.deployments.basilica.ai",
-        env_id="procthor/v0"
-    )
 """
 
-import os
-import subprocess
 import time
 
 import httpx
@@ -46,46 +42,9 @@ from kinitro.rl_interface import CanonicalAction
 logger = structlog.get_logger()
 
 
-def _start_xvfb_early():
-    """
-    Start Xvfb early at module load time to speed up AI2-THOR initialization.
-
-    This runs once when the container starts, before any evaluations.
-    """
-    display = os.environ.get("DISPLAY", ":99")
-
-    # Check if X server is already running
-    try:
-        result = subprocess.run(
-            ["xdpyinfo", "-display", display],
-            capture_output=True,
-            timeout=2,
-        )
-        if result.returncode == 0:
-            return  # Already running
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-
-    # Start Xvfb
-    try:
-        subprocess.Popen(
-            ["Xvfb", display, "-screen", "0", "1024x768x24", "-ac"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        logger.info("xvfb_started", display=display)
-        time.sleep(0.5)  # Brief wait for Xvfb to initialize
-    except FileNotFoundError:
-        pass  # Xvfb not installed (maybe on non-Linux)
-
-
-# Start Xvfb at import time for faster AI2-THOR startup
-_start_xvfb_early()
-
-
 class Actor:
     """
-    Robotics evaluation actor for affinetes.
+    MetaWorld evaluation actor for affinetes.
 
     Runs MuJoCo/MetaWorld simulation and queries miner policy endpoints
     to get actions, matching the Affine (SN120) evaluation pattern.
@@ -132,8 +91,8 @@ class Actor:
             return resp.json()
 
     async def list_environments(self) -> list[str]:
-        """List available robotics environments."""
-        return get_all_environment_ids()
+        """List available MetaWorld environments."""
+        return [env_id for env_id in get_all_environment_ids() if env_id.startswith("metaworld/")]
 
     async def evaluate(
         self,
@@ -149,12 +108,12 @@ class Actor:
         **kwargs,
     ) -> dict:
         """
-        Evaluate a miner's policy on a robotics task.
+        Evaluate a miner's policy on a MetaWorld task.
 
         This method:
         1. Resets the simulation environment
         2. Calls the miner's /reset endpoint
-        3. Loops: get observation → call miner's /act → step simulation
+        3. Loops: get observation -> call miner's /act -> step simulation
         4. Returns success/failure score
 
         Args:
@@ -178,6 +137,16 @@ class Actor:
             - extra: Additional metrics and metadata
             - error: Error message if evaluation failed
         """
+        # Validate env_id is a metaworld environment
+        if not env_id.startswith("metaworld/"):
+            return self._build_error_result(
+                env_id=env_id,
+                task_id=task_id,
+                seed=seed or task_id,
+                start_time=time.time(),
+                error=f"Invalid env_id for MetaWorld container: {env_id}. Must start with 'metaworld/'",
+            )
+
         if base_url is None:
             raise ValueError("base_url (miner endpoint) is required")
 
@@ -187,9 +156,6 @@ class Actor:
         start_time = time.time()
 
         try:
-            # Don't use asyncio.wait_for as it can cause event loop binding issues
-            # when called from affinetes' HTTP server context. Instead, we rely on
-            # individual HTTP call timeouts and the max_timesteps limit.
             return await self._run_evaluation(
                 task_id=task_id,
                 seed=seed,

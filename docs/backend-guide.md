@@ -65,18 +65,24 @@ sudo -u postgres createdb kinitro -O kinitro
 sudo -u postgres psql -c "ALTER USER kinitro PASSWORD 'your-secure-password';"
 ```
 
-### 3. Build the Evaluation Environment
+### 3. Build the Evaluation Environment Images
 
-The evaluation runs in Docker containers managed by Affinetes:
+The evaluation runs in Docker containers managed by Affinetes. Build separate images for each environment family:
 
 ```bash
-uv run kinitro build-eval-env --tag kinitro/eval-env:v1
+# Build MetaWorld environment (~1GB image, works on any platform)
+uv run kinitro build-env metaworld --tag kinitro/metaworld:v1
+
+# Build ProcTHOR environment (~3GB image, requires x86_64 Linux)
+uv run kinitro build-env procthor --tag kinitro/procthor:v1
 ```
 
-This builds a self-contained image with:
-- MuJoCo and MetaWorld simulation
+Each image is self-contained with:
+- Simulation engine (MuJoCo for MetaWorld, ProcTHOR renderer on AI2-THOR framework)
 - HTTP client for calling miner endpoints
-- All environment wrappers
+- Environment wrappers and dependencies
+
+**Note**: ProcTHOR requires native x86_64 Linux and will not work on ARM64 or under emulation.
 
 ### 4. Initialize the Database
 
@@ -126,7 +132,8 @@ The backend will:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KINITRO_BACKEND_EVAL_IMAGE` | `kinitro/eval-env:v1` | Docker image for evaluation |
+| `KINITRO_BACKEND_EVAL_IMAGE_METAWORLD` | `kinitro/metaworld:v1` | Docker image for MetaWorld evaluation |
+| `KINITRO_BACKEND_EVAL_IMAGE_PROCTHOR` | `kinitro/procthor:v1` | Docker image for ProcTHOR evaluation |
 | `KINITRO_BACKEND_EVAL_MEM_LIMIT` | `8g` | Memory limit for eval container |
 | `KINITRO_BACKEND_ACTION_TIMEOUT_MS` | `100` | Timeout for miner responses |
 | `KINITRO_BACKEND_MAX_TIMESTEPS_PER_EPISODE` | `500` | Max steps per episode |
@@ -327,7 +334,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock  # Required for affinetes
     environment:
-      - KINITRO_BACKEND_EVAL_IMAGE=kinitro/eval-env:v1
+      - KINITRO_BACKEND_EVAL_IMAGE_METAWORLD=kinitro/metaworld:v1
+      - KINITRO_BACKEND_EVAL_IMAGE_PROCTHOR=kinitro/procthor:v1
     restart: always
 
 volumes:
@@ -443,7 +451,8 @@ Monitor these conditions:
 ### "Failed to build eval container"
 - Ensure Docker is running: `docker ps`
 - Check Docker socket permissions: `ls -la /var/run/docker.sock`
-- Verify eval-env image exists: `docker images | grep eval-env`
+- Verify environment images exist: `docker images | grep kinitro`
+- For ProcTHOR: ensure you're on native x86_64 Linux (not ARM64 or emulated)
 
 ### "No miners found"
 - Check subnet has registered miners: `btcli subnet list --netuid YOUR_NETUID`
