@@ -22,6 +22,7 @@ This guide explains how to run a validator for Kinitro. Validators are **lightwe
 ```
 
 The backend handles all the heavy computation (running simulations, evaluating miners). Your validator just needs to:
+
 1. Fetch the latest weights from the backend API
 2. Submit those weights to the Bittensor chain
 
@@ -56,6 +57,7 @@ uv run kinitro validate \
 Replace `BACKEND_URL` with the official backend endpoint (provided by subnet owner).
 
 That's it! The validator will:
+
 - Poll the backend for latest weights
 - Submit weights to the Bittensor chain
 - Handle errors and retries automatically
@@ -99,6 +101,7 @@ WantedBy=multi-user.target
 ```
 
 Enable and start:
+
 ```bash
 sudo systemctl enable kinitro-validator
 sudo systemctl start kinitro-validator
@@ -125,6 +128,7 @@ CMD ["uv", "run", "kinitro", "validate", \
 ```
 
 Run with:
+
 ```bash
 docker run -d \
   -e BACKEND_URL=https://backend.kinitro.ai \
@@ -139,16 +143,19 @@ docker run -d \
 ## Troubleshooting
 
 ### "Cannot connect to backend"
+
 - Verify the backend URL is correct
 - Check your network/firewall allows outbound HTTPS
 - Try: `curl BACKEND_URL/health`
 
 ### "Weight submission failed"
+
 - Check your wallet has sufficient stake
 - Verify your validator is registered on the subnet
 - Check chain connectivity: `btcli subnet list`
 
 ### "Validator not receiving emissions"
+
 - Ensure you're submitting weights regularly
 - Check your validator registration: `btcli wallet overview --netuid YOUR_NETUID`
 - Verify the backend is operational
@@ -156,6 +163,7 @@ docker run -d \
 ## Monitoring
 
 Check validator status:
+
 ```bash
 # View logs
 uv run kinitro validate --log-level DEBUG ...

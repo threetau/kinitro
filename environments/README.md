@@ -16,17 +16,17 @@ Each environment family directory must contain:
 
 ## Building Environment Images
 
-Use the `kinitro build-env` command to build environment-specific Docker images:
+Use the `kinitro env build` command to build environment-specific Docker images:
 
 ```bash
 # Build MetaWorld environment (~1GB image)
-kinitro build-env metaworld --tag kinitro/metaworld:v1
+kinitro miner build metaworld --tag kinitro/metaworld:v1
 
 # Build ProcTHOR environment (~3GB image)
-kinitro build-env procthor --tag kinitro/procthor:v1
+kinitro miner build procthor --tag kinitro/procthor:v1
 
 # Build and push to registry
-kinitro build-env metaworld --push --registry docker.io/myuser
+kinitro miner build metaworld --push --registry docker.io/myuser
 ```
 
 ## Environment Families
@@ -89,6 +89,6 @@ To add a new environment family:
    - `metadata.json` - Family display info: `{"name": "MYENV", "description": "My Environment"}`
 3. Register environments in `kinitro/environments/registry.py`:
    - Add entries to `ENVIRONMENTS` dict with your environment IDs
-4. Build with `kinitro build-env myenv --tag kinitro/myenv:v1`
+4. Build with `kinitro env build myenv --tag kinitro/myenv:v1`
 
 The CLI and list commands will automatically discover the new family from `metadata.json`.

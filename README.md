@@ -143,7 +143,7 @@ See the full [Miner Guide](docs/miner-guide.md) for detailed instructions on how
 
 ```bash
 # 1. Initialize a policy template
-uv run kinitro init-miner ./my-policy
+uv run kinitro miner init ./my-policy
 cd my-policy
 
 # 2. Implement your policy in policy.py
@@ -157,13 +157,13 @@ huggingface-cli upload your-username/kinitro-policy .
 # 5. Deploy to Basilica
 export BASILICA_API_TOKEN="your-api-token"
 
-uv run kinitro basilica-push \
+uv run kinitro miner push \
   --repo your-username/kinitro-policy \
   --revision YOUR_HF_COMMIT_SHA \
   --gpu-count 1 --min-vram 16
 
 # 6. Register on chain
-uv run kinitro commit \
+uv run kinitro miner commit \
   --repo your-username/kinitro-policy \
   --revision YOUR_HF_COMMIT_SHA \
   --endpoint YOUR_BASILICA_URL \
@@ -196,8 +196,8 @@ docker run -d --name kinitro-postgres \
   -p 5432:5432 postgres:15
 
 # 2. Build the evaluation environment images
-uv run kinitro build-env metaworld --tag kinitro/metaworld:v1
-uv run kinitro build-env procthor --tag kinitro/procthor:v1
+uv run kinitro env build metaworld --tag kinitro/metaworld:v1
+uv run kinitro env build procthor --tag kinitro/procthor:v1
 
 # 3. Initialize database
 uv run kinitro db init --database-url postgresql://kinitro:secret@localhost/kinitro
@@ -255,7 +255,7 @@ AI2-THOR procedural house environments for embodied AI tasks:
 
 - `procthor/v0` - Procedural house tasks (pickup, place, open, close, toggle)
 
-Use `kinitro list-envs` to see all available environments.
+Use `kinitro env list` to see all available environments.
 
 ## Miner Policy Interface
 

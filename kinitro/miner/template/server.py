@@ -7,15 +7,15 @@ that validators can query during evaluation.
 DEPLOYMENT OPTIONS:
 
 1. Basilica Platform (Recommended):
-   - Use kinitro CLI: kinitro basilica-push --repo YOUR_HF_REPO --revision YOUR_REVISION
-   - Or use one-command deploy: kinitro miner-deploy -r YOUR_HF_REPO -p . --netuid YOUR_NETUID
+   - Use kinitro CLI: kinitro miner push --repo YOUR_HF_REPO --revision YOUR_REVISION
+   - Or use one-command deploy: kinitro miner deploy -r YOUR_HF_REPO -p . --netuid YOUR_NETUID
 
 2. Self-Hosted:
    - Run this server directly with uvicorn
    - Ensure your endpoint is publicly accessible
 
 After deployment, commit your policy on-chain:
-    kinitro commit --endpoint YOUR_ENDPOINT_URL --netuid YOUR_NETUID
+    kinitro miner commit --endpoint YOUR_ENDPOINT_URL --netuid YOUR_NETUID
 
 Endpoints:
     POST /reset - Reset policy for new episode

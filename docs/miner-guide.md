@@ -5,6 +5,7 @@ This guide explains how to participate as a miner in Kinitro. As a miner, you'll
 ## Overview
 
 The evaluation flow:
+
 1. You train a robotics policy (locally or on your own infrastructure)
 2. You upload your model weights to HuggingFace
 3. You deploy your policy server to [Basilica](https://basilica.ai) (required for mainnet)
@@ -25,7 +26,7 @@ The evaluation flow:
 
 ```bash
 # 1. Initialize policy from template
-uv run kinitro init-miner ./my-policy
+uv run kinitro miner init ./my-policy
 cd my-policy
 
 # 2. Implement your policy in policy.py
@@ -37,7 +38,7 @@ uvicorn server:app --port 8001
 export HF_TOKEN="your-huggingface-token"
 export BASILICA_API_TOKEN="your-basilica-api-token"
 
-uv run kinitro miner-deploy \
+uv run kinitro miner deploy \
   --repo your-username/kinitro-policy \
   --path ./my-policy \
   --netuid YOUR_NETUID \
@@ -51,10 +52,10 @@ Or do each step separately:
 huggingface-cli upload your-username/kinitro-policy .
 
 # Deploy to Basilica
-uv run kinitro basilica-push --repo your-username/kinitro-policy --revision YOUR_HF_SHA
+uv run kinitro miner push --repo your-username/kinitro-policy --revision YOUR_HF_SHA
 
 # Commit on-chain
-uv run kinitro commit \
+uv run kinitro miner commit \
   --repo your-username/kinitro-policy \
   --revision YOUR_HF_COMMIT_SHA \
   --endpoint YOUR_BASILICA_URL \
@@ -67,11 +68,12 @@ Use the CLI to create a new policy from the template:
 
 ```bash
 # Create a new directory with the miner template
-uv run kinitro init-miner ./my-policy
+uv run kinitro miner init ./my-policy
 cd my-policy
 ```
 
 This creates:
+
 - `server.py` - FastAPI server with `/reset` and `/act` endpoints (for local testing and Basilica deployment)
 - `policy.py` - Policy implementation template (edit this!)
 - `basilica_deploy.py` - Basilica deployment script
@@ -83,7 +85,9 @@ This creates:
 Your policy receives the **canonical observation** to encourage true generalization:
 
 ### Proprioceptive Observations
+
 A dictionary with:
+
 - `ee_pos_m`: End-effector XYZ position (meters)
 - `ee_quat_xyzw`: End-effector quaternion (XYZW)
 - `ee_lin_vel_mps`: End-effector linear velocity (m/s)
@@ -91,14 +95,18 @@ A dictionary with:
 - `gripper_01`: Gripper state in [0, 1]
 
 ### Camera Images (Optional)
+
 A dictionary of RGB images (nested lists):
+
 - `corner`: 84x84x3 RGB image from corner camera
 - `corner2`: 84x84x3 RGB image from corner camera 2
 
 **Important**: Object positions are NOT provided! You must learn to infer object locations from camera images.
 
 ### Action Space
+
 Return a dictionary with:
+
 - `twist_ee_norm`: 6D twist (vx, vy, vz, wx, wy, wz) in [-1, 1]
 - `gripper_01`: Gripper action in [0, 1]
 
@@ -209,14 +217,14 @@ git ls-remote https://huggingface.co/your-username/kinitro-policy HEAD
 
 ### Deploy Using kinitro CLI (Recommended)
 
-The easiest way to deploy is using the `kinitro basilica-push` command:
+The easiest way to deploy is using the `kinitro miner push` command:
 
 ```bash
 # Set credentials
 export BASILICA_API_TOKEN="your-api-token"
 
 # Deploy to Basilica
-uv run kinitro basilica-push \
+uv run kinitro miner push \
   --repo your-username/kinitro-policy \
   --revision YOUR_HUGGINGFACE_COMMIT_SHA \
   --gpu-count 1 \
@@ -224,6 +232,7 @@ uv run kinitro basilica-push \
 ```
 
 This command:
+
 1. Downloads your policy from HuggingFace
 2. Builds a container image with your policy
 3. Deploys to Basilica
@@ -243,7 +252,7 @@ curl https://YOUR-DEPLOYMENT-ID.deployments.basilica.ai/health
 For testing, you can deploy without GPU:
 
 ```bash
-uv run kinitro basilica-push \
+uv run kinitro miner push \
   --repo your-username/kinitro-policy \
   --revision YOUR_HF_SHA \
   --gpu-count 0  # CPU-only for testing
@@ -252,7 +261,7 @@ uv run kinitro basilica-push \
 For production with GPU:
 
 ```bash
-uv run kinitro basilica-push \
+uv run kinitro miner push \
   --repo your-username/kinitro-policy \
   --revision YOUR_HF_SHA \
   --gpu-count 1 \
@@ -271,6 +280,7 @@ The evaluation system performs random verification checks to ensure miners are r
 4. If outputs don't match, verification fails
 
 **To pass verification:**
+
 - Your Basilica deployment must serve the exact same model as your HuggingFace upload
 - If your policy uses randomness, support the optional `seed` parameter in your `/act` endpoint (the template already handles this)
 - Don't modify your deployment code after uploading to HuggingFace
@@ -293,7 +303,7 @@ You can then test with a local validator backend by committing your local endpoi
 
 ```bash
 # For LOCAL TESTING ONLY - not valid for mainnet
-uv run kinitro commit \
+uv run kinitro miner commit \
   --repo your-username/kinitro-policy \
   --revision $(git rev-parse HEAD) \
   --endpoint http://localhost:8001 \
@@ -310,12 +320,13 @@ uv run kinitro commit \
 Register your policy endpoint on-chain so validators can find and evaluate you.
 
 The commitment includes three pieces of information:
+
 - **model**: Your HuggingFace repository (e.g., `your-username/kinitro-policy`)
 - **revision**: The HuggingFace commit SHA of your model
 - **endpoint**: Your Basilica deployment URL
 
 ```bash
-uv run kinitro commit \
+uv run kinitro miner commit \
   --repo your-username/kinitro-policy \
   --revision YOUR_HUGGINGFACE_COMMIT_SHA \
   --endpoint YOUR_BASILICA_URL \
@@ -334,6 +345,7 @@ The commitment is stored on-chain as compact JSON to fit within chain limits:
 ```
 
 Where:
+
 - `m` = HuggingFace model repository
 - `r` = HuggingFace revision (commit SHA)
 - `d` = Basilica deployment ID (UUID)
@@ -341,7 +353,7 @@ Where:
 ### Verify Your Commitment
 
 ```bash
-uv run kinitro show-commitment \
+uv run kinitro miner show-commitment \
   --netuid YOUR_SUBNET_ID \
   --network finney \
   --wallet-name your-wallet \
@@ -351,6 +363,7 @@ uv run kinitro show-commitment \
 ### Updating Your Model
 
 When you update your model:
+
 1. Upload the new weights to HuggingFace
 2. Deploy the updated model to Basilica
 3. Commit the new revision and endpoint on-chain
@@ -366,6 +379,7 @@ Your policy server must implement these endpoints:
 Health check endpoint.
 
 **Response:**
+
 ```json
 {
   "status": "healthy",
@@ -379,6 +393,7 @@ Health check endpoint.
 Reset policy for a new episode.
 
 **Request:**
+
 ```json
 {
   "task_config": {
@@ -392,6 +407,7 @@ Reset policy for a new episode.
 ```
 
 **Response:**
+
 ```json
 {
   "status": "ok",
@@ -404,6 +420,7 @@ Reset policy for a new episode.
 Get action for current observation.
 
 **Request:**
+
 ```json
 {
   "obs": {
@@ -423,6 +440,7 @@ Get action for current observation.
 The `obs` field contains canonical observations. The `rgb` field is optional and contains camera images as nested lists (84x84x3).
 
 **Response:**
+
 ```json
 {
   "action": {
@@ -444,6 +462,7 @@ Your policy is evaluated using **epsilon-Pareto dominance**:
 4. **Generalists Win**: Larger subsets give more points - you must perform well everywhere
 
 Key implications:
+
 - Specializing on one environment won't earn rewards
 - Copying another miner's policy gives no benefit (ties under Pareto dominance)
 - True generalization across all tasks is rewarded
@@ -452,7 +471,7 @@ Key implications:
 
 ### Policy not being evaluated
 
-1. Check your on-chain commitment: `uv run kinitro show-commitment --netuid ... --wallet-name ...`
+1. Check your on-chain commitment: `uv run kinitro miner show-commitment --netuid ... --wallet-name ...`
 2. Verify your Basilica deployment is running - check the Basilica dashboard
 3. Verify your endpoint is accessible: `curl YOUR_BASILICA_ENDPOINT/health`
 4. Ensure the revision in your commitment matches the deployed model

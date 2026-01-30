@@ -16,7 +16,7 @@
 # Platform: Works on any platform (Linux, macOS, Windows)
 #
 # Build with the kinitro CLI:
-#   kinitro build-env metaworld --tag kinitro/metaworld:v1
+#   kinitro env build metaworld --tag kinitro/metaworld:v1
 #
 # The CLI command copies the required kinitro/environments module into
 # this directory before building, then cleans up afterward.
@@ -58,7 +58,7 @@ ENV MESA_GL_VERSION_OVERRIDE=3.3
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy the kinitro environments package (copied by build-env command)
+# Copy the kinitro environments package (copied by env build command)
 # This is a subset of the main kinitro package - only environments/ is needed
 COPY kinitro /app/kinitro
 

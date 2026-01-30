@@ -23,8 +23,6 @@ wheels/
 # Virtual environments
 .venv/
 venv/
-ENV/
-env/
 
 # UV
 .uv/
@@ -85,6 +83,3 @@ logs/
 tmp/
 temp/
 *.tmp
-
-# Test policy directories
-my-policy/
