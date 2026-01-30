@@ -165,8 +165,21 @@ subprocess.run([
     typer.echo(f"  URL: {deployment.url}")
     typer.echo(f"  State: {deployment.state}")
     typer.echo("=" * 60)
-    # Extract deployment ID from URL
-    deploy_id = deployment.url.split("//")[1].split(".")[0] if deployment.url else deployment.name
+    # Extract deployment ID from URL with validation
+    if deployment.url and (
+        deployment.url.startswith("http://") or deployment.url.startswith("https://")
+    ):
+        try:
+            # Parse URL to extract host
+            url_parts = deployment.url.split("//")[1].split(".")
+            if len(url_parts) > 0:
+                deploy_id = url_parts[0]
+            else:
+                deploy_id = deployment.name
+        except (IndexError, AttributeError):
+            deploy_id = deployment.name
+    else:
+        deploy_id = deployment.name
     typer.echo("\nNext step - commit on-chain:")
     typer.echo(f"  kinitro miner commit --repo {repo} --revision {revision} \\")
     typer.echo(f"    --deployment-id {deploy_id} --netuid YOUR_NETUID")
@@ -462,12 +475,21 @@ subprocess.run([
                 typer.echo(f"    URL: {deployment.url}")
                 typer.echo(f"    State: {deployment.state}")
 
-                # Extract deployment ID from URL
-                deployment_id = (
-                    deployment.url.split("//")[1].split(".")[0]
-                    if deployment.url
-                    else deployment.name
-                )
+                # Extract deployment ID from URL with validation
+                if deployment.url and (
+                    deployment.url.startswith("http://") or deployment.url.startswith("https://")
+                ):
+                    try:
+                        # Parse URL to extract host
+                        url_parts = deployment.url.split("//")[1].split(".")
+                        if len(url_parts) > 0:
+                            deployment_id = url_parts[0]
+                        else:
+                            deployment_id = deployment.name
+                    except (IndexError, AttributeError):
+                        deployment_id = deployment.name
+                else:
+                    deployment_id = deployment.name
                 typer.echo(f"    Deployment ID: {deployment_id}")
             except Exception as e:
                 typer.echo(f"\nDeployment failed: {e}", err=True)

@@ -61,6 +61,7 @@ def mock(
 
     @mock_app.get("/health", response_model=HealthResponse)
     async def health():
+        """Health check endpoint for mock miner."""
         return HealthResponse(
             status="healthy",
             model_loaded=True,
@@ -69,11 +70,13 @@ def mock(
 
     @mock_app.post("/reset", response_model=ResetResponse)
     async def reset(request: ResetRequest):
+        """Reset the policy for a new task."""
         typer.echo(f"Reset: env_id={request.task_config.env_id}, seed={request.task_config.seed}")
         return ResetResponse(status="ok", episode_id="mock-episode")
 
     @mock_app.post("/act", response_model=ActResponse)
     async def act(request: ActRequest):
+        """Generate an action given an observation."""
         if random_actions:
             twist = np.random.randn(6).astype(np.float32) * 0.1
             gripper = np.random.rand() > 0.5

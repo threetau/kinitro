@@ -17,7 +17,15 @@ class OrderedCommands(TyperGroup):
     """Custom TyperGroup that preserves command order instead of sorting alphabetically."""
 
     def list_commands(self, ctx: Context):
-        """Return commands in the order they were added."""
+        """
+        Return commands in the order they were added.
+
+        Args:
+            ctx: Click context object.
+
+        Returns:
+            List of command names in their defined order.
+        """
         # Define the desired order
         order = [
             "miner",
