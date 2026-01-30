@@ -9,8 +9,6 @@ from kinitro.scoring.pareto import (
 )
 from kinitro.scoring.threshold import calculate_threshold, compute_miner_thresholds
 from kinitro.scoring.winners_take_all import (
-    compute_full_scoring,
-    compute_subset_scores,
     compute_subset_scores_with_priority,
     find_subset_winner_with_priority,
     scores_to_weights,
@@ -110,21 +108,27 @@ class TestWinnersTakeAll:
             0: {"a": 0.9, "b": 0.9},
             1: {"a": 0.5, "b": 0.5},
         }
-        epsilons = {"a": 0.05, "b": 0.05}
+        thresholds = compute_miner_thresholds(scores, episodes_per_env=50)
+        first_blocks = {0: 1000, 1: 1000}  # Same block
 
-        subset_scores = compute_subset_scores(scores, ["a", "b"], epsilons)
+        subset_scores = compute_subset_scores_with_priority(
+            scores, thresholds, first_blocks, ["a", "b"]
+        )
 
         assert subset_scores[0] > subset_scores[1]
 
     def test_specialists_split_points(self):
-        """Specialists win their respective subsets."""
+        """Specialists win their respective single-env subsets."""
         scores = {
             0: {"a": 0.9, "b": 0.3},  # Specialist in A
             1: {"a": 0.3, "b": 0.9},  # Specialist in B
         }
-        epsilons = {"a": 0.05, "b": 0.05}
+        thresholds = compute_miner_thresholds(scores, episodes_per_env=50)
+        first_blocks = {0: 1000, 1: 1000}  # Same block
 
-        subset_scores = compute_subset_scores(scores, ["a", "b"], epsilons)
+        subset_scores = compute_subset_scores_with_priority(
+            scores, thresholds, first_blocks, ["a", "b"]
+        )
 
         # Both should have some points (from single-env subsets)
         assert subset_scores[0] > 0
@@ -137,17 +141,27 @@ class TestWinnersTakeAll:
 
         assert abs(sum(weights.values()) - 1.0) < 1e-6
 
-    def test_full_scoring_sybil_resistance(self):
+    def test_sybil_resistance(self):
         """Sybil attack (copies) doesn't increase total reward."""
         env_ids = ["a", "b"]
 
         # Single honest miner
-        single = {0: {"a": 0.8, "b": 0.8}}
-        single_weights = compute_full_scoring(single, env_ids)
+        single_scores = {0: {"a": 0.8, "b": 0.8}}
+        single_thresholds = compute_miner_thresholds(single_scores, episodes_per_env=50)
+        single_blocks = {0: 1000}
+        single_subset = compute_subset_scores_with_priority(
+            single_scores, single_thresholds, single_blocks, env_ids
+        )
+        single_weights = scores_to_weights(single_subset)
 
-        # Same policy across 5 sybil identities
-        sybil = {i: {"a": 0.8, "b": 0.8} for i in range(5)}
-        sybil_weights = compute_full_scoring(sybil, env_ids)
+        # Same policy across 5 sybil identities (all same block)
+        sybil_scores = {i: {"a": 0.8, "b": 0.8} for i in range(5)}
+        sybil_thresholds = compute_miner_thresholds(sybil_scores, episodes_per_env=50)
+        sybil_blocks = {i: 1000 for i in range(5)}  # All same block
+        sybil_subset = compute_subset_scores_with_priority(
+            sybil_scores, sybil_thresholds, sybil_blocks, env_ids
+        )
+        sybil_weights = scores_to_weights(sybil_subset)
 
         # Total reward is same (just split across identities)
         single_total = sum(single_weights.values())
