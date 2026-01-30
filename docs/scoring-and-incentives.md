@@ -48,7 +48,9 @@ To account for statistical noise, we use **epsilon (ε) tolerance** - small diff
 
 ### 3. Subset Scoring
 
-For every combination of environments, we check if any miner dominates all others *on that subset*. If so, they win points equal to the subset size.
+Pareto dominance alone isn't enough to determine rewards. In the diagram above, Miners A, C, and D are all on the frontier - none dominates another. How do we decide who gets paid?
+
+We use **subset scoring**: instead of only checking dominance across *all* environments, we check every possible *subset* of environments. For each subset, if a miner dominates all others on those environments, they win points equal to the subset size.
 
 ```mermaid
 flowchart TB
