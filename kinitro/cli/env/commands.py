@@ -1,9 +1,21 @@
 """Environment commands for building, listing, and testing environments."""
 
+import json
 import shutil
+from datetime import datetime
 from pathlib import Path
 
+import affinetes
+import numpy as np
 import typer
+
+from kinitro.environments import get_environment
+from kinitro.environments.registry import (
+    get_all_environment_ids,
+    get_available_families,
+    get_environments_by_family,
+    get_family_metadata,
+)
 
 # Available environment families for build command
 AVAILABLE_ENV_FAMILIES = ["metaworld", "procthor"]
@@ -46,8 +58,6 @@ def build_env(
         # Build and push to registry
         kinitro env build metaworld --push --registry docker.io/myuser
     """
-    import affinetes
-
     # Validate family
     if family not in AVAILABLE_ENV_FAMILIES:
         typer.echo(
@@ -90,6 +100,13 @@ def build_env(
     # Copy kinitro/environments to env/kinitro/environments for the build
     env_kinitro = env_path / "kinitro"
     env_environments = env_kinitro / "environments"
+    created_kinitro_dir = False
+
+    if env_kinitro.exists():
+        typer.echo(f"Refusing to overwrite existing {env_kinitro}", err=True)
+        raise typer.Exit(1)
+    env_kinitro.mkdir()
+    created_kinitro_dir = True
 
     # Also need rl_interface.py for the Actor
     rl_interface_src = kinitro_package_dir / "rl_interface.py"
@@ -140,7 +157,7 @@ def build_env(
 
     finally:
         # Clean up the copied kinitro directory
-        if env_kinitro.exists():
+        if created_kinitro_dir and env_kinitro.exists():
             shutil.rmtree(env_kinitro)
             typer.echo("  Cleaned up temporary build files")
 
@@ -151,13 +168,6 @@ def build_env(
 
 def list_envs():
     """List all available robotics environments."""
-    from kinitro.environments.registry import (
-        get_all_environment_ids,
-        get_available_families,
-        get_environments_by_family,
-        get_family_metadata,
-    )
-
     all_envs = get_all_environment_ids()
 
     typer.echo("Available Robotics Environments:\n")
@@ -203,15 +213,10 @@ def test_env(
         # Record with camera images
         kinitro env test metaworld/push-v3 --record-dir ./recordings --save-images
     """
-    import json
-    from datetime import datetime
-    from pathlib import Path
-
-    import numpy as np
-
-    from kinitro.environments import get_environment
-
     typer.echo(f"Testing environment: {env_id}")
+    if episodes < 1:
+        typer.echo("Error: --episodes must be >= 1", err=True)
+        raise typer.Exit(1)
 
     env = get_environment(env_id)
     typer.echo(f"  Canonical observation shape: {env.observation_shape}")

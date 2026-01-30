@@ -2,7 +2,7 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import structlog
 from sqlalchemy import desc, func, select
@@ -588,8 +588,6 @@ class Storage:
         Returns:
             Number of tasks reassigned
         """
-        from datetime import timedelta
-
         threshold = datetime.utcnow() - timedelta(seconds=stale_threshold_seconds)
 
         result = await session.execute(

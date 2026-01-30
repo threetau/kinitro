@@ -2,6 +2,7 @@
 
 import os
 
+import bittensor as bt
 import typer
 
 
@@ -195,7 +196,9 @@ def miner_deploy(
         False, "--dry-run", help="Show what would be done without executing"
     ),
     network: str = typer.Option("finney", "--network", help="Bittensor network"),
-    netuid: int = typer.Option(..., "--netuid", help="Subnet UID"),
+    netuid: int | None = typer.Option(
+        None, "--netuid", help="Subnet UID (required unless --skip-commit)"
+    ),
     wallet_name: str = typer.Option("default", "--wallet-name", help="Wallet name"),
     hotkey_name: str = typer.Option("default", "--hotkey-name", help="Hotkey name"),
     basilica_api_token: str | None = typer.Option(
@@ -223,15 +226,11 @@ def miner_deploy(
 
         # Skip deployment (already deployed)
         kinitro miner deploy -r user/policy --skip-upload --revision abc123 \
-            --skip-deploy --endpoint https://my-policy.basilica.ai --netuid 123
+            --skip-deploy --deployment-id https://my-policy.basilica.ai --netuid 123
 
         # Dry run to see what would happen
         kinitro miner deploy -r user/policy -p ./my-policy --netuid 123 --dry-run
     """
-    import os as _os
-
-    import bittensor as bt
-
     # Validate arguments
     if not skip_upload and not policy_path:
         typer.echo("Error: --path is required unless --skip-upload is set", err=True)
@@ -301,11 +300,11 @@ def miner_deploy(
 
                 # Check local folder size before uploading
                 total_size = 0
-                for dirpath, dirnames, filenames in _os.walk(policy_path):
+                for dirpath, dirnames, filenames in os.walk(policy_path):
                     for filename in filenames:
-                        filepath = _os.path.join(dirpath, filename)
-                        if _os.path.isfile(filepath):
-                            total_size += _os.path.getsize(filepath)
+                        filepath = os.path.join(dirpath, filename)
+                        if os.path.isfile(filepath):
+                            total_size += os.path.getsize(filepath)
 
                 if total_size > max_repo_size_bytes:
                     typer.echo(
@@ -503,6 +502,10 @@ subprocess.run([
             else:
                 typer.echo("  Commitment failed!", err=True)
                 raise typer.Exit(1)
+
+    if not skip_commit and netuid is None:
+        typer.echo("Error: --netuid is required unless --skip-commit is set", err=True)
+        raise typer.Exit(1)
 
     # Summary
     typer.echo("\n" + "=" * 60)

@@ -14,6 +14,8 @@ Your policy returns:
 
 import uuid
 
+import numpy as np
+
 from kinitro.rl_interface import CanonicalAction, CanonicalObservation
 
 
@@ -62,8 +64,6 @@ class RobotPolicy:
         # The validator may verify that your deployed model matches HuggingFace.
 
         # Default: random action (seed is already set by server if provided)
-        import numpy as np
-
         twist = np.random.uniform(-1, 1, size=6)
         gripper = float(np.random.uniform(0, 1))
         return CanonicalAction(twist_ee_norm=twist.tolist(), gripper_01=gripper)

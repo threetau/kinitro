@@ -1,6 +1,16 @@
 """Testing commands for Kinitro CLI."""
 
+import time
+
+import numpy as np
 import typer
+import uvicorn
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+from kinitro.rl_interface import CanonicalAction, CanonicalObservation
+from kinitro.scoring.pareto import compute_pareto_frontier
+from kinitro.scoring.winners_take_all import compute_full_scoring
 
 
 def test_scoring(
@@ -10,11 +20,6 @@ def test_scoring(
     """
     Test the Pareto scoring mechanism with simulated data.
     """
-    import numpy as np
-
-    from kinitro.scoring.pareto import compute_pareto_frontier
-    from kinitro.scoring.winners_take_all import compute_full_scoring
-
     typer.echo(f"Testing Pareto scoring with {n_miners} miners, {n_envs} environments\n")
 
     # Generate random scores
@@ -42,7 +47,7 @@ def test_scoring(
 
 
 def mock_miner(
-    host: str = typer.Option("0.0.0.0", help="Host to bind to"),
+    host: str = typer.Option("127.0.0.1", help="Host to bind to (use 0.0.0.0 to expose)"),
     port: int = typer.Option(8001, help="Port to bind to"),
     random_actions: bool = typer.Option(True, help="Return random actions (won't solve tasks)"),
 ):
@@ -60,13 +65,6 @@ def mock_miner(
         # Start on specific port
         kinitro mock-miner --port 8002
     """
-    import numpy as np
-    import uvicorn
-    from fastapi import FastAPI
-    from pydantic import BaseModel
-
-    from kinitro.rl_interface import CanonicalAction, CanonicalObservation
-
     mock_app = FastAPI(title="Mock Miner Policy Server")
 
     class TaskConfig(BaseModel):
@@ -93,8 +91,6 @@ def mock_miner(
         status: str
         model_loaded: bool
         uptime_seconds: float = 0.0
-
-    import time
 
     _start_time = time.time()
 

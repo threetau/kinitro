@@ -20,13 +20,13 @@ Use the `kinitro env build` command to build environment-specific Docker images:
 
 ```bash
 # Build MetaWorld environment (~1GB image)
-kinitro miner build metaworld --tag kinitro/metaworld:v1
+kinitro env build metaworld --tag kinitro/metaworld:v1
 
 # Build ProcTHOR environment (~3GB image)
-kinitro miner build procthor --tag kinitro/procthor:v1
+kinitro env build procthor --tag kinitro/procthor:v1
 
 # Build and push to registry
-kinitro miner build metaworld --push --registry docker.io/myuser
+kinitro env build metaworld --push --registry docker.io/myuser
 ```
 
 ## Environment Families

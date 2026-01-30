@@ -2,7 +2,11 @@
 
 import asyncio
 
+import structlog
 import typer
+
+from kinitro.config import ValidatorConfig
+from kinitro.validator.main import run_validator
 
 
 def validate(
@@ -20,16 +24,11 @@ def validate(
 
     The validator is lightweight - all evaluation is done by the backend.
     """
-    import structlog
-
     structlog.configure(
         wrapper_class=structlog.make_filtering_bound_logger(
             getattr(__import__("logging"), log_level)
         ),
     )
-
-    from kinitro.config import ValidatorConfig
-    from kinitro.validator.main import run_validator
 
     config = ValidatorConfig(
         network=network,

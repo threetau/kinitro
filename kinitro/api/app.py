@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 
 import structlog
+import uvicorn
 from fastapi import FastAPI
 
 from kinitro.api.config import APIConfig
@@ -77,8 +78,6 @@ def run_server(config: APIConfig | None = None) -> None:
     Args:
         config: API configuration
     """
-    import uvicorn
-
     if config is None:
         config = APIConfig()
 

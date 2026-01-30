@@ -33,6 +33,7 @@ import time
 from contextlib import contextmanager
 from typing import Any
 
+import uvicorn
 from fastapi import FastAPI, HTTPException
 
 # Import your policy implementation
@@ -353,6 +354,4 @@ async def shutdown():
 # =============================================================================
 
 if __name__ == "__main__":
-    import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)

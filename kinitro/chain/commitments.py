@@ -1,5 +1,6 @@
 """Miner commitment handling for on-chain model registration."""
 
+import json
 from dataclasses import dataclass
 
 import structlog
@@ -60,8 +61,6 @@ def parse_commitment(raw: str) -> dict:
     Returns:
         Dict with parsed fields: huggingface_repo, revision_sha, deployment_id, docker_image
     """
-    import json
-
     # Try JSON format first
     # Supports both full keys and short keys for compactness:
     #   Full: {"model": "...", "revision": "...", "deployment_id": "..."}
@@ -272,8 +271,6 @@ def commit_model(
     Returns:
         True if commitment succeeded
     """
-    import json
-
     # Use compact JSON format to fit within chain limits (~128 bytes)
     # Short keys: m=model, r=revision, d=deployment_id
     commitment_data = json.dumps(

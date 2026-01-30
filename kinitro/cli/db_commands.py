@@ -2,7 +2,10 @@
 
 import asyncio
 
+import asyncpg
 import typer
+
+from kinitro.backend.storage import Storage
 
 from .utils import normalize_database_url, parse_database_url
 
@@ -28,8 +31,6 @@ def db_init(
     normalized_url = normalize_database_url(database_url)
 
     async def _init():
-        from kinitro.backend.storage import Storage
-
         storage = Storage(normalized_url)
         await storage.initialize()
         await storage.close()
@@ -58,8 +59,6 @@ def db_create(
         raise typer.Exit(1)
 
     async def _create():
-        import asyncpg
-
         # Connect to the default 'postgres' database to create our database
         conn = await asyncpg.connect(
             user=user,
@@ -116,9 +115,12 @@ def db_drop(
             typer.echo("Aborted.")
             raise typer.Exit(0)
 
-    async def _drop():
-        import asyncpg
+    def _quote_ident(name: str) -> str:
+        """Quote a PostgreSQL identifier safely."""
+        # Double any double quotes and wrap in double quotes
+        return '"' + name.replace('"', '""') + '"'
 
+    async def _drop():
         conn = await asyncpg.connect(
             user=user,
             password=password,
@@ -129,15 +131,14 @@ def db_drop(
 
         try:
             # Terminate existing connections
-            await conn.execute(f"""
-                SELECT pg_terminate_backend(pg_stat_activity.pid)
-                FROM pg_stat_activity
-                WHERE pg_stat_activity.datname = '{dbname}'
-                AND pid <> pg_backend_pid()
-            """)
+            await conn.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = $1 AND pid <> pg_backend_pid()",
+                dbname,
+            )
 
             # Drop the database
-            await conn.execute(f'DROP DATABASE IF EXISTS "{dbname}"')
+            await conn.execute(f"DROP DATABASE IF EXISTS {_quote_ident(dbname)}")
             typer.echo(f"Database '{dbname}' dropped successfully!")
         finally:
             await conn.close()
@@ -193,8 +194,6 @@ def db_status(
     normalized_url = normalize_database_url(database_url)
 
     async def _status():
-        from kinitro.backend.storage import Storage
-
         storage = Storage(normalized_url)
 
         try:

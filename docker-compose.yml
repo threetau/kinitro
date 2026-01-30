@@ -54,7 +54,7 @@ services:
       kinitro scheduler
       --database-url postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-kinitro}
       --network ${NETWORK:-finney}
-      --netuid ${NETUID}
+      --netuid ${NETUID:-26}
       --eval-interval ${EVAL_INTERVAL:-3600}
       --episodes-per-env ${EPISODES_PER_ENV:-50}
       --log-level ${LOG_LEVEL:-INFO}

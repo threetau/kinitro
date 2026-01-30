@@ -1,5 +1,7 @@
 """Shared utility functions for CLI commands."""
 
+import re
+
 
 def normalize_database_url(database_url: str) -> str:
     """
@@ -29,8 +31,6 @@ def parse_database_url(database_url: str) -> tuple[str, str, str, int, str]:
     Returns:
         Tuple of (user, password, host, port, dbname)
     """
-    import re
-
     # Normalize URL to use asyncpg
     database_url = normalize_database_url(database_url)
 

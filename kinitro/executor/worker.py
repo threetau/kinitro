@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import subprocess
 from dataclasses import dataclass
 
 import structlog
@@ -321,8 +322,6 @@ class Worker:
 
     def force_cleanup(self) -> None:
         """Force cleanup by killing docker container directly."""
-        import subprocess
-
         container_name = f"kinitro-eval-{self.config.executor_id}"
         logger.info("force_cleanup_container", container=container_name)
 

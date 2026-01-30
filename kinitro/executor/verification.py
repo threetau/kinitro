@@ -27,6 +27,7 @@ from typing import Any
 import httpx
 import numpy as np
 import structlog
+from huggingface_hub import HfApi, snapshot_download
 
 logger = structlog.get_logger()
 
@@ -215,8 +216,6 @@ class PolicyVerifier:
         cache_key = f"{repo}:{revision}"
         if cache_key in self._policy_cache:
             return self._policy_cache[cache_key]
-
-        from huggingface_hub import HfApi, snapshot_download
 
         # Check repo size before downloading
         api = HfApi()

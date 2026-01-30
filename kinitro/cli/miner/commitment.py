@@ -1,6 +1,13 @@
 """Chain commitment commands for miners."""
 
+import bittensor as bt
 import typer
+
+from kinitro.chain.commitments import (
+    _query_commitment_by_hotkey,
+    commit_model,
+    parse_commitment,
+)
 
 
 def commit(
@@ -19,10 +26,6 @@ def commit(
 
     Registers your policy so validators can evaluate it.
     """
-    import bittensor as bt
-
-    from kinitro.chain.commitments import commit_model
-
     subtensor = bt.Subtensor(network=network)
     wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)
 
@@ -60,10 +63,6 @@ def show_commitment(
 
     Query by wallet (default), UID, or hotkey address.
     """
-    import bittensor as bt
-
-    from kinitro.chain.commitments import _query_commitment_by_hotkey, parse_commitment
-
     subtensor = bt.Subtensor(network=network)
 
     # Determine which hotkey to query

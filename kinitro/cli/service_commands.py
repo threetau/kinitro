@@ -2,7 +2,12 @@
 
 import asyncio
 
+import structlog
 import typer
+
+from kinitro.api import APIConfig, run_server
+from kinitro.executor import ExecutorConfig, run_executor
+from kinitro.scheduler import SchedulerConfig, run_scheduler
 
 from .utils import normalize_database_url
 
@@ -27,16 +32,12 @@ def api(
     This is the stateless API layer of the split architecture.
     Run separately from scheduler and executor.
     """
-    import structlog
-
     log_level = log_level.upper()
     structlog.configure(
         wrapper_class=structlog.make_filtering_bound_logger(
             getattr(__import__("logging"), log_level)
         ),
     )
-
-    from kinitro.api import APIConfig, run_server
 
     normalized_db_url = normalize_database_url(database_url)
 
@@ -76,16 +77,12 @@ def scheduler(
 
     Requires the API service to be running for executors to fetch tasks.
     """
-    import structlog
-
     log_level = log_level.upper()
     structlog.configure(
         wrapper_class=structlog.make_filtering_bound_logger(
             getattr(__import__("logging"), log_level)
         ),
     )
-
-    from kinitro.scheduler import SchedulerConfig, run_scheduler
 
     normalized_db_url = normalize_database_url(database_url)
 
@@ -140,16 +137,12 @@ def executor(
         # Run on specific GPU with custom batch size
         CUDA_VISIBLE_DEVICES=0 kinitro executor --batch-size 20
     """
-    import structlog
-
     log_level = log_level.upper()
     structlog.configure(
         wrapper_class=structlog.make_filtering_bound_logger(
             getattr(__import__("logging"), log_level)
         ),
     )
-
-    from kinitro.executor import ExecutorConfig, run_executor
 
     config_kwargs = {
         "api_url": api_url,
