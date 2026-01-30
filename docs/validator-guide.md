@@ -64,14 +64,14 @@ That's it! The validator will:
 
 ## Configuration
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--backend-url` | (required) | URL of the evaluation backend |
-| `--network` | `finney` | Bittensor network (`finney`, `test`, or WebSocket URL) |
-| `--netuid` | (required) | Subnet UID |
-| `--wallet-name` | `default` | Wallet name |
-| `--hotkey-name` | `default` | Hotkey name |
-| `--log-level` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| Flag            | Default    | Description                                            |
+| --------------- | ---------- | ------------------------------------------------------ |
+| `--backend-url` | (required) | URL of the evaluation backend                          |
+| `--network`     | `finney`   | Bittensor network (`finney`, `test`, or WebSocket URL) |
+| `--netuid`      | (required) | Subnet UID                                             |
+| `--wallet-name` | `default`  | Wallet name                                            |
+| `--hotkey-name` | `default`  | Hotkey name                                            |
+| `--log-level`   | `INFO`     | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`)    |
 
 ## Running as a Service
 

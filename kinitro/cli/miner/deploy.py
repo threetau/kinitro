@@ -244,6 +244,10 @@ def miner_deploy(
         typer.echo("Error: --deployment-id is required when --skip-deploy is set", err=True)
         raise typer.Exit(1)
 
+    if not skip_commit and netuid is None:
+        typer.echo("Error: --netuid is required unless --skip-commit is set", err=True)
+        raise typer.Exit(1)
+
     # Get credentials from env if not provided
     api_token = basilica_api_token or os.environ.get("BASILICA_API_TOKEN")
     hf = hf_token or os.environ.get("HF_TOKEN")
@@ -502,10 +506,6 @@ subprocess.run([
             else:
                 typer.echo("  Commitment failed!", err=True)
                 raise typer.Exit(1)
-
-    if not skip_commit and netuid is None:
-        typer.echo("Error: --netuid is required unless --skip-commit is set", err=True)
-        raise typer.Exit(1)
 
     # Summary
     typer.echo("\n" + "=" * 60)

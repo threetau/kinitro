@@ -15,6 +15,12 @@ db_app = typer.Typer(
 )
 
 
+def _quote_ident(name: str) -> str:
+    """Quote a PostgreSQL identifier safely."""
+    # Double any double quotes and wrap in double quotes
+    return '"' + name.replace('"', '""') + '"'
+
+
 @db_app.command("init")
 def db_init(
     database_url: str = typer.Option(
@@ -79,7 +85,7 @@ def db_create(
                 typer.echo(f"Database '{dbname}' already exists.")
             else:
                 # Create the database
-                await conn.execute(f'CREATE DATABASE "{dbname}"')
+                await conn.execute(f'CREATE DATABASE "{_quote_ident(dbname)}"')
                 typer.echo(f"Database '{dbname}' created successfully!")
         finally:
             await conn.close()
@@ -114,11 +120,6 @@ def db_drop(
         if not confirm:
             typer.echo("Aborted.")
             raise typer.Exit(0)
-
-    def _quote_ident(name: str) -> str:
-        """Quote a PostgreSQL identifier safely."""
-        # Double any double quotes and wrap in double quotes
-        return '"' + name.replace('"', '""') + '"'
 
     async def _drop():
         conn = await asyncpg.connect(

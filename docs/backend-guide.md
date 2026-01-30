@@ -127,41 +127,77 @@ The services work together:
 
 ## Configuration
 
-### Command Line Options
+Each service (API, Scheduler, Executor) has its own configuration with service-specific environment variable prefixes.
 
-| Flag | Environment Variable | Default | Description |
-|------|----------------------|---------|-------------|
-| `--host` | `KINITRO_BACKEND_HOST` | `0.0.0.0` | API server bind address |
-| `--port` | `KINITRO_BACKEND_PORT` | `8000` | API server port |
-| `--database-url` | `KINITRO_BACKEND_DATABASE_URL` | - | PostgreSQL connection URL |
-| `--network` | `KINITRO_BACKEND_NETWORK` | `finney` | Bittensor network |
-| `--netuid` | `KINITRO_BACKEND_NETUID` | - | Subnet UID |
-| `--eval-interval` | `KINITRO_BACKEND_EVAL_INTERVAL_SECONDS` | `3600` | Seconds between eval cycles |
-| `--episodes-per-env` | `KINITRO_BACKEND_EPISODES_PER_ENV` | `50` | Episodes per environment |
-| `--log-level` | `KINITRO_BACKEND_LOG_LEVEL` | `INFO` | Logging level |
+### API Service Configuration
 
-### Advanced Settings (Environment Variables)
+| CLI Flag         | Environment Variable       | Default                    | Description               |
+| ---------------- | -------------------------- | -------------------------- | ------------------------- |
+| `--host`         | `KINITRO_API_HOST`         | `0.0.0.0`                  | API server bind address   |
+| `--port`         | `KINITRO_API_PORT`         | `8000`                     | API server port           |
+| `--database-url` | `KINITRO_API_DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection URL |
+| `--log-level`    | `KINITRO_API_LOG_LEVEL`    | `INFO`                     | Logging level             |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINITRO_BACKEND_EVAL_IMAGE_METAWORLD` | `kinitro/metaworld:v1` | Docker image for MetaWorld evaluation |
-| `KINITRO_BACKEND_EVAL_IMAGE_PROCTHOR` | `kinitro/procthor:v1` | Docker image for ProcTHOR evaluation |
-| `KINITRO_BACKEND_EVAL_MEM_LIMIT` | `8g` | Memory limit for eval container |
-| `KINITRO_BACKEND_ACTION_TIMEOUT_MS` | `100` | Timeout for miner responses |
-| `KINITRO_BACKEND_MAX_TIMESTEPS_PER_EPISODE` | `500` | Max steps per episode |
-| `KINITRO_BACKEND_PARETO_TEMPERATURE` | `1.0` | Softmax temperature for weights |
+Additional API settings:
+
+| Environment Variable                       | Default | Description                                  |
+| ------------------------------------------ | ------- | -------------------------------------------- |
+| `KINITRO_API_TASK_STALE_THRESHOLD_SECONDS` | `300`   | Time after which assigned tasks become stale |
+
+### Scheduler Service Configuration
+
+| CLI Flag             | Environment Variable                      | Default                    | Description                 |
+| -------------------- | ----------------------------------------- | -------------------------- | --------------------------- |
+| `--database-url`     | `KINITRO_SCHEDULER_DATABASE_URL`          | `postgresql+asyncpg://...` | PostgreSQL connection URL   |
+| `--network`          | `KINITRO_SCHEDULER_NETWORK`               | `finney`                   | Bittensor network           |
+| `--netuid`           | `KINITRO_SCHEDULER_NETUID`                | `1`                        | Subnet UID                  |
+| `--eval-interval`    | `KINITRO_SCHEDULER_EVAL_INTERVAL_SECONDS` | `3600`                     | Seconds between eval cycles |
+| `--episodes-per-env` | `KINITRO_SCHEDULER_EPISODES_PER_ENV`      | `50`                       | Episodes per environment    |
+| `--log-level`        | `KINITRO_SCHEDULER_LOG_LEVEL`             | `INFO`                     | Logging level               |
+
+Additional Scheduler settings:
+
+| Environment Variable                             | Default | Description                                  |
+| ------------------------------------------------ | ------- | -------------------------------------------- |
+| `KINITRO_SCHEDULER_PARETO_TEMPERATURE`           | `1.0`   | Softmax temperature for weight conversion    |
+| `KINITRO_SCHEDULER_TASK_STALE_THRESHOLD_SECONDS` | `300`   | Time after which assigned tasks become stale |
+| `KINITRO_SCHEDULER_CYCLE_TIMEOUT_SECONDS`        | `7200`  | Maximum time to wait for cycle completion    |
+
+### Executor Service Configuration
+
+| CLI Flag          | Environment Variable                     | Default                 | Description                             |
+| ----------------- | ---------------------------------------- | ----------------------- | --------------------------------------- |
+| `--api-url`       | `KINITRO_EXECUTOR_API_URL`               | `http://localhost:8000` | URL of the Kinitro API service          |
+| `--batch-size`    | `KINITRO_EXECUTOR_BATCH_SIZE`            | `10`                    | Number of tasks to fetch at a time      |
+| `--poll-interval` | `KINITRO_EXECUTOR_POLL_INTERVAL_SECONDS` | `5`                     | Seconds between polling for tasks       |
+| `--eval-image`    | `KINITRO_EXECUTOR_EVAL_IMAGE`            | `kinitro/eval-env:v1`   | Docker image for evaluation             |
+| `--eval-mode`     | `KINITRO_EXECUTOR_EVAL_MODE`             | `docker`                | Evaluation mode: 'docker' or 'basilica' |
+| `--log-level`     | `KINITRO_EXECUTOR_LOG_LEVEL`             | `INFO`                  | Logging level                           |
+
+Additional Executor settings:
+
+| Environment Variable              | Default             | Description                                 |
+| --------------------------------- | ------------------- | ------------------------------------------- |
+| `KINITRO_EXECUTOR_EXECUTOR_ID`    | `executor-<random>` | Unique identifier for this executor         |
+| `KINITRO_EXECUTOR_ENV_IDS`        | `null`              | Filter tasks by environment IDs (JSON list) |
+| `KINITRO_EXECUTOR_EVAL_MEM_LIMIT` | `8g`                | Memory limit for evaluation container       |
+| `KINITRO_EXECUTOR_EVAL_HOSTS`     | `["localhost"]`     | Docker hosts for evaluation (JSON list)     |
+| `KINITRO_EXECUTOR_MAX_TIMESTEPS`  | `500`               | Maximum timesteps per episode               |
+| `KINITRO_EXECUTOR_ACTION_TIMEOUT` | `0.5`               | Timeout for miner responses (seconds)       |
+| `KINITRO_EXECUTOR_EVAL_TIMEOUT`   | `300`               | Timeout for individual evaluation (seconds) |
+| `KINITRO_EXECUTOR_USE_IMAGES`     | `true`              | Include camera images in observations       |
 
 ### Executor Verification Settings
 
 The executor can perform spot-check verification to ensure miners' Basilica deployments match their HuggingFace uploads. This detects miners running modified code.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINITRO_EXECUTOR_VERIFICATION_ENABLED` | `false` | Enable spot-check verification |
-| `KINITRO_EXECUTOR_VERIFICATION_RATE` | `0.05` | Probability of verifying each miner (0.0-1.0) |
-| `KINITRO_EXECUTOR_VERIFICATION_TOLERANCE` | `0.001` | Tolerance for comparing action outputs |
-| `KINITRO_EXECUTOR_VERIFICATION_SAMPLES` | `5` | Number of test observations per verification |
-| `KINITRO_EXECUTOR_VERIFICATION_MAX_REPO_SIZE_GB` | `5.0` | Maximum HuggingFace repo size to download |
+| Variable                                         | Default | Description                                   |
+| ------------------------------------------------ | ------- | --------------------------------------------- |
+| `KINITRO_EXECUTOR_VERIFICATION_ENABLED`          | `false` | Enable spot-check verification                |
+| `KINITRO_EXECUTOR_VERIFICATION_RATE`             | `0.05`  | Probability of verifying each miner (0.0-1.0) |
+| `KINITRO_EXECUTOR_VERIFICATION_TOLERANCE`        | `0.001` | Tolerance for comparing action outputs        |
+| `KINITRO_EXECUTOR_VERIFICATION_SAMPLES`          | `5`     | Number of test observations per verification  |
+| `KINITRO_EXECUTOR_VERIFICATION_MAX_REPO_SIZE_GB` | `5.0`   | Maximum HuggingFace repo size to download     |
 
 When verification is enabled, the executor will:
 
