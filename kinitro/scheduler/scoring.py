@@ -3,11 +3,17 @@
 import structlog
 
 from kinitro.backend.models import TaskPoolORM
+from kinitro.chain.commitments import MinerCommitment
 from kinitro.chain.weights import weights_to_u16
 from kinitro.scoring.pareto import compute_pareto_frontier
-from kinitro.scoring.winners_take_all import compute_subset_scores, scores_to_weights
+from kinitro.scoring.threshold import compute_miner_thresholds
+from kinitro.scoring.winners_take_all import (
+    compute_subset_scores_with_priority,
+    scores_to_weights,
+)
 
 logger = structlog.get_logger()
+PLACEHOLDER_BLOCK_NUM = 2**32  # Large block number for missing data
 
 
 def aggregate_task_results(
@@ -64,16 +70,24 @@ def compute_weights(
     miner_scores: dict[int, dict[str, float]],
     env_ids: list[str],
     episodes_per_env: int,
+    miners: dict[int, MinerCommitment],
     pareto_temperature: float = 1.0,
+    threshold_z_score: float = 1.5,
+    threshold_min_gap: float = 0.02,
+    threshold_max_gap: float = 0.10,
 ) -> tuple[dict[int, float], dict[str, list[int]]]:
     """
-    Compute weights from miner scores using Pareto frontier.
+    Compute weights from miner scores using Pareto frontier with first-commit advantage.
 
     Args:
         miner_scores: Dict mapping uid -> env_id -> success_rate
         env_ids: List of environment IDs
         episodes_per_env: Number of episodes per environment
+        miners: Dict mapping uid -> MinerCommitment (for first_block info)
         pareto_temperature: Softmax temperature for weight conversion
+        threshold_z_score: Z-score for threshold calculation
+        threshold_min_gap: Minimum gap for threshold (default 2%)
+        threshold_max_gap: Maximum gap for threshold (default 10%)
 
     Returns:
         Tuple of (weights_dict, weights_u16_dict)
@@ -88,7 +102,7 @@ def compute_weights(
         logger.warning("no_miner_scores", msg="No miner scores to compute weights from")
         return {}, {"uids": [], "values": []}
 
-    # Compute Pareto frontier
+    # Compute Pareto frontier (for logging/analysis)
     pareto_result = compute_pareto_frontier(
         miner_scores=miner_scores,
         env_ids=env_ids,
@@ -100,13 +114,37 @@ def compute_weights(
         frontier_size=len(pareto_result.frontier_uids),
     )
 
-    # Compute winners-take-all scores
-    epsilons = {env_id: float(pareto_result.epsilons[i]) for i, env_id in enumerate(env_ids)}
-
-    subset_scores = compute_subset_scores(
+    # Compute thresholds for each miner
+    miner_thresholds = compute_miner_thresholds(
         miner_scores=miner_scores,
+        episodes_per_env=episodes_per_env,
+        z_score=threshold_z_score,
+        min_gap=threshold_min_gap,
+        max_gap=threshold_max_gap,
+    )
+
+    # Extract first_block for each miner
+    miner_first_blocks = {
+        uid: miners[uid].committed_block for uid in miner_scores.keys() if uid in miners
+    }
+
+    # Fill in missing first_blocks with a large value (disadvantaged)
+    for uid in miner_scores.keys():
+        if uid not in miner_first_blocks:
+            miner_first_blocks[uid] = PLACEHOLDER_BLOCK_NUM
+
+    logger.info(
+        "first_commit_advantage",
+        n_miners=len(miner_first_blocks),
+        earliest_block=min(miner_first_blocks.values()) if miner_first_blocks else None,
+    )
+
+    # Compute winners-take-all scores with first-commit advantage
+    subset_scores = compute_subset_scores_with_priority(
+        miner_scores=miner_scores,
+        miner_thresholds=miner_thresholds,
+        miner_first_blocks=miner_first_blocks,
         env_ids=env_ids,
-        epsilons=epsilons,
     )
 
     # Convert to weights

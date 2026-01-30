@@ -207,3 +207,22 @@ def get_dominated_miners(pareto_result: ParetoResult, uid: int) -> list[int]:
     idx = pareto_result.uid_mapping.index(uid)
     dominated_indices = np.where(pareto_result.dominance_matrix[idx, :])[0]
     return [pareto_result.uid_mapping[i] for i in dominated_indices]
+
+
+def later_beats_earlier(
+    later_scores: dict[str, float],
+    earlier_thresholds: dict[str, float],
+    env_ids: list[str],
+) -> bool:
+    """
+    Check if a later miner beats an earlier miner's thresholds on all environments.
+
+    Args:
+        later_scores: The later miner's scores
+        earlier_thresholds: The earlier miner's thresholds (score + gap)
+        env_ids: Environments to check
+
+    Returns:
+        True if later miner beats threshold on ALL environments
+    """
+    return all(later_scores.get(env, 0.0) > earlier_thresholds.get(env, 1.0) for env in env_ids)
