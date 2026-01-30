@@ -68,15 +68,12 @@ AI2-THOR procedural house environments for embodied AI tasks.
 
 ## Backend Configuration
 
-Configure your backend to use the appropriate image for each environment family:
+Configure your backend to use the appropriate image for each environment family. Set these environment variables:
 
-```yaml
-eval_images:
-  metaworld: "kinitro/metaworld:v1"
-  procthor: "kinitro/procthor:v1"
+```bash
+KINITRO_BACKEND_EVAL_IMAGE_METAWORLD=kinitro/metaworld:v1
+KINITRO_BACKEND_EVAL_IMAGE_PROCTHOR=kinitro/procthor:v1
 ```
-
-Or use a single image tag that gets automatically selected based on the `env_id` prefix.
 
 ## Adding New Environment Families
 
