@@ -285,14 +285,14 @@ class TestFirstCommitAdvantage:
         # (1 has 0.5, threshold for 0's 0.9 is ~0.92-1.0)
         assert winner == 0
 
-    def test_tradeoff_neither_wins_same_block(self):
-        """Neither wins tradeoff when both registered at same block."""
+    def test_tradeoff_lower_uid_wins_same_block(self):
+        """Lower UID wins when both registered at the same block."""
         scores = {
             0: {"a": 0.9, "b": 0.5},  # Specialist in A
             1: {"a": 0.5, "b": 0.9},  # Specialist in B
         }
         thresholds = compute_miner_thresholds(scores, episodes_per_env=50)
-        # Same block - neither has time priority, but 0 wins by UID tiebreaker
+        # Same block - neither has time priority, so lower UID wins
         first_blocks = {0: 1000, 1: 1000}
 
         winner = find_subset_winner_with_priority(scores, thresholds, first_blocks, ("a", "b"))
