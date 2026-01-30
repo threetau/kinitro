@@ -97,6 +97,8 @@ A later miner must beat the earlier miner's score by a *threshold gap* on *all* 
 | 100     | ~7.5%       |
 | 500     | ~3.4%       |
 
+*These values assume default parameters: `threshold_z_score=1.5`, `threshold_min_gap=0.02`, `threshold_max_gap=0.10`. Different parameter values will change the gap.*
+
 This prevents *griefing attacks* where someone copies the leader just to force a tie and deny them rewards. If you copy, you tie on score but lose on commit time.
 
 ### 4. Weight Conversion
