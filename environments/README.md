@@ -36,6 +36,7 @@ kinitro build-env metaworld --push --registry docker.io/myuser
 MuJoCo-based manipulation tasks for robot arm control.
 
 **Supported environments:**
+
 - `metaworld/reach-v3` - Move end-effector to target position
 - `metaworld/push-v3` - Push object to goal location
 - `metaworld/pick-place-v3` - Pick up object and place at target
@@ -54,6 +55,7 @@ MuJoCo-based manipulation tasks for robot arm control.
 AI2-THOR procedural house environments for embodied AI tasks.
 
 **Supported environments:**
+
 - `procthor/v0` - Procedural house tasks with task types:
   - PICKUP - Pick up an object
   - PLACE - Place an object at a location
