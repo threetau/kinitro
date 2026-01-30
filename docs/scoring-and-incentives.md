@@ -48,7 +48,7 @@ To account for statistical noise, we use **epsilon (ε) tolerance** - small diff
 
 ### 3. Subset Scoring
 
-For every combination of environments, we find who dominates that subset and award points. **Larger subsets are worth more points.**
+For every combination of environments, we check if any miner dominates all others *on that subset*. If so, they win points equal to the subset size.
 
 ```mermaid
 flowchart TB
@@ -67,7 +67,20 @@ flowchart TB
     end
 ```
 
-A miner who dominates across all environments wins the most valuable subsets.
+**Example**: Consider a specialist (95% on Env 1, 40% elsewhere) vs a generalist (70% on all):
+
+| Subset | Winner | Points |
+|--------|--------|--------|
+| {Env 1} | Specialist | 1 |
+| {Env 2} | Generalist | 1 |
+| {Env 3} | Generalist | 1 |
+| {Env 1, 2} | Neither (trade-off) | 0 |
+| {Env 1, 3} | Neither (trade-off) | 0 |
+| {Env 2, 3} | Generalist | 2 |
+| {Env 1, 2, 3} | Neither (trade-off) | 0 |
+| **Total** | | **Specialist: 1, Generalist: 4** |
+
+The specialist only wins the single-environment subset where they excel. The generalist wins multiple subsets because they're consistently good. If no miner dominates all others on a subset (due to trade-offs or ties), no points are awarded for that subset.
 
 ### 4. Weight Conversion
 
