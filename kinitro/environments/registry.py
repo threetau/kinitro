@@ -1,12 +1,17 @@
 """Environment registry for loading robotics environments."""
 
+import json
 from collections.abc import Callable
+from pathlib import Path
 
 import structlog
 
 from kinitro.environments.base import RoboticsEnvironment
 
 logger = structlog.get_logger()
+
+# Path to environments directory (robo-subnet/environments/)
+_ENVIRONMENTS_DIR = Path(__file__).parent.parent.parent / "environments"
 
 # Type alias for environment factory functions
 EnvFactory = Callable[[], RoboticsEnvironment]
@@ -101,32 +106,55 @@ def get_environments_by_family(family: str) -> list[str]:
     return [env_id for env_id in ENVIRONMENTS if env_id.startswith(f"{family}/")]
 
 
-# Family metadata for display purposes
-FAMILY_METADATA: dict[str, dict[str, str]] = {
-    "metaworld": {
-        "name": "METAWORLD",
-        "description": "Manipulation",
-    },
-    "procthor": {
-        "name": "PROCTHOR",
-        "description": "Embodied AI",
-    },
-}
+def _load_family_metadata() -> dict[str, dict[str, str]]:
+    """Load family metadata from environments directory metadata.json files."""
+    metadata = {}
+    if not _ENVIRONMENTS_DIR.exists():
+        return metadata
+
+    for family_dir in _ENVIRONMENTS_DIR.iterdir():
+        if not family_dir.is_dir():
+            continue
+        metadata_file = family_dir / "metadata.json"
+        if metadata_file.exists():
+            try:
+                with open(metadata_file) as f:
+                    family_metadata = json.load(f)
+                metadata[family_dir.name] = family_metadata
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(
+                    "failed_to_load_family_metadata",
+                    family=family_dir.name,
+                    error=str(e),
+                )
+    return metadata
+
+
+# Cache for family metadata (loaded on first access)
+_family_metadata_cache: dict[str, dict[str, str]] | None = None
+
+
+def _get_family_metadata_cache() -> dict[str, dict[str, str]]:
+    """Get cached family metadata, loading if necessary."""
+    global _family_metadata_cache
+    if _family_metadata_cache is None:
+        _family_metadata_cache = _load_family_metadata()
+    return _family_metadata_cache
 
 
 def get_available_families() -> list[str]:
-    """Get list of available environment families."""
-    return list(FAMILY_METADATA.keys())
+    """Get list of available environment families from environments directory."""
+    return list(_get_family_metadata_cache().keys())
 
 
 def get_family_metadata(family: str) -> dict[str, str] | None:
-    """Get display metadata for a family (name, description)."""
-    return FAMILY_METADATA.get(family)
+    """Get display metadata for a family (name, description) from metadata.json."""
+    return _get_family_metadata_cache().get(family)
 
 
 def is_family_available(family: str) -> bool:
     """Check if an environment family is available."""
-    return family in FAMILY_METADATA
+    return family in _get_family_metadata_cache()
 
 
 def register_environment(env_id: str, factory: EnvFactory) -> None:

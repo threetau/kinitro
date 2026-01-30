@@ -4,17 +4,14 @@ This directory contains the affinetes-compatible evaluation environments for the
 
 ## Directory Structure
 
+Each environment family directory must contain:
+
 ```
-environments/
-├── metaworld/          # MuJoCo-based manipulation tasks
-│   ├── Dockerfile
-│   ├── env.py          # Actor class for metaworld/* environments
-│   └── requirements.txt
-│
-└── procthor/           # AI2-THOR procedural house tasks
-    ├── Dockerfile
-    ├── env.py          # Actor class for procthor/* environments
-    └── requirements.txt
+<family_name>/
+├── Dockerfile          # Container build instructions
+├── env.py              # Actor class with evaluate() method
+├── requirements.txt    # Python dependencies
+└── metadata.json       # Family display name and description
 ```
 
 ## Building Environment Images
@@ -86,10 +83,13 @@ Or use a single image tag that gets automatically selected based on the `env_id`
 To add a new environment family:
 
 1. Create a new directory under `environments/` (e.g., `environments/myenv/`)
-2. Add `Dockerfile`, `env.py` (Actor class), and `requirements.txt`
+2. Add required files:
+   - `Dockerfile` - Container build instructions
+   - `env.py` - Actor class with `evaluate()` method
+   - `requirements.txt` - Python dependencies
+   - `metadata.json` - Family display info: `{"name": "MYENV", "description": "My Environment"}`
 3. Register environments in `kinitro/environments/registry.py`:
-   - Add entries to `ENVIRONMENTS` dict
-   - Add metadata to `FAMILY_METADATA` dict
+   - Add entries to `ENVIRONMENTS` dict with your environment IDs
 4. Build with `kinitro build-env myenv --tag kinitro/myenv:v1`
 
-The CLI and list commands will automatically pick up the new family.
+The CLI and list commands will automatically discover the new family from `metadata.json`.
