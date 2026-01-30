@@ -78,7 +78,7 @@ uv run kinitro build-env procthor --tag kinitro/procthor:v1
 ```
 
 Each image is self-contained with:
-- Simulation engine (MuJoCo for MetaWorld, AI2-THOR for ProcTHOR)
+- Simulation engine (MuJoCo for MetaWorld, ProcTHOR renderer on AI2-THOR framework)
 - HTTP client for calling miner endpoints
 - Environment wrappers and dependencies
 
