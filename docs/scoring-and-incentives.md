@@ -88,7 +88,7 @@ The specialist only wins the single-environment subset where they excel. The gen
 
 Points are converted to weights using softmax, then submitted to the chain for emission distribution.
 
-## Why Gaming Doesn't Work
+## Anti-gaming Properties
 
 | Attack | Why It Fails |
 |--------|--------------|
@@ -96,11 +96,7 @@ Points are converted to weights using softmax, then submitted to the chain for e
 | **Copying** the leader | You tie with them. Must *improve* to dominate. |
 | **Specializing** in one environment | You only win small subsets. Generalists win the larger, more valuable ones. |
 
-## Key Insight
-
-The only way to earn rewards is to build a genuinely better generalist policy. Ties earn nothing, copies tie, and specialists lose to generalists.
-
-## Configuration
+## Relevant Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
