@@ -89,7 +89,7 @@ The specialist only wins the single-environment subset where they excel. The gen
 
 When two miners have similar scores on a subset, who wins? The miner who committed their policy first gets priority.
 
-A later miner must beat the earlier miner's score by a **threshold gap** on *all* environments in the subset to win. This gap scales with standard error—more evaluation samples means a smaller required gap.
+A later miner must beat the earlier miner's score by a *threshold gap* on *all* environments in the subset to win. This gap scales with standard error—more evaluation samples means a smaller required gap.
 
 | Samples | Typical Gap |
 | ------- | ----------- |
