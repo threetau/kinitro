@@ -149,6 +149,11 @@ def _query_commitment_by_hotkey(
         if isinstance(data, dict) and "info" in data:
             # Extract block number from commitment data
             block = data.get("block")
+            if block is not None:
+                try:
+                    block = int(block)
+                except (TypeError, ValueError):
+                    block = None
 
             info = data.get("info", {})
             fields = info.get("fields", ())
