@@ -52,8 +52,10 @@ class EvaluationCycleORM(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     block_number: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=EvaluationCycleStatus.PENDING.value
     )
@@ -119,7 +121,9 @@ class ComputedWeightsORM(Base):
     block_number: Mapped[int] = mapped_column(BigInteger, nullable=False)
     weights_json: Mapped[dict[str, float]] = mapped_column(JSONB, nullable=False)
     weights_u16_json: Mapped[dict[str, list[int]]] = mapped_column(JSONB, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=func.now()
+    )
 
     # Relationships
     cycle: Mapped["EvaluationCycleORM"] = relationship(
@@ -160,10 +164,12 @@ class TaskPoolORM(Base):
         String(20), nullable=False, default=TaskStatus.PENDING.value
     )
     assigned_to: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    assigned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=func.now()
+    )
 
     # Relationships
     cycle: Mapped["EvaluationCycleORM"] = relationship("EvaluationCycleORM")
