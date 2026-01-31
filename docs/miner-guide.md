@@ -325,30 +325,76 @@ The commitment includes three pieces of information:
 - **revision**: The HuggingFace commit SHA of your model
 - **endpoint**: Your Basilica deployment URL
 
+### Basic Commitment (Endpoint Visible On-Chain)
+
 ```bash
 uv run kinitro miner commit \
   --repo your-username/kinitro-policy \
   --revision YOUR_HUGGINGFACE_COMMIT_SHA \
-  --endpoint YOUR_BASILICA_URL \
+  --deployment-id YOUR_BASILICA_DEPLOYMENT_UUID \
   --netuid YOUR_SUBNET_ID \
   --network finney \
   --wallet-name your-wallet \
   --hotkey-name your-hotkey
 ```
 
+### Encrypted Commitment (Recommended)
+
+To protect your Basilica endpoint from public disclosure, use encrypted commitments. This ensures only the backend operator can discover your endpoint:
+
+```bash
+uv run kinitro miner commit \
+  --repo your-username/kinitro-policy \
+  --revision YOUR_HUGGINGFACE_COMMIT_SHA \
+  --deployment-id YOUR_BASILICA_DEPLOYMENT_UUID \
+  --netuid YOUR_SUBNET_ID \
+  --network finney \
+  --wallet-name your-wallet \
+  --hotkey-name your-hotkey \
+  --encrypt \
+  --backend-hotkey BACKEND_OPERATOR_HOTKEY
+```
+
+The `--backend-hotkey` is the SS58 address of the backend operator (subnet owner). This automatically fetches their public key from the chain and encrypts your deployment endpoint.
+
+#### Why use encrypted commitments?
+
+- Your Basilica endpoint URL is not publicly visible on-chain
+- Only the backend operator (who runs evaluations) can decrypt your endpoint
+- Prevents competitors from directly accessing or probing your deployment
+- The backend operator publishes their public key on-chain for miners to use
+
+#### Alternative: Provide the public key directly
+
+If you have the backend operator's public key (64-character hex string), you can provide it directly:
+
+```bash
+uv run kinitro miner commit \
+  ... \
+  --encrypt \
+  --backend-public-key <64-char-hex-public-key>
+```
+
 ### Commitment Format
 
 The commitment is stored on-chain as compact JSON to fit within chain limits:
 
+**Plain commitment:**
 ```json
 {"m":"your-username/kinitro-policy","r":"abc123def456...","d":"deployment-uuid"}
+```
+
+**Encrypted commitment:**
+```json
+{"m":"your-username/kinitro-policy","r":"abc123def456...","e":"<base85-encrypted-blob>"}
 ```
 
 Where:
 
 - `m` = HuggingFace model repository
 - `r` = HuggingFace revision (commit SHA)
-- `d` = Basilica deployment ID (UUID)
+- `d` = Basilica deployment ID (UUID) - for plain commitments
+- `e` = Encrypted deployment ID (base85 blob) - for encrypted commitments
 
 ### Verify Your Commitment
 

@@ -35,7 +35,7 @@ dependencies = [
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
     # Deployment (Basilica for GPU serverless)
-    "basilica-sdk>=0.1.0",
+    "basilica-sdk==0.15.0",
     # HuggingFace Hub for model uploads
     "huggingface-hub>=0.20.0",
     "pandas>=3.0.0",

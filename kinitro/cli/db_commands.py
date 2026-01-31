@@ -85,7 +85,7 @@ def db_create(
                 typer.echo(f"Database '{dbname}' already exists.")
             else:
                 # Create the database
-                await conn.execute(f'CREATE DATABASE "{_quote_ident(dbname)}"')
+                await conn.execute(f"CREATE DATABASE {_quote_ident(dbname)}")
                 typer.echo(f"Database '{dbname}' created successfully!")
         finally:
             await conn.close()

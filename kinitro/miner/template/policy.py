@@ -16,7 +16,8 @@ import uuid
 
 import numpy as np
 
-from kinitro.rl_interface import CanonicalAction, CanonicalObservation
+# Import from local rl_interface (self-contained for Basilica deployment)
+from rl_interface import CanonicalAction, CanonicalObservation
 
 
 class RobotPolicy:

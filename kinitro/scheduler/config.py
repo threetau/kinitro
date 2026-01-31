@@ -19,6 +19,17 @@ class SchedulerConfig(BaseSettings):
     network: str = Field(default="finney", description="Bittensor network")
     netuid: int = Field(default=1, description="Subnet UID")
 
+    # Endpoint decryption (for encrypted miner commitments)
+    backend_private_key: str | None = Field(
+        default=None,
+        description="X25519 private key (hex) for decrypting miner endpoints. "
+        "Required if miners use encrypted commitments.",
+    )
+    backend_private_key_file: str | None = Field(
+        default=None,
+        description="Path to file containing the backend private key (hex).",
+    )
+
     # Evaluation cycle settings
     eval_interval_seconds: int = Field(
         default=3600,

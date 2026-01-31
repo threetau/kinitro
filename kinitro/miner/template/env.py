@@ -27,7 +27,8 @@ from typing import Any
 
 import numpy as np
 
-from kinitro.rl_interface import CanonicalAction
+# Import from local rl_interface (self-contained for Basilica deployment)
+from rl_interface import CanonicalAction
 
 
 def decode_image_array(array_data: list) -> np.ndarray:
