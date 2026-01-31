@@ -59,7 +59,16 @@ class MinerCommitment:
 
     @property
     def endpoint(self) -> str:
-        """Get the full endpoint URL from deployment ID."""
+        """Get the full endpoint URL from deployment ID.
+
+        Raises:
+            ValueError: If deployment_id is empty (commitment needs decryption first)
+        """
+        if not self.deployment_id:
+            raise ValueError(
+                f"Cannot access endpoint: commitment requires decryption first "
+                f"(encrypted={self.is_encrypted}, needs_decryption={self.needs_decryption})"
+            )
         return deployment_id_to_url(self.deployment_id)
 
     @property
@@ -311,7 +320,7 @@ def read_miner_commitments(
                             uid=uid,
                             deployment_id=deployment_id[:12] + "...",
                         )
-                    except Exception as e:
+                    except ValueError as e:
                         logger.warning(
                             "decryption_failed",
                             uid=uid,
@@ -373,7 +382,7 @@ def decrypt_commitments(
                     uid=commitment.uid,
                     deployment_id=commitment.deployment_id[:12] + "...",
                 )
-            except Exception as e:
+            except ValueError as e:
                 logger.warning(
                     "decryption_failed",
                     uid=commitment.uid,
