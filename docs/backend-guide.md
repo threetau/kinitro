@@ -162,6 +162,8 @@ Additional Scheduler settings:
 | `KINITRO_SCHEDULER_PARETO_TEMPERATURE`           | `1.0`   | Softmax temperature for weight conversion    |
 | `KINITRO_SCHEDULER_TASK_STALE_THRESHOLD_SECONDS` | `300`   | Time after which assigned tasks become stale |
 | `KINITRO_SCHEDULER_CYCLE_TIMEOUT_SECONDS`        | `7200`  | Maximum time to wait for cycle completion    |
+| `KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY`          | `null`  | X25519 private key (hex) for decrypting miner endpoints |
+| `KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY_FILE`     | `null`  | Path to file containing the backend private key |
 
 ### Executor Service Configuration
 
@@ -349,6 +351,83 @@ pg_dump -h localhost -U kinitro kinitro > backup_$(date +%Y%m%d).sql
 ```bash
 psql -h localhost -U kinitro kinitro < backup_20240115.sql
 ```
+
+## Encrypted Endpoint Commitments
+
+Kinitro supports encrypted miner endpoint commitments to protect miner Basilica deployment URLs from public disclosure. When enabled, only the backend operator can decrypt and access miner endpoints.
+
+### How It Works
+
+1. **Backend generates a keypair**: X25519 key exchange keypair
+2. **Backend publishes public key**: On-chain so miners can discover it
+3. **Miners encrypt their endpoints**: Using the backend's public key when committing
+4. **Scheduler decrypts endpoints**: Using the private key during evaluation
+
+### Setup (Backend Operator)
+
+#### 1. Generate a Keypair
+
+```bash
+uv run kinitro crypto generate-keypair \
+  --output ~/.kinitro \
+  --name backend
+```
+
+This creates:
+- `~/.kinitro/backend.key` - Private key (keep secret!)
+- `~/.kinitro/backend.pub` - Public key (share with miners)
+
+#### 2. Publish Public Key to Chain
+
+```bash
+uv run kinitro crypto publish-public-key \
+  --private-key-file ~/.kinitro/backend.key \
+  --netuid YOUR_NETUID \
+  --network finney \
+  --wallet-name your-wallet \
+  --hotkey-name your-hotkey
+```
+
+After publishing, miners can use `--backend-hotkey YOUR_HOTKEY` to automatically fetch your public key.
+
+#### 3. Configure Scheduler with Private Key
+
+Set the environment variable or CLI flag:
+
+```bash
+# Option 1: Environment variable (path to file)
+export KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY_FILE=~/.kinitro/backend.key
+
+# Option 2: Environment variable (hex string directly)
+export KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY=$(cat ~/.kinitro/backend.key)
+```
+
+The scheduler will automatically decrypt miner endpoints when reading commitments from the chain.
+
+### CLI Commands
+
+```bash
+# Generate new keypair
+uv run kinitro crypto generate-keypair --output ~/.kinitro --name backend
+
+# Publish public key to chain
+uv run kinitro crypto publish-public-key --private-key-file ~/.kinitro/backend.key --netuid 1
+
+# Fetch a backend's public key (for verification)
+uv run kinitro crypto fetch-public-key --backend-hotkey 5Dxxx... --netuid 1
+
+# Show public key from private key
+uv run kinitro crypto show-public-key --private-key-file ~/.kinitro/backend.key
+
+# Test encryption/decryption
+uv run kinitro crypto test-encryption --private-key-file ~/.kinitro/backend.key
+```
+
+### Security Considerations
+
+- **Keep private key secure**: Store in a secure location with restricted permissions (0600)
+- **Backup your keypair**: Loss of private key means inability to decrypt miner endpoints
+- **Key rotation**: If key is compromised, generate new keypair and ask miners to re-commit
 
 ## Production Deployment
 
