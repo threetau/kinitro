@@ -4,7 +4,7 @@ runs:
   using: "composite"
   steps:
     - name: Set up uv
-      uses: astral-sh/setup-uv@v3
+      uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41
       with:
         python-version: "3.12"
         enable-cache: true
