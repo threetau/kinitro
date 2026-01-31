@@ -5,6 +5,7 @@ from click import Context
 from typer.core import TyperGroup
 
 # Import all command modules
+from kinitro.cli.crypto_commands import crypto_app
 from kinitro.cli.db_commands import db_app
 from kinitro.cli.env import env_app
 from kinitro.cli.miner import miner_app
@@ -35,6 +36,7 @@ class OrderedCommands(TyperGroup):
             "validate",
             "api",
             "db",
+            "crypto",
             "test-scoring",
         ]
         # Return commands in the specified order, followed by any not in the list
@@ -71,5 +73,8 @@ app.command()(test_scoring)
 
 # Add database commands as a subcommand group
 app.add_typer(db_app, name="db")
+
+# Add crypto commands as a subcommand group
+app.add_typer(crypto_app, name="crypto")
 
 __all__ = ["app"]

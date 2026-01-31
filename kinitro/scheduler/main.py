@@ -1,12 +1,16 @@
 """Main scheduler service for orchestrating evaluation cycles."""
 
+from __future__ import annotations
+
 import asyncio
 import time
+from pathlib import Path
 
 import structlog
 
 from kinitro.backend.storage import Storage
 from kinitro.chain.commitments import read_miner_commitments
+from kinitro.crypto import BackendKeypair
 from kinitro.environments import get_all_environment_ids
 from kinitro.scheduler.config import SchedulerConfig
 from kinitro.scheduler.scoring import (
@@ -37,6 +41,10 @@ class Scheduler:
         self.env_ids = get_all_environment_ids()
         self._running = False
         self._subtensor = None
+        self._backend_keypair: BackendKeypair | None = None
+
+        # Load backend keypair for decrypting miner endpoints
+        self._load_backend_keypair()
 
     @property
     def subtensor(self):
@@ -46,6 +54,40 @@ class Scheduler:
 
             self._subtensor = bt.Subtensor(network=self.config.network)
         return self._subtensor
+
+    def _load_backend_keypair(self) -> None:
+        """Load the backend keypair for decrypting miner endpoints."""
+        if self.config.backend_private_key:
+            try:
+                self._backend_keypair = BackendKeypair.from_private_key_hex(
+                    self.config.backend_private_key
+                )
+                logger.info(
+                    "backend_keypair_loaded",
+                    public_key=self._backend_keypair.public_key_hex()[:16] + "...",
+                )
+            except Exception as e:
+                logger.error("backend_keypair_load_failed", error=str(e))
+                raise
+        elif self.config.backend_private_key_file:
+            try:
+                self._backend_keypair = BackendKeypair.from_private_key_file(
+                    self.config.backend_private_key_file
+                )
+                logger.info(
+                    "backend_keypair_loaded_from_file",
+                    file=self.config.backend_private_key_file,
+                    public_key=self._backend_keypair.public_key_hex()[:16] + "...",
+                )
+            except Exception as e:
+                logger.error("backend_keypair_file_load_failed", error=str(e))
+                raise
+        else:
+            logger.warning(
+                "no_backend_keypair_configured",
+                hint="Encrypted miner commitments will not be decrypted. "
+                "Set backend_private_key or backend_private_key_file to enable.",
+            )
 
     async def start(self) -> None:
         """Start the scheduler loop."""
@@ -106,10 +148,14 @@ class Scheduler:
         try:
             # 1. Discover miners from chain
             neurons = self.subtensor.neurons(netuid=self.config.netuid)
+            backend_private_key = (
+                self._backend_keypair.private_key if self._backend_keypair else None
+            )
             miners = read_miner_commitments(
                 self.subtensor,
                 self.config.netuid,
                 neurons,
+                backend_private_key=backend_private_key,
             )
 
             if not miners:
