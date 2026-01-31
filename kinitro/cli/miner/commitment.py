@@ -75,12 +75,13 @@ def commit(
 
     # Fetch public key from chain if backend_hotkey is provided
     if encrypt and backend_hotkey and not backend_public_key:
-        typer.echo(f"Fetching backend public key from chain...")
+        typer.echo("Fetching backend public key from chain...")
         typer.echo(f"  Backend hotkey: {backend_hotkey}")
-        
+
         from kinitro.cli.crypto_commands import fetch_backend_public_key
+
         backend_public_key = fetch_backend_public_key(network, netuid, backend_hotkey)
-        
+
         if not backend_public_key:
             typer.echo(
                 f"Error: Could not find public key for backend hotkey {backend_hotkey}",
@@ -89,7 +90,7 @@ def commit(
             typer.echo("The backend operator may not have published their key yet.")
             typer.echo("Ask them to run: kinitro crypto publish-public-key --netuid ...")
             raise typer.Exit(1)
-        
+
         typer.echo(f"  Found public key: {backend_public_key[:16]}...")
 
     if backend_public_key and len(backend_public_key) != 64:
@@ -107,9 +108,9 @@ def commit(
     typer.echo(f"  Revision: {revision}")
     typer.echo(f"  Deployment ID: {deployment_id}")
     if encrypt:
-        typer.echo(f"  Encryption: ENABLED")
+        typer.echo("  Encryption: ENABLED")
     else:
-        typer.echo(f"  Encryption: disabled (endpoint visible on-chain)")
+        typer.echo("  Encryption: disabled (endpoint visible on-chain)")
 
     success = commit_model(
         subtensor=subtensor,
@@ -178,7 +179,7 @@ def show_commitment(
         typer.echo(f"  Repo: {parsed['huggingface_repo']}")
         typer.echo(f"  Revision: {parsed['revision_sha']}")
         if parsed.get("encrypted_deployment"):
-            typer.echo(f"  Encrypted: YES")
+            typer.echo("  Encrypted: YES")
             typer.echo(f"  Encrypted Blob: {parsed['encrypted_deployment'][:40]}...")
         else:
             typer.echo(f"  Deployment ID: {parsed['deployment_id']}")

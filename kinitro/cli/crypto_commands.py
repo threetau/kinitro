@@ -9,9 +9,9 @@ from kinitro.crypto import BackendKeypair
 
 # Subcommand group for crypto operations
 crypto_app = typer.Typer(
-    help="Cryptographic key management for backend operators", 
-    add_completion=False, 
-    no_args_is_help=True
+    help="Cryptographic key management for backend operators",
+    add_completion=False,
+    no_args_is_help=True,
 )
 
 
@@ -41,21 +41,22 @@ def fetch_backend_public_key(
 ) -> str | None:
     """
     Fetch the backend operator's public key from the chain.
-    
+
     Args:
         network: Bittensor network
         netuid: Subnet UID
         backend_hotkey: Backend operator's hotkey SS58 address
-        
+
     Returns:
         Public key hex string, or None if not found
     """
     import bittensor as bt
+
     from kinitro.chain.commitments import _query_commitment_by_hotkey
-    
+
     subtensor = bt.Subtensor(network=network)
     raw, _ = _query_commitment_by_hotkey(subtensor, netuid, backend_hotkey)
-    
+
     if raw:
         return _parse_backend_pubkey_commitment(raw)
     return None
@@ -107,10 +108,14 @@ def generate_keypair(
     # Check if files exist
     if not force:
         if private_key_file.exists():
-            typer.echo(f"Error: {private_key_file} already exists. Use --force to overwrite.", err=True)
+            typer.echo(
+                f"Error: {private_key_file} already exists. Use --force to overwrite.", err=True
+            )
             raise typer.Exit(1)
         if public_key_file.exists():
-            typer.echo(f"Error: {public_key_file} already exists. Use --force to overwrite.", err=True)
+            typer.echo(
+                f"Error: {public_key_file} already exists. Use --force to overwrite.", err=True
+            )
             raise typer.Exit(1)
 
     # Generate keypair
@@ -123,14 +128,16 @@ def generate_keypair(
     typer.echo("Keypair generated successfully!")
     typer.echo("")
     typer.echo(f"Private key: {private_key_file}")
-    typer.echo(f"  (permissions: 0600 - keep this secret!)")
+    typer.echo("  (permissions: 0600 - keep this secret!)")
     typer.echo("")
     typer.echo(f"Public key: {public_key_file}")
     typer.echo(f"  Value: {keypair.public_key_hex()}")
     typer.echo("")
     typer.echo("Next steps:")
     typer.echo("  1. Publish the public key to the chain:")
-    typer.echo(f"     kinitro crypto publish-public-key --private-key-file {private_key_file} --netuid <NETUID>")
+    typer.echo(
+        f"     kinitro crypto publish-public-key --private-key-file {private_key_file} --netuid <NETUID>"
+    )
     typer.echo("")
     typer.echo("  2. Configure the scheduler with the private key:")
     typer.echo(f"     export KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY_FILE={private_key_file}")
@@ -222,7 +229,9 @@ def publish_public_key(
             typer.echo("Public key published successfully!")
             typer.echo("")
             typer.echo("Miners can now encrypt their endpoints using:")
-            typer.echo(f"  kinitro miner commit ... --encrypt --backend-hotkey {wallet.hotkey.ss58_address}")
+            typer.echo(
+                f"  kinitro miner commit ... --encrypt --backend-hotkey {wallet.hotkey.ss58_address}"
+            )
         else:
             typer.echo("Failed to publish public key!", err=True)
             raise typer.Exit(1)
@@ -233,7 +242,9 @@ def publish_public_key(
 
 @crypto_app.command("fetch-public-key")
 def fetch_public_key_cmd(
-    backend_hotkey: str = typer.Option(..., "--backend-hotkey", "-b", help="Backend operator's hotkey"),
+    backend_hotkey: str = typer.Option(
+        ..., "--backend-hotkey", "-b", help="Backend operator's hotkey"
+    ),
     network: str = typer.Option("finney", "--network", help="Bittensor network"),
     netuid: int = typer.Option(..., "--netuid", help="Subnet UID"),
 ):
@@ -341,7 +352,7 @@ def test_encryption(
         # Or specify both keys explicitly
         kinitro crypto test-encryption --public-key <pub> --private-key <priv>
     """
-    from kinitro.crypto import encrypt_deployment_id, decrypt_deployment_id
+    from kinitro.crypto import decrypt_deployment_id, encrypt_deployment_id
 
     # Load keys
     if private_key_file:
@@ -357,7 +368,7 @@ def test_encryption(
         typer.echo("Error: Provide --public-key or --private-key-file", err=True)
         raise typer.Exit(1)
 
-    typer.echo(f"Testing encryption with:")
+    typer.echo("Testing encryption with:")
     typer.echo(f"  Deployment ID: {deployment_id}")
     typer.echo(f"  Public key: {public_key[:16]}...")
     typer.echo("")

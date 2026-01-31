@@ -46,20 +46,20 @@ class BackendKeypair:
     public_key: x25519.X25519PublicKey
 
     @classmethod
-    def generate(cls) -> "BackendKeypair":
+    def generate(cls) -> BackendKeypair:
         """Generate a new keypair."""
         private_key = x25519.X25519PrivateKey.generate()
         return cls(private_key=private_key, public_key=private_key.public_key())
 
     @classmethod
-    def from_private_key_hex(cls, hex_string: str) -> "BackendKeypair":
+    def from_private_key_hex(cls, hex_string: str) -> BackendKeypair:
         """Load keypair from hex-encoded private key."""
         private_bytes = bytes.fromhex(hex_string)
         private_key = x25519.X25519PrivateKey.from_private_bytes(private_bytes)
         return cls(private_key=private_key, public_key=private_key.public_key())
 
     @classmethod
-    def from_private_key_file(cls, path: str | Path) -> "BackendKeypair":
+    def from_private_key_file(cls, path: str | Path) -> BackendKeypair:
         """Load keypair from a file containing hex-encoded private key."""
         path = Path(path)
         hex_string = path.read_text().strip()
@@ -101,7 +101,9 @@ def load_public_key(hex_string: str) -> x25519.X25519PublicKey:
     """Load a public key from hex string."""
     public_bytes = bytes.fromhex(hex_string)
     if len(public_bytes) != EPHEMERAL_PUBLIC_KEY_SIZE:
-        raise ValueError(f"Invalid public key length: {len(public_bytes)} (expected {EPHEMERAL_PUBLIC_KEY_SIZE})")
+        raise ValueError(
+            f"Invalid public key length: {len(public_bytes)} (expected {EPHEMERAL_PUBLIC_KEY_SIZE})"
+        )
     return x25519.X25519PublicKey.from_public_bytes(public_bytes)
 
 
@@ -195,7 +197,9 @@ def decrypt_deployment_id(
         raise ValueError(f"Invalid base85 encoding: {e}")
 
     if len(package) != ENCRYPTED_PACKAGE_SIZE:
-        raise ValueError(f"Invalid encrypted package size: {len(package)} (expected {ENCRYPTED_PACKAGE_SIZE})")
+        raise ValueError(
+            f"Invalid encrypted package size: {len(package)} (expected {ENCRYPTED_PACKAGE_SIZE})"
+        )
 
     # Extract components
     ephemeral_public_bytes = package[:EPHEMERAL_PUBLIC_KEY_SIZE]

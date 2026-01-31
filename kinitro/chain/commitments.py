@@ -19,7 +19,6 @@ from kinitro.crypto import (
     decrypt_deployment_id,
     encrypt_deployment_id,
     get_encrypted_blob,
-    is_encrypted_commitment,
 )
 
 logger = structlog.get_logger()
