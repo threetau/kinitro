@@ -4,6 +4,10 @@ import os
 
 import bittensor as bt
 import typer
+from basilica import BasilicaClient
+from huggingface_hub import HfApi
+
+from kinitro.chain.commitments import commit_model
 
 
 def basilica_push(
@@ -47,14 +51,6 @@ def basilica_push(
         typer.echo("Error: BASILICA_API_TOKEN not configured", err=True)
         typer.echo("Set it via --api-token or BASILICA_API_TOKEN environment variable")
         typer.echo("\nTo get a token, run: basilica tokens create")
-        raise typer.Exit(1)
-
-    # Import Basilica SDK
-    try:
-        from basilica import BasilicaClient
-    except ImportError:
-        typer.echo("Error: basilica-sdk not installed", err=True)
-        typer.echo("Run: pip install basilica-sdk")
         raise typer.Exit(1)
 
     # Derive deployment name from repo
@@ -121,42 +117,77 @@ subprocess.run([
     # Note: kinitro is NOT included in pip_packages because the miner template
     # is self-contained (includes rl_interface.py locally). This avoids
     # dependency conflicts and keeps the deployment lightweight.
-    deploy_kwargs = {
-        "name": name,
-        "source": source_code,
-        "image": image,
-        "port": 8000,
-        "memory": memory,
-        "cpu": "1",  # 1 CPU core minimum for reliability
-        "pip_packages": [
-            "fastapi",
-            "uvicorn",
-            "numpy",
-            "huggingface-hub",
-            "pydantic",
-            "pillow",
-        ],
-        "env": {
-            "HF_REPO": repo,
-            "HF_REVISION": revision,
-        },
-        "timeout": timeout,
+    env_vars: dict[str, str] = {
+        "HF_REPO": repo,
+        "HF_REVISION": revision,
     }
-
-    # Add GPU settings only if GPU is requested
-    if gpu_count > 0:
-        deploy_kwargs["gpu_count"] = gpu_count
-        if min_gpu_memory_gb:
-            deploy_kwargs["min_gpu_memory_gb"] = min_gpu_memory_gb
-
-    # Add HF token if provided
     if hf_token_str:
-        deploy_kwargs["env"]["HF_TOKEN"] = hf_token_str
+        env_vars["HF_TOKEN"] = hf_token_str
 
     # Deploy
     typer.echo("\nDeploying to Basilica (this may take several minutes)...")
     try:
-        deployment = client.deploy(**deploy_kwargs)
+        if gpu_count > 0:
+            if min_gpu_memory_gb is not None:
+                deployment = client.deploy(
+                    name=name,
+                    source=source_code,
+                    image=image,
+                    port=8000,
+                    env=env_vars,
+                    cpu="1",
+                    memory=memory,
+                    pip_packages=[
+                        "fastapi",
+                        "uvicorn",
+                        "numpy",
+                        "huggingface-hub",
+                        "pydantic",
+                        "pillow",
+                    ],
+                    gpu_count=gpu_count,
+                    min_gpu_memory_gb=min_gpu_memory_gb,
+                    timeout=timeout,
+                )
+            else:
+                deployment = client.deploy(
+                    name=name,
+                    source=source_code,
+                    image=image,
+                    port=8000,
+                    env=env_vars,
+                    cpu="1",
+                    memory=memory,
+                    pip_packages=[
+                        "fastapi",
+                        "uvicorn",
+                        "numpy",
+                        "huggingface-hub",
+                        "pydantic",
+                        "pillow",
+                    ],
+                    gpu_count=gpu_count,
+                    timeout=timeout,
+                )
+        else:
+            deployment = client.deploy(
+                name=name,
+                source=source_code,
+                image=image,
+                port=8000,
+                env=env_vars,
+                cpu="1",
+                memory=memory,
+                pip_packages=[
+                    "fastapi",
+                    "uvicorn",
+                    "numpy",
+                    "huggingface-hub",
+                    "pydantic",
+                    "pillow",
+                ],
+                timeout=timeout,
+            )
     except Exception as e:
         typer.echo(f"\nDeployment failed: {e}", err=True)
         raise typer.Exit(1)
@@ -279,6 +310,8 @@ def miner_deploy(
             typer.echo("\nTo get a token, run: basilica tokens create")
             raise typer.Exit(1)
 
+    revision_value = revision
+
     # Determine steps
     steps = []
     if not skip_upload:
@@ -294,8 +327,8 @@ def miner_deploy(
     typer.echo(f"  Repository: {repo}")
     if policy_path:
         typer.echo(f"  Policy Path: {policy_path}")
-    if revision:
-        typer.echo(f"  Revision: {revision}")
+    if revision_value:
+        typer.echo(f"  Revision: {revision_value}")
     if deployment_id:
         typer.echo(f"  Deployment ID: {deployment_id}")
     typer.echo(f"  Steps: {' -> '.join(steps) if steps else 'none'}")
@@ -304,7 +337,7 @@ def miner_deploy(
     typer.echo("=" * 60)
 
     # Maximum allowed repo size (same as verification limit, configurable via env var)
-    max_repo_size_gb = float(os.environ.get("KINITRO_MAX_REPO_SIZE_GB", 5.0))
+    max_repo_size_gb = float(os.environ.get("KINITRO_MAX_REPO_SIZE_GB", "5.0"))
     max_repo_size_bytes = int(max_repo_size_gb * 1024 * 1024 * 1024)
 
     # Step 1: Upload to HuggingFace
@@ -313,14 +346,16 @@ def miner_deploy(
 
         if dry_run:
             typer.echo(f"  [DRY RUN] Would upload {policy_path} to {repo}")
-            revision = "dry-run-revision"
+            revision_value = "dry-run-revision"
         else:
             try:
-                from huggingface_hub import HfApi
+                if policy_path is None:
+                    raise typer.Exit(1)
+                policy_path_value = policy_path
 
                 # Check local folder size before uploading
                 total_size = 0
-                for dirpath, dirnames, filenames in os.walk(policy_path):
+                for dirpath, dirnames, filenames in os.walk(policy_path_value):
                     for filename in filenames:
                         filepath = os.path.join(dirpath, filename)
                         if os.path.isfile(filepath):
@@ -348,15 +383,15 @@ def miner_deploy(
                     typer.echo(f"  Repository already exists or created: {repo}")
 
                 # Upload folder
-                typer.echo(f"  Uploading from {policy_path}...")
+                typer.echo(f"  Uploading from {policy_path_value}...")
                 result = api.upload_folder(
-                    folder_path=policy_path,
+                    folder_path=policy_path_value,
                     repo_id=repo,
                     commit_message=message,
                 )
-                revision = result.commit_url.split("/")[-1]
+                revision_value = result.commit_url.split("/")[-1]
                 typer.echo("  Upload successful!")
-                typer.echo(f"  Revision: {revision}")
+                typer.echo(f"  Revision: {revision_value}")
 
             except typer.Exit:
                 raise
@@ -364,25 +399,24 @@ def miner_deploy(
                 typer.echo(f"\nUpload failed: {e}", err=True)
                 raise typer.Exit(1)
     else:
-        typer.echo(f"\nSkipping upload, using revision: {revision[:12]}...")
+        if revision_value is None:
+            typer.echo("Error: --revision is required when --skip-upload is set", err=True)
+            raise typer.Exit(1)
+        typer.echo(f"\nSkipping upload, using revision: {revision_value[:12]}...")
 
     # Step 2: Deploy to Basilica
     if not skip_deploy:
         step_num = 2 if not skip_upload else 1
         typer.echo(f"\n[{step_num}/{len(steps)}] Deploying to Basilica...")
 
+        if revision_value is None:
+            typer.echo("Error: revision is required for deployment", err=True)
+            raise typer.Exit(1)
+
         if dry_run:
-            typer.echo(f"  [DRY RUN] Would deploy {repo}@{revision[:12]}...")
+            typer.echo(f"  [DRY RUN] Would deploy {repo}@{revision_value[:12]}...")
             deployment_id = "dry-run-deployment-id"
         else:
-            # Import Basilica SDK
-            try:
-                from basilica import BasilicaClient
-            except ImportError:
-                typer.echo("Error: basilica-sdk not installed", err=True)
-                typer.echo("Run: pip install basilica-sdk")
-                raise typer.Exit(1)
-
             # Derive deployment name
             name = deployment_name or repo.replace("/", "-").lower()
             name = "".join(c if c.isalnum() or c == "-" else "-" for c in name).strip("-")[:63]
@@ -410,7 +444,7 @@ hf_token = os.environ.get("HF_TOKEN") or None
 print("Downloading model from HuggingFace...")
 snapshot_download(
     "{repo}",
-    revision="{revision}",
+    revision="{revision_value}",
     local_dir="/app",
     token=hf_token,
 )
@@ -439,42 +473,77 @@ subprocess.run([
             # Build deployment configuration
             # Note: kinitro is NOT included in pip_packages because the miner template
             # is self-contained (includes rl_interface.py locally).
-            deploy_kwargs = {
-                "name": name,
-                "source": source_code,
-                "image": image,
-                "port": 8000,
-                "memory": memory,
-                "cpu": "1",  # 1 CPU core minimum for reliability
-                "pip_packages": [
-                    "fastapi",
-                    "uvicorn",
-                    "numpy",
-                    "huggingface-hub",
-                    "pydantic",
-                    "pillow",
-                ],
-                "env": {
-                    "HF_REPO": repo,
-                    "HF_REVISION": revision,
-                },
-                "timeout": 600,
+            env_vars: dict[str, str] = {
+                "HF_REPO": repo,
+                "HF_REVISION": revision_value,
             }
-
-            # Add GPU settings only if GPU is requested
-            if gpu_count > 0:
-                deploy_kwargs["gpu_count"] = gpu_count
-                if min_gpu_memory_gb:
-                    deploy_kwargs["min_gpu_memory_gb"] = min_gpu_memory_gb
-
-            # Add HF token if provided
             if hf_token_str:
-                deploy_kwargs["env"]["HF_TOKEN"] = hf_token_str
+                env_vars["HF_TOKEN"] = hf_token_str
 
             # Deploy
             typer.echo("  Deploying (this may take several minutes)...")
             try:
-                deployment = client.deploy(**deploy_kwargs)
+                if gpu_count > 0:
+                    if min_gpu_memory_gb is not None:
+                        deployment = client.deploy(
+                            name=name,
+                            source=source_code,
+                            image=image,
+                            port=8000,
+                            env=env_vars,
+                            cpu="1",
+                            memory=memory,
+                            pip_packages=[
+                                "fastapi",
+                                "uvicorn",
+                                "numpy",
+                                "huggingface-hub",
+                                "pydantic",
+                                "pillow",
+                            ],
+                            gpu_count=gpu_count,
+                            min_gpu_memory_gb=min_gpu_memory_gb,
+                            timeout=600,
+                        )
+                    else:
+                        deployment = client.deploy(
+                            name=name,
+                            source=source_code,
+                            image=image,
+                            port=8000,
+                            env=env_vars,
+                            cpu="1",
+                            memory=memory,
+                            pip_packages=[
+                                "fastapi",
+                                "uvicorn",
+                                "numpy",
+                                "huggingface-hub",
+                                "pydantic",
+                                "pillow",
+                            ],
+                            gpu_count=gpu_count,
+                            timeout=600,
+                        )
+                else:
+                    deployment = client.deploy(
+                        name=name,
+                        source=source_code,
+                        image=image,
+                        port=8000,
+                        env=env_vars,
+                        cpu="1",
+                        memory=memory,
+                        pip_packages=[
+                            "fastapi",
+                            "uvicorn",
+                            "numpy",
+                            "huggingface-hub",
+                            "pydantic",
+                            "pillow",
+                        ],
+                        timeout=600,
+                    )
                 typer.echo("  Deployment successful!")
                 typer.echo(f"    Name: {deployment.name}")
                 typer.echo(f"    URL: {deployment.url}")
@@ -507,13 +576,18 @@ subprocess.run([
         step_num = len(steps)
         typer.echo(f"\n[{step_num}/{len(steps)}] Committing on-chain...")
 
+        if revision_value is None:
+            typer.echo("Error: revision is required for on-chain commit", err=True)
+            raise typer.Exit(1)
+        if netuid is None:
+            typer.echo("Error: netuid is required for on-chain commit", err=True)
+            raise typer.Exit(1)
+
         if dry_run:
             typer.echo(
-                f"  [DRY RUN] Would commit {repo}@{revision[:12]}... with deployment_id {deployment_id}"
+                f"  [DRY RUN] Would commit {repo}@{revision_value[:12]}... with deployment_id {deployment_id}"
             )
         else:
-            from kinitro.chain.commitments import commit_model
-
             subtensor = bt.Subtensor(network=network)
             wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)
 
@@ -524,7 +598,7 @@ subprocess.run([
                 wallet=wallet,
                 netuid=netuid,
                 repo=repo,
-                revision=revision,
+                revision=revision_value,
                 deployment_id=deployment_id,
             )
 
@@ -542,6 +616,7 @@ subprocess.run([
         typer.echo("DEPLOYMENT COMPLETE")
     typer.echo("=" * 60)
     typer.echo(f"  Repository: {repo}")
-    typer.echo(f"  Revision: {revision[:12] if revision else 'N/A'}...")
+    revision_summary = revision_value[:12] if revision_value else "N/A"
+    typer.echo(f"  Revision: {revision_summary}...")
     typer.echo(f"  Deployment ID: {deployment_id or 'N/A'}")
     typer.echo("=" * 60)

@@ -26,16 +26,11 @@ Environment Variables:
 import os
 import sys
 
+from basilica import BasilicaClient
+
 
 def deploy():
     """Deploy the policy server to Basilica."""
-    try:
-        import basilica
-        from basilica import BasilicaClient
-    except ImportError:
-        print("Error: basilica-sdk not installed. Run: pip install basilica-sdk")
-        sys.exit(1)
-
     # Configuration from environment
     hf_repo = os.environ.get("HF_REPO", "")
     hf_revision = os.environ.get("HF_REVISION", "main")
@@ -54,22 +49,13 @@ def deploy():
     # Create client
     client = BasilicaClient()
 
-    # Create cache volume to avoid re-downloading model on restarts
-    cache_volume_name = f"kinitro-{deployment_name}-cache"[:63]  # Max 63 chars
-    try:
-        model_cache = basilica.Volume.from_name(cache_volume_name, create_if_missing=True)
-        print(f"Using cache volume: {cache_volume_name}")
-    except Exception as e:
-        print(f"Warning: Could not create cache volume: {e}")
-        model_cache = None
-
     # Generate deployment source code
     # This code runs inside the Basilica container at startup
     hf_token_env = (
         f'os.environ.get("HF_TOKEN", "{hf_token}")' if hf_token else 'os.environ.get("HF_TOKEN")'
     )
 
-    source_code = f'''
+    source_code = f"""
 import os
 import sys
 import subprocess
@@ -102,45 +88,38 @@ subprocess.run([
     "--host", "0.0.0.0",
     "--port", "8000",
 ])
-'''
+"""
 
-    # Build deployment configuration
-    deploy_kwargs = {
-        "name": deployment_name,
-        "source": source_code,
-        "image": "pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime",
-        "port": 8000,
-        "gpu_count": 1,
-        "min_gpu_memory_gb": 16,
-        "memory": "16Gi",
-        "cpu": "4000m",  # 4 CPU cores
-        "pip_packages": [
-            "fastapi",
-            "uvicorn",
-            "numpy",
-            "huggingface-hub",
-            "pydantic",
-            "pillow",
-        ],
-        "env": {
-            "HF_REPO": hf_repo,
-            "HF_REVISION": hf_revision,
-        },
-        "timeout": 600,  # 10 minute timeout for GPU scheduling
+    env_vars: dict[str, str] = {
+        "HF_REPO": hf_repo,
+        "HF_REVISION": hf_revision,
     }
-
-    # Add HF token if provided
     if hf_token:
-        deploy_kwargs["env"]["HF_TOKEN"] = hf_token
-
-    # Add cache volume if created successfully
-    if model_cache:
-        deploy_kwargs["volumes"] = {"/root/.cache/huggingface": model_cache}
+        env_vars["HF_TOKEN"] = hf_token
 
     # Deploy
     print("\nDeploying to Basilica...")
     try:
-        deployment = client.deploy(**deploy_kwargs)
+        deployment = client.deploy(
+            name=deployment_name,
+            source=source_code,
+            image="pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime",
+            port=8000,
+            env=env_vars,
+            cpu="4000m",
+            memory="16Gi",
+            pip_packages=[
+                "fastapi",
+                "uvicorn",
+                "numpy",
+                "huggingface-hub",
+                "pydantic",
+                "pillow",
+            ],
+            gpu_count=1,
+            min_gpu_memory_gb=16,
+            timeout=600,
+        )
     except Exception as e:
         print(f"Deployment failed: {e}")
         sys.exit(1)

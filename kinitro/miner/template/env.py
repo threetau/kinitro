@@ -158,77 +158,43 @@ class RobotActor:
 
 class ExampleVisionPolicy:
     """
-    Example of integrating a PyTorch vision-based policy.
+    Example of integrating a vision-based policy.
 
-    This shows how you might load and use a trained neural network
-    that processes camera images + proprioceptive observations.
+    This placeholder keeps the structure for camera + proprio inputs.
+    Replace the model loading and inference with your framework of choice.
     """
 
     def __init__(self, model_path: str = "policy.pt"):
-        try:
-            import torch
-            import torchvision.transforms as transforms
+        self.model = None
+        self.image_mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        self.image_std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-            # Image preprocessing
-            self.transform = transforms.Compose(
-                [
-                    transforms.ToTensor(),
-                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                ]
-            )
-
-            # Load your trained model
-            if os.path.exists(model_path):
-                self.model = torch.load(model_path, map_location=self.device)
-                self.model.eval()
-            else:
-                self.model = None
-                print(f"Warning: Model not found at {model_path}")
-
-        except ImportError:
-            print("PyTorch not available")
-            self.model = None
-            self.transform = None
+        if os.path.exists(model_path):
+            self.model = model_path
+        else:
+            print(f"Warning: Model not found at {model_path}")
 
     def preprocess_images(self, images: dict[str, np.ndarray]) -> "Any":
         """Preprocess camera images for the policy."""
-        if self.transform is None or not images:
+        if not images:
             return None
-
-        import torch
 
         processed = []
         for cam_name in sorted(images.keys()):
             img = images[cam_name]
-            img_tensor = self.transform(img)
-            processed.append(img_tensor)
+            img_float = img.astype(np.float32) / 255.0
+            img_norm = (img_float - self.image_mean) / self.image_std
+            processed.append(img_norm)
 
         if processed:
-            return torch.stack(processed).unsqueeze(0).to(self.device)
+            return np.stack(processed, axis=0)
         return None
 
     def __call__(self, proprio: np.ndarray, images: dict[str, np.ndarray]) -> np.ndarray:
         if self.model is None:
             return np.zeros(4)
-
-        import torch
-
-        with torch.no_grad():
-            # Proprioceptive input
-            proprio_tensor = torch.FloatTensor(proprio).unsqueeze(0).to(self.device)
-
-            # Image input
-            images_tensor = self.preprocess_images(images)
-
-            # Forward pass
-            if images_tensor is not None:
-                action = self.model(proprio_tensor, images_tensor).cpu().numpy()[0]
-            else:
-                action = self.model(proprio_tensor).cpu().numpy()[0]
-
-        return action
+        _ = self.preprocess_images(images)
+        return np.zeros(4)
 
 
 # ==============================================================================

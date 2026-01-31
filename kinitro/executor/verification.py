@@ -15,6 +15,7 @@ than what they committed.
 import asyncio
 import hashlib
 import importlib.util
+import inspect
 import os
 import random
 import shutil
@@ -271,21 +272,27 @@ class PolicyVerifier:
             local_dir=os.path.join(self.cache_dir, repo.replace("/", "_"), revision[:12]),
         )
 
+        if isinstance(model_path, list):
+            raise ValueError("Unexpected model path format from HuggingFace download")
+        model_path_str = str(model_path)
+
         # Load the policy module
-        policy_file = os.path.join(model_path, "policy.py")
+        policy_file = os.path.join(model_path_str, "policy.py")
         if not os.path.exists(policy_file):
             raise FileNotFoundError(f"policy.py not found in {repo}@{revision}")
 
         # Import the policy module dynamically
         spec = importlib.util.spec_from_file_location("miner_policy", policy_file)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Unable to load policy module from {policy_file}")
         module = importlib.util.module_from_spec(spec)
 
         # Add model path to sys.path for relative imports
-        sys.path.insert(0, model_path)
+        sys.path.insert(0, model_path_str)
         try:
             spec.loader.exec_module(module)
         finally:
-            sys.path.remove(model_path)
+            sys.path.remove(model_path_str)
 
         # Instantiate the policy
         if not hasattr(module, "RobotPolicy"):
@@ -298,7 +305,7 @@ class PolicyVerifier:
             "policy_loaded_from_hf",
             repo=repo,
             revision=revision[:12],
-            model_path=model_path,
+            model_path=model_path_str,
         )
 
         return policy
@@ -307,14 +314,6 @@ class PolicyVerifier:
         """Set random seeds for reproducibility."""
         random.seed(seed)
         np.random.seed(seed)
-        try:
-            import torch
-
-            torch.manual_seed(seed)
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed_all(seed)
-        except ImportError:
-            pass
 
     async def _get_local_action(
         self, policy: Any, observation: np.ndarray, seed: int
@@ -324,8 +323,6 @@ class PolicyVerifier:
             self._set_seed(seed)
 
             # Check if policy.act accepts seed parameter
-            import inspect
-
             sig = inspect.signature(policy.act)
             accepts_seed = "seed" in sig.parameters
 

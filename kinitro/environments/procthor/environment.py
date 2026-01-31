@@ -5,10 +5,12 @@ from __future__ import annotations
 import os
 import subprocess
 import time
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import structlog
+from ai2thor.controller import Controller
+from ai2thor.platform import CloudRendering
 
 from kinitro.environments.base import RoboticsEnvironment, TaskConfig
 from kinitro.environments.procthor.house_generator import (
@@ -100,7 +102,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         self._tip_angle_threshold = tip_angle_threshold
 
         # Lazy-initialized components
-        self._controller = None
+        self._controller: Any = None
         self._house_generator = HouseGenerator()
         self._task_generator = TaskGenerator(task_types=task_types)
 
@@ -138,11 +140,6 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         if self._controller is not None:
             return
 
-        try:
-            from ai2thor.controller import Controller
-        except ImportError as exc:
-            raise ImportError("ai2thor is required. Install with: pip install ai2thor") from exc
-
         # For procedural house generation, we need to use the nanna branch of AI2-THOR.
         # The nanna branch has builds available (e.g., fdb56f1c53c9) that support CreateHouse.
         # Note: We hardcode 'nanna' instead of using PROCTHOR_INITIALIZATION because newer
@@ -169,13 +166,15 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         # Set AI2THOR_PLATFORM=Linux64 to skip CloudRendering attempt
         platform_override = os.environ.get("AI2THOR_PLATFORM", "").lower()
 
+        controller_cls = cast(Any, Controller)
         if self._headless and platform_override != "linux64":
             # Try CloudRendering if Vulkan appears to be available
             if self._vulkan_available():
                 try:
-                    from ai2thor.platform import CloudRendering
-
-                    self._controller = Controller(platform=CloudRendering, **controller_kwargs)
+                    self._controller = controller_cls(
+                        platform=cast(Any, CloudRendering),
+                        **controller_kwargs,
+                    )
                     logger.info("ai2thor_initialized", mode="CloudRendering")
                     return
                 except Exception as e:
@@ -190,7 +189,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             self._start_xvfb()
 
         # Use Linux64 platform with X server / Xvfb display
-        self._controller = Controller(**controller_kwargs)
+        self._controller = controller_cls(**controller_kwargs)
         logger.info("ai2thor_initialized", mode="Linux64")
 
     def _vulkan_available(self) -> bool:
@@ -200,6 +199,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
                 ["vulkaninfo"],
                 capture_output=True,
                 timeout=5,
+                check=False,
             )
             # vulkaninfo returns 0 if Vulkan devices are found
             return result.returncode == 0 and b"GPU" in result.stdout
@@ -218,6 +218,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
                 ["xdpyinfo", "-display", display],
                 capture_output=True,
                 timeout=5,
+                check=False,
             )
             if result.returncode == 0:
                 logger.info("xvfb_already_running", display=display)
@@ -520,7 +521,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         since GetReachablePositions may not work reliably.
         """
         # Get spawn position from house metadata
-        house_metadata = self._current_house.get("metadata", {})
+        house_metadata = (self._current_house or {}).get("metadata", {})
         agent_spawn = house_metadata.get("agent", {})
 
         if agent_spawn.get("position"):

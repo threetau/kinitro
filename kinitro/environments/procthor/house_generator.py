@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import structlog
+from procthor.generation import HouseGenerator as PTHouseGenerator
+from procthor.generation.room_specs import PROCTHOR10K_ROOM_SPEC_SAMPLER
 
 from kinitro.environments.procthor.task_types import SceneObject
 
@@ -36,22 +39,6 @@ class HouseGenerator:
         self._num_rooms_range = num_rooms_range
         self._use_cache = use_cache
         self._house_cache: dict[int, dict[str, Any]] = {}
-        self._procthor = None
-
-    def _ensure_procthor(self) -> None:
-        """Lazy import of procthor to avoid import errors."""
-        if self._procthor is not None:
-            return
-
-        try:
-            import procthor
-
-            self._procthor = procthor
-        except ImportError as exc:
-            raise ImportError(
-                "procthor is required for procedural house generation. "
-                "Install with: pip install procthor"
-            ) from exc
 
     def generate_house(self, seed: int, controller: Any = None) -> dict[str, Any]:
         """
@@ -68,13 +55,8 @@ class HouseGenerator:
         if self._use_cache and seed in self._house_cache:
             return self._house_cache[seed]
 
-        self._ensure_procthor()
-
         # Generate house using procthor
         try:
-            from procthor.generation import HouseGenerator as PTHouseGenerator
-            from procthor.generation.room_specs import PROCTHOR10K_ROOM_SPEC_SAMPLER
-
             # ProcTHOR requires a 'split' parameter and a room_spec_sampler
             # Use 'train' split and the default PROCTHOR10K room specs
             # Pass controller if provided to avoid creating a new one
@@ -89,15 +71,20 @@ class HouseGenerator:
             house = result[0] if isinstance(result, tuple) else result
             # House object has .data attribute which is the dict we need
             # (newer procthor versions don't have to_dict, but have .data)
-            if hasattr(house, "data") and isinstance(house.data, dict):
-                house_dict: dict[str, Any] = house.data
-            elif hasattr(house, "to_dict"):
-                house_dict = house.to_dict()
+            house_data = getattr(house, "data", None)
+            if isinstance(house_data, dict):
+                house_dict: dict[str, Any] = house_data
             else:
-                # Fallback: parse from JSON
-                import json
-
-                house_dict = json.loads(house.to_json())
+                to_dict = getattr(house, "to_dict", None)
+                if callable(to_dict):
+                    house_dict = to_dict()
+                else:
+                    to_json = getattr(house, "to_json", None)
+                    if not callable(to_json):
+                        raise RuntimeError(
+                            "ProcTHOR house object has no supported serialization method"
+                        )
+                    house_dict = json.loads(to_json())
         except Exception as e:
             logger.warning(
                 "procthor_generation_failed",

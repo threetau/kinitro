@@ -301,6 +301,8 @@ class TestTaskGenerator:
         rng2 = np.random.default_rng(42)
         task2 = generator.generate_task(objects, rng2)
 
+        assert task1 is not None
+        assert task2 is not None
         assert task1.task_type == task2.task_type
         assert task1.target_object_id == task2.target_object_id
 

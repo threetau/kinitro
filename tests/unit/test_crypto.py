@@ -1,7 +1,12 @@
 """Tests for encrypted endpoint commitments (crypto module)."""
 
+import base64
+import json
+import os
+
 import pytest
 
+from kinitro.chain.commitments import parse_commitment
 from kinitro.crypto import (
     BackendKeypair,
     bytes_to_uuid,
@@ -102,8 +107,6 @@ class TestBackendKeypair:
 
     def test_save_private_key_permissions(self, tmp_path):
         """Private key file should have restricted permissions (0600)."""
-        import os
-
         keypair = BackendKeypair.generate()
         key_file = tmp_path / "test.key"
         keypair.save_private_key(key_file)
@@ -165,8 +168,6 @@ class TestEncryptDecrypt:
 
     def test_encrypted_blob_is_base85(self):
         """Encrypted blob should be base85 encoded."""
-        import base64
-
         keypair = BackendKeypair.generate()
         deployment_id = "95edf2b6-e18b-400a-8398-5573df10e5e4"
 
@@ -265,20 +266,14 @@ class TestIntegration:
 
     def test_full_commitment_flow(self):
         """Test full flow: generate keys, encrypt, parse, decrypt."""
-        from kinitro.chain.commitments import parse_commitment
-
         # Backend generates keypair
         backend_keypair = BackendKeypair.generate()
 
         # Miner encrypts their deployment ID
         deployment_id = "95edf2b6-e18b-400a-8398-5573df10e5e4"
-        encrypted_blob = encrypt_deployment_id(
-            deployment_id, backend_keypair.public_key_hex()
-        )
+        encrypted_blob = encrypt_deployment_id(deployment_id, backend_keypair.public_key_hex())
 
         # Miner creates commitment (this is what goes on-chain)
-        import json
-
         commitment_json = json.dumps(
             {"m": "user/policy", "r": "abc123def456", "e": encrypted_blob},
             separators=(",", ":"),
@@ -304,9 +299,9 @@ class TestIntegration:
 
     def test_plain_commitment_still_works(self):
         """Plain commitments should still work."""
-        from kinitro.chain.commitments import parse_commitment
-
-        commitment_json = '{"m":"user/policy","r":"abc123","d":"95edf2b6-e18b-400a-8398-5573df10e5e4"}'
+        commitment_json = (
+            '{"m":"user/policy","r":"abc123","d":"95edf2b6-e18b-400a-8398-5573df10e5e4"}'
+        )
 
         parsed = parse_commitment(commitment_json)
 

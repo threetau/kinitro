@@ -5,6 +5,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 
+import affinetes as af_env
 import structlog
 
 from kinitro.backend.models import Task, TaskResult
@@ -75,13 +76,6 @@ class Worker:
                 except Exception:
                     pass
                 self._env = None
-
-            try:
-                import affinetes as af_env
-            except ImportError:
-                raise ImportError(
-                    "affinetes is required for evaluation. Install with: pip install affinetes"
-                )
 
             logger.info(
                 "loading_eval_environment",
@@ -331,6 +325,7 @@ class Worker:
                 capture_output=True,
                 text=True,
                 timeout=5,
+                check=False,
             )
         except Exception as e:
             logger.warning("docker_cleanup_failed", error=str(e))

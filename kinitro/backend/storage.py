@@ -2,7 +2,7 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import structlog
 from sqlalchemy import desc, func, select
@@ -89,7 +89,7 @@ class Storage:
         """Create a new evaluation cycle."""
         cycle = EvaluationCycleORM(
             block_number=block_number,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
             status=EvaluationCycleStatus.RUNNING.value,
             n_miners=n_miners,
             n_environments=n_environments,
@@ -112,7 +112,7 @@ class Storage:
         cycle = result.scalar_one_or_none()
         if cycle:
             cycle.status = EvaluationCycleStatus.COMPLETED.value
-            cycle.completed_at = datetime.utcnow()
+            cycle.completed_at = datetime.now(timezone.utc)
             cycle.duration_seconds = duration_seconds
             logger.info("cycle_completed", cycle_id=cycle_id, duration=duration_seconds)
 
@@ -129,7 +129,7 @@ class Storage:
         cycle = result.scalar_one_or_none()
         if cycle:
             cycle.status = EvaluationCycleStatus.FAILED.value
-            cycle.completed_at = datetime.utcnow()
+            cycle.completed_at = datetime.now(timezone.utc)
             cycle.error_message = error_message
             logger.error("cycle_failed", cycle_id=cycle_id, error=error_message)
 
@@ -265,7 +265,7 @@ class Storage:
             block_number=block_number,
             weights_json=weights,
             weights_u16_json=weights_u16,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         session.add(weights_orm)
         logger.info("weights_saved", cycle_id=cycle_id, block=block_number, n_miners=len(weights))
@@ -402,7 +402,7 @@ class Storage:
         tasks = list(result.scalars().all())
 
         # Assign tasks to executor
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for task in tasks:
             task.status = TaskStatus.ASSIGNED.value
             task.assigned_to = executor_id
@@ -472,7 +472,7 @@ class Storage:
         # Update task with result
         # COMPLETED = task ran successfully, FAILED = task failed (regardless of error message)
         task.status = TaskStatus.COMPLETED.value if success else TaskStatus.FAILED.value
-        task.completed_at = datetime.utcnow()
+        task.completed_at = datetime.now(timezone.utc)
         task.result = {
             "success": success,
             "score": score,
@@ -504,21 +504,23 @@ class Storage:
             Dict with task pool statistics
         """
         # Base query
-        base_filter = TaskPoolORM.cycle_id == cycle_id if cycle_id else True
+        base_filter = TaskPoolORM.cycle_id == cycle_id if cycle_id is not None else None
 
         # Count by status
-        result = await session.execute(
-            select(TaskPoolORM.status, func.count()).where(base_filter).group_by(TaskPoolORM.status)
-        )
-        status_counts = dict(result.all())
+        status_query = select(TaskPoolORM.status, func.count()).group_by(TaskPoolORM.status)
+        if base_filter is not None:
+            status_query = status_query.where(base_filter)
+        result = await session.execute(status_query)
+        status_counts = {status: count for status, count in result.all()}
 
         # Get active executors (assigned tasks)
-        result = await session.execute(
-            select(func.distinct(TaskPoolORM.assigned_to))
-            .where(base_filter)
-            .where(TaskPoolORM.status == TaskStatus.ASSIGNED.value)
-            .where(TaskPoolORM.assigned_to.isnot(None))
+        assigned_query = select(func.distinct(TaskPoolORM.assigned_to)).where(
+            TaskPoolORM.status == TaskStatus.ASSIGNED.value
         )
+        if base_filter is not None:
+            assigned_query = assigned_query.where(base_filter)
+        assigned_query = assigned_query.where(TaskPoolORM.assigned_to.isnot(None))
+        result = await session.execute(assigned_query)
         active_executors = [r for r in result.scalars().all() if r is not None]
 
         return {
@@ -588,7 +590,7 @@ class Storage:
         Returns:
             Number of tasks reassigned
         """
-        threshold = datetime.utcnow() - timedelta(seconds=stale_threshold_seconds)
+        threshold = datetime.now(timezone.utc) - timedelta(seconds=stale_threshold_seconds)
 
         result = await session.execute(
             select(TaskPoolORM)

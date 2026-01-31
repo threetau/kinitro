@@ -144,19 +144,25 @@ def executor(
         ),
     )
 
-    config_kwargs = {
-        "api_url": api_url,
-        "batch_size": batch_size,
-        "poll_interval_seconds": poll_interval,
-        "eval_image": eval_image,
-        "eval_mode": eval_mode,
-        "log_level": log_level,
-    }
-
     if executor_id:
-        config_kwargs["executor_id"] = executor_id
-
-    config = ExecutorConfig(**config_kwargs)
+        config = ExecutorConfig(
+            api_url=api_url,
+            batch_size=batch_size,
+            poll_interval_seconds=poll_interval,
+            eval_image=eval_image,
+            eval_mode=eval_mode,
+            log_level=log_level,
+            executor_id=executor_id,
+        )
+    else:
+        config = ExecutorConfig(
+            api_url=api_url,
+            batch_size=batch_size,
+            poll_interval_seconds=poll_interval,
+            eval_image=eval_image,
+            eval_mode=eval_mode,
+            log_level=log_level,
+        )
 
     typer.echo("Starting executor service")
     typer.echo(f"  Executor ID: {config.executor_id}")
