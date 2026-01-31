@@ -118,13 +118,16 @@ subprocess.run([
         image = "python:3.11-slim"
 
     # Build deployment configuration
+    # Note: kinitro is NOT included in pip_packages because the miner template
+    # is self-contained (includes rl_interface.py locally). This avoids
+    # dependency conflicts and keeps the deployment lightweight.
     deploy_kwargs = {
         "name": name,
         "source": source_code,
         "image": image,
         "port": 8000,
         "memory": memory,
-        "cpu": "500m",
+        "cpu": "1",  # 1 CPU core minimum for reliability
         "pip_packages": [
             "fastapi",
             "uvicorn",
@@ -434,13 +437,15 @@ subprocess.run([
                 image = "python:3.11-slim"
 
             # Build deployment configuration
+            # Note: kinitro is NOT included in pip_packages because the miner template
+            # is self-contained (includes rl_interface.py locally).
             deploy_kwargs = {
                 "name": name,
                 "source": source_code,
                 "image": image,
                 "port": 8000,
                 "memory": memory,
-                "cpu": "500m",
+                "cpu": "1",  # 1 CPU core minimum for reliability
                 "pip_packages": [
                     "fastapi",
                     "uvicorn",
