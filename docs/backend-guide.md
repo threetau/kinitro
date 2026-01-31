@@ -162,8 +162,8 @@ Additional Scheduler settings:
 | `KINITRO_SCHEDULER_PARETO_TEMPERATURE`           | `1.0`   | Softmax temperature for weight conversion    |
 | `KINITRO_SCHEDULER_TASK_STALE_THRESHOLD_SECONDS` | `300`   | Time after which assigned tasks become stale |
 | `KINITRO_SCHEDULER_CYCLE_TIMEOUT_SECONDS`        | `7200`  | Maximum time to wait for cycle completion    |
-| `KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY`          | `null`  | X25519 private key (hex) for decrypting miner endpoints |
-| `KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY_FILE`     | `null`  | Path to file containing the backend private key |
+| `KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY`          | `null`  | X25519 private key (hex) for endpoint decrypt |
+| `KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY_FILE`     | `null`  | Path to backend private key file              |
 
 ### Executor Service Configuration
 

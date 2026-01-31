@@ -92,12 +92,14 @@ def commit(
 
         typer.echo(f"  Found public key: {backend_public_key[:16]}...")
 
-    if encrypt and backend_public_key and len(backend_public_key) != 64:
-        typer.echo(
-            f"Error: Invalid public key length ({len(backend_public_key)}). Expected 64 hex characters.",
-            err=True,
-        )
-        raise typer.Exit(1)
+    if encrypt and backend_public_key:
+        is_valid_hex = all(c in "0123456789abcdefABCDEF" for c in backend_public_key)
+        if len(backend_public_key) != 64 or not is_valid_hex:
+            typer.echo(
+                "Error: Invalid public key. Expected 64 hex characters.",
+                err=True,
+            )
+            raise typer.Exit(1)
 
     subtensor = bt.Subtensor(network=network)
     wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)

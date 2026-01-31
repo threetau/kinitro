@@ -360,7 +360,7 @@ def test_encryption(
         kinitro crypto generate-keypair -o /tmp -n test
 
         # Test with the private key file (derives public key automatically)
-        kinitro crypto test-encryption --private-key-file /tmp/test.key
+        kinitro crypto test-encryption --private-key-file /tmp/test
 
         # Or specify both keys explicitly
         kinitro crypto test-encryption --public-key <pub> --private-key <priv>
