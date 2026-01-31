@@ -12,9 +12,21 @@ Keep it current when commands or conventions change.
 - `kinitro/` core package.
 - `kinitro/api/` FastAPI app and routes.
 - `kinitro/backend/` storage, models, database logic.
+- `kinitro/chain/` chain integration and networking.
+- `kinitro/cli/` CLI command group modules.
+- `kinitro/environments/` environment discovery and helpers.
 - `kinitro/scheduler/` task generation + scoring.
 - `kinitro/executor/` evaluation executor.
+- `kinitro/miner/` miner tooling and workflows.
 - `kinitro/scoring/` pareto + winners-take-all scoring.
+- `kinitro/tasks/` task definitions and utilities.
+- `kinitro/validator/` validator workflows.
+
+### Key Modules
+- `kinitro/cli.py` primary CLI entry module.
+- `kinitro/config.py` runtime settings and configuration.
+- `kinitro/crypto.py` cryptography helpers.
+- `kinitro/rl_interface.py` RL interface utilities.
 - `tests/` pytest suites.
 - `docs/` operator, validator, and miner guides.
 - `eval-env/` docker build context for evaluation env.
