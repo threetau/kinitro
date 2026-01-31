@@ -8,7 +8,7 @@ Keep it current when commands or conventions change.
 - Primary entry point: `kinitro` CLI (see `kinitro/cli.py`).
 - Services: API, scheduler, executor, validator, miner tooling.
 
-## Repo Map (high signal)
+## Repo Map 
 - `kinitro/` core package.
 - `kinitro/api/` FastAPI app and routes.
 - `kinitro/backend/` storage, models, database logic.
@@ -33,7 +33,7 @@ Keep it current when commands or conventions change.
 - `ruff check kinitro/`
 
 ### Type Check
-- `mypy kinitro/`
+- `ty check .`
 
 ### Tests
 - `pytest tests/`
@@ -49,7 +49,7 @@ Keep it current when commands or conventions change.
 - Test an env: `uv run kinitro test-env metaworld/pick-place-v3`
 
 ## Git Hooks
-- Hook script: `.githooks/pre-commit` (formats then lints staged Python files).
+- Hook script: `.githooks/pre-commit` (formats, lints, and type-checks staged Python files).
 - Enable locally with: `git config core.hooksPath .githooks`
 
 ## Services (local dev)
@@ -84,7 +84,7 @@ Keep it current when commands or conventions change.
 - Python 3.12 syntax (`list[int]`, `dict[str, float]`, `str | None`).
 - Add return types to public functions and methods.
 - Prefer `BaseSettings` and `BaseModel` type annotations for config/DTOs.
-- `mypy` is strict; avoid `Any` unless required and explain why in code.
+- `ty` runs in CI; avoid `Any` unless required and explain why in code.
 
 ### Naming
 - `snake_case` for functions, variables, modules.

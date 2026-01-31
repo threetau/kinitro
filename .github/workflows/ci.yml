@@ -1,0 +1,23 @@
+name: ci
+
+on:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv and dependencies
+        uses: ./.github/actions/setup-uv
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Ruff lint check
+        run: uv run ruff check .
+
+      - name: Ty type check
+        run: uv run ty check .

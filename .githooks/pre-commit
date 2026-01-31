@@ -14,8 +14,10 @@ fi
 
 if command -v uv >/dev/null 2>&1; then
   ruff_cmd=(uv run ruff)
+  ty_cmd=(uv run ty)
 elif command -v ruff >/dev/null 2>&1; then
   ruff_cmd=(ruff)
+  ty_cmd=(ty)
 else
   echo "ruff is not installed; install it or run 'uv sync'." >&2
   exit 1
@@ -27,3 +29,6 @@ git add "${python_files[@]}"
 
 echo "Running ruff check on staged files..."
 "${ruff_cmd[@]}" check "${python_files[@]}"
+
+echo "Running ty check on repository..."
+"${ty_cmd[@]}" check .
