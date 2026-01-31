@@ -14,7 +14,9 @@ def init_miner(
 
     Creates the necessary files for building a policy container.
     """
-    template_dir = Path(__file__).parent.parent.parent / "miner" / "template"
+    kinitro_root = Path(__file__).parent.parent.parent
+    template_dir = kinitro_root / "miner" / "template"
+    rl_interface_src = kinitro_root / "rl_interface.py"
     output_path = Path(output_dir)
 
     if not template_dir.exists():
@@ -38,6 +40,14 @@ def init_miner(
         else:
             shutil.copy(file, dest)
             typer.echo(f"Created {file.name}")
+
+    # Copy rl_interface.py from main kinitro package (single source of truth)
+    rl_interface_dest = output_path / "rl_interface.py"
+    if rl_interface_dest.exists():
+        typer.echo("Skipping rl_interface.py (already exists)")
+    else:
+        shutil.copy(rl_interface_src, rl_interface_dest)
+        typer.echo("Created rl_interface.py")
 
     typer.echo("\nMiner template initialized!")
     typer.echo("Next steps:")
