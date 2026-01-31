@@ -368,20 +368,18 @@ Kinitro supports encrypted miner endpoint commitments to protect miner Basilica 
 #### 1. Generate a Keypair
 
 ```bash
-uv run kinitro crypto generate-keypair \
-  --output ~/.kinitro \
-  --name backend
+uv run kinitro crypto generate-keypair --name backend
 ```
 
-This creates:
-- `~/.kinitro/backend.key` - Private key (keep secret!)
-- `~/.kinitro/backend.pub` - Public key (share with miners)
+This creates (in `$XDG_CONFIG_HOME/kinitro/keys/`, typically `~/.config/kinitro/keys/`):
+- `backend` - Private key (keep secret!)
+- `backend.pub` - Public key (share with miners)
 
 #### 2. Publish Public Key to Chain
 
 ```bash
 uv run kinitro crypto publish-public-key \
-  --private-key-file ~/.kinitro/backend.key \
+  --private-key-file ~/.config/kinitro/keys/backend \
   --netuid YOUR_NETUID \
   --network finney \
   --wallet-name your-wallet \
@@ -396,10 +394,10 @@ Set the environment variable or CLI flag:
 
 ```bash
 # Option 1: Environment variable (path to file)
-export KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY_FILE=~/.kinitro/backend.key
+export KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY_FILE=~/.config/kinitro/keys/backend
 
 # Option 2: Environment variable (hex string directly)
-export KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY=$(cat ~/.kinitro/backend.key)
+export KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY=$(cat ~/.config/kinitro/keys/backend)
 ```
 
 The scheduler will automatically decrypt miner endpoints when reading commitments from the chain.
@@ -407,20 +405,20 @@ The scheduler will automatically decrypt miner endpoints when reading commitment
 ### CLI Commands
 
 ```bash
-# Generate new keypair
-uv run kinitro crypto generate-keypair --output ~/.kinitro --name backend
+# Generate new keypair (saves to ~/.config/kinitro/keys/)
+uv run kinitro crypto generate-keypair --name backend
 
 # Publish public key to chain
-uv run kinitro crypto publish-public-key --private-key-file ~/.kinitro/backend.key --netuid 1
+uv run kinitro crypto publish-public-key --private-key-file ~/.config/kinitro/keys/backend --netuid 1
 
 # Fetch a backend's public key (for verification)
 uv run kinitro crypto fetch-public-key --backend-hotkey 5Dxxx... --netuid 1
 
 # Show public key from private key
-uv run kinitro crypto show-public-key --private-key-file ~/.kinitro/backend.key
+uv run kinitro crypto show-public-key --private-key-file ~/.config/kinitro/keys/backend
 
 # Test encryption/decryption
-uv run kinitro crypto test-encryption --private-key-file ~/.kinitro/backend.key
+uv run kinitro crypto test-encryption --private-key-file ~/.config/kinitro/keys/backend
 ```
 
 ### Security Considerations

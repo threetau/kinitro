@@ -8,6 +8,7 @@ from kinitro.chain.commitments import (
     commit_model,
     parse_commitment,
 )
+from kinitro.cli.crypto_commands import fetch_backend_public_key
 
 
 def commit(
@@ -77,8 +78,6 @@ def commit(
     if encrypt and backend_hotkey and not backend_public_key:
         typer.echo("Fetching backend public key from chain...")
         typer.echo(f"  Backend hotkey: {backend_hotkey}")
-
-        from kinitro.cli.crypto_commands import fetch_backend_public_key
 
         backend_public_key = fetch_backend_public_key(network, netuid, backend_hotkey)
 

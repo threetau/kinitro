@@ -1,10 +1,13 @@
 """Cryptographic key management commands for backend operators."""
 
 import json
+import os
 from pathlib import Path
 
+import bittensor as bt
 import typer
 
+from kinitro.chain.commitments import _query_commitment_by_hotkey
 from kinitro.crypto import BackendKeypair
 
 # Subcommand group for crypto operations
@@ -20,13 +23,26 @@ crypto_app = typer.Typer(
 BACKEND_PUBKEY_TYPE = "backend_pubkey"
 
 
-def _parse_backend_pubkey_commitment(raw: str) -> str | None:
-    """Parse a backend public key from a chain commitment."""
-    if not raw:
+def get_default_keys_dir() -> Path:
+    """Get the default directory for storing keys, following XDG Base Directory Specification."""
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+    return Path(xdg_config_home) / "kinitro" / "keys"
+
+
+def _parse_backend_pubkey_commitment(commitment_str: str) -> str | None:
+    """Parse a backend public key from a chain commitment.
+
+    Args:
+        commitment_str: Raw commitment string from the chain (JSON format)
+
+    Returns:
+        Public key hex string, or None if not a valid backend pubkey commitment
+    """
+    if not commitment_str:
         return None
     try:
-        if raw.strip().startswith("{"):
-            data = json.loads(raw)
+        if commitment_str.strip().startswith("{"):
+            data = json.loads(commitment_str)
             if data.get("type") == BACKEND_PUBKEY_TYPE or data.get("t") == "pk":
                 return data.get("key") or data.get("k")
     except json.JSONDecodeError:
@@ -50,31 +66,27 @@ def fetch_backend_public_key(
     Returns:
         Public key hex string, or None if not found
     """
-    import bittensor as bt
-
-    from kinitro.chain.commitments import _query_commitment_by_hotkey
-
     subtensor = bt.Subtensor(network=network)
-    raw, _ = _query_commitment_by_hotkey(subtensor, netuid, backend_hotkey)
+    commitment_str, _ = _query_commitment_by_hotkey(subtensor, netuid, backend_hotkey)
 
-    if raw:
-        return _parse_backend_pubkey_commitment(raw)
+    if commitment_str:
+        return _parse_backend_pubkey_commitment(commitment_str)
     return None
 
 
 @crypto_app.command("generate-keypair")
 def generate_keypair(
     output_dir: str = typer.Option(
-        ".",
+        None,
         "--output",
         "-o",
-        help="Directory to save keypair files",
+        help="Directory to save keypair files (default: $XDG_CONFIG_HOME/kinitro/keys)",
     ),
     name: str = typer.Option(
         "backend",
         "--name",
         "-n",
-        help="Name prefix for key files",
+        help="Base name for key files",
     ),
     force: bool = typer.Option(
         False,
@@ -87,22 +99,25 @@ def generate_keypair(
     Generate a new X25519 keypair for endpoint encryption.
 
     Creates two files:
-    - {name}.key: Private key (hex-encoded) - KEEP THIS SECRET!
+    - {name}: Private key (hex-encoded) - KEEP THIS SECRET!
     - {name}.pub: Public key (hex-encoded) - Share with miners
+
+    Keys are stored in $XDG_CONFIG_HOME/kinitro/keys/ by default
+    (typically ~/.config/kinitro/keys/).
 
     The public key should be distributed to miners so they can encrypt
     their deployment endpoints. The private key should be kept secure
     and configured for the scheduler to decrypt miner endpoints.
 
     Example:
-        kinitro crypto generate-keypair --output ~/.kinitro --name backend
+        kinitro crypto generate-keypair --name backend
 
         # This creates:
-        #   ~/.kinitro/backend.key (private, 0600 permissions)
-        #   ~/.kinitro/backend.pub (public)
+        #   ~/.config/kinitro/keys/backend (private, 0600 permissions)
+        #   ~/.config/kinitro/keys/backend.pub (public)
     """
-    output_path = Path(output_dir)
-    private_key_file = output_path / f"{name}.key"
+    output_path = Path(output_dir) if output_dir else get_default_keys_dir()
+    private_key_file = output_path / name
     public_key_file = output_path / f"{name}.pub"
 
     # Check if files exist
@@ -172,14 +187,12 @@ def publish_public_key(
 
     Example:
         kinitro crypto publish-public-key \\
-            --private-key-file ~/.kinitro/backend.key \\
+            --private-key-file ~/.config/kinitro/keys/backend \\
             --netuid 1
 
     Miners can then use:
         kinitro miner commit ... --encrypt --backend-hotkey <YOUR_HOTKEY>
     """
-    import bittensor as bt
-
     if not private_key_file and not private_key:
         typer.echo("Error: Provide --private-key-file or --private-key", err=True)
         raise typer.Exit(1)
@@ -292,7 +305,7 @@ def show_public_key(
     Useful for deriving the public key to share with miners.
 
     Example:
-        kinitro crypto show-public-key --private-key-file ~/.kinitro/backend.key
+        kinitro crypto show-public-key --private-key-file ~/.config/kinitro/keys/backend
     """
     if not private_key and not private_key_file:
         typer.echo("Error: Provide --private-key or --private-key-file", err=True)

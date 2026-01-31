@@ -14,6 +14,7 @@ import json
 from dataclasses import dataclass, field
 
 import structlog
+from cryptography.hazmat.primitives.asymmetric import x25519
 
 from kinitro.crypto import (
     decrypt_deployment_id,
@@ -254,7 +255,7 @@ def read_miner_commitments(
     subtensor,  # bt.Subtensor
     netuid: int,
     neurons: list | None = None,  # List of NeuronInfo (optional, will fetch if not provided)
-    backend_private_key=None,  # x25519.X25519PrivateKey for decryption (optional)
+    backend_private_key: x25519.X25519PrivateKey | None = None,
 ) -> list[MinerCommitment]:
     """
     Read all miner commitments from chain.
@@ -316,7 +317,9 @@ def read_miner_commitments(
                             uid=uid,
                             error=str(e),
                         )
-                        # Keep encrypted_deployment for later retry
+                        # Decryption failed - commitment will have needs_decryption=True.
+                        # The encrypted_deployment blob is preserved so decrypt_commitments()
+                        # can retry later with a different key if needed.
 
                 commitment = MinerCommitment(
                     uid=uid,
@@ -346,7 +349,7 @@ def read_miner_commitments(
 
 def decrypt_commitments(
     commitments: list[MinerCommitment],
-    backend_private_key,  # x25519.X25519PrivateKey
+    backend_private_key: x25519.X25519PrivateKey,
 ) -> list[MinerCommitment]:
     """
     Decrypt encrypted commitments in-place.
