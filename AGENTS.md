@@ -9,6 +9,7 @@ Keep it current when commands or conventions change.
 - Services: API, scheduler, executor, validator, miner tooling.
 
 ## Repo Map 
+- `environments/` evaluation environments.
 - `kinitro/` core package.
 - `kinitro/api/` FastAPI app and routes.
 - `kinitro/backend/` storage, models, database logic.
@@ -21,6 +22,7 @@ Keep it current when commands or conventions change.
 - `kinitro/scoring/` pareto + winners-take-all scoring.
 - `kinitro/tasks/` task definitions and utilities.
 - `kinitro/validator/` validator workflows.
+- `tests/` unit and integration tests.
 
 ### Key Modules
 - `kinitro/cli.py` primary CLI entry module.
@@ -29,11 +31,6 @@ Keep it current when commands or conventions change.
 - `kinitro/rl_interface.py` RL interface utilities.
 - `tests/` pytest suites.
 - `docs/` operator, validator, and miner guides.
-- `eval-env/` docker build context for evaluation env.
-
-## Rules Files
-- Cursor rules: none found in `.cursor/rules/` or `.cursorrules`.
-- Copilot rules: none found in `.github/copilot-instructions.md`.
 
 ## Setup / Install
 - Recommended: `uv sync`
@@ -58,7 +55,7 @@ Keep it current when commands or conventions change.
 
 ### CLI Examples
 - List environments: `uv run kinitro list-envs`
-- Test an env: `uv run kinitro test-env metaworld/pick-place-v3`
+- Test an env: `uv run kinitro env test metaworld/pick-place-v3`
 
 ## Git Hooks
 - Hook script: `.githooks/pre-commit` (formats, lints, and type-checks staged Python files).
@@ -79,7 +76,7 @@ Keep it current when commands or conventions change.
 ## Environment Config
 - See `.env.example` for common env vars.
 - Runtime settings are read via Pydantic settings classes in `kinitro/config.py`.
-- Keep secrets out of the repo; do not commit `.env` files.
+- Keep secrets out of the repo; do not commit `.env` files, or any other files included in `.gitignore`.
 
 ## Code Style Guidelines
 ### Imports
@@ -101,7 +98,7 @@ Keep it current when commands or conventions change.
 
 ### Naming
 - `snake_case` for functions, variables, modules.
-- `PascalCase` for classes and Pydantic models.
+- `PascalCase` for classes, Pydantic models, and custom types.
 - `UPPER_CASE` for constants.
 - Test files: `test_*.py`; test classes: `Test*`.
 
@@ -112,7 +109,7 @@ Keep it current when commands or conventions change.
 
 ### Logging
 - Use `structlog.get_logger()` and structured log fields.
-- Log at info/warn/error levels consistently with existing patterns.
+- Log at info/debug/warn/error levels consistently with existing patterns.
 
 ### Async and IO
 - Use `async def` for I/O and DB operations.
