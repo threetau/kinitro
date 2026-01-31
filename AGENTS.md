@@ -51,6 +51,7 @@ Keep it current when commands or conventions change.
 ## Git Hooks
 - Hook script: `.githooks/pre-commit` (formats, lints, and type-checks staged Python files).
 - Enable locally with: `git config core.hooksPath .githooks`
+- Ruff hooks are managed via pre-commit (`.pre-commit-config.yaml`); install with `uv tool install pre-commit`.
 
 ## Services (local dev)
 - API: `uv run kinitro api --database-url postgresql://user:pass@host/db`

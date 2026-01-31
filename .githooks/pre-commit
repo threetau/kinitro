@@ -12,23 +12,26 @@ if [ "${#python_files[@]}" -eq 0 ]; then
   exit 0
 fi
 
-if command -v uv >/dev/null 2>&1; then
-  ruff_cmd=(uv run ruff)
-  ty_cmd=(uv run ty)
-elif command -v ruff >/dev/null 2>&1; then
-  ruff_cmd=(ruff)
-  ty_cmd=(ty)
-else
-  echo "ruff is not installed; install it or run 'uv sync'." >&2
+if ! command -v pre-commit >/dev/null 2>&1; then
+  echo "pre-commit is not installed; install it (e.g. 'uv tool install pre-commit')." >&2
   exit 1
 fi
 
 echo "Running ruff format on staged files..."
-"${ruff_cmd[@]}" format "${python_files[@]}"
+pre-commit run ruff-format --files "${python_files[@]}"
 git add "${python_files[@]}"
 
 echo "Running ruff check on staged files..."
-"${ruff_cmd[@]}" check "${python_files[@]}"
+pre-commit run ruff --files "${python_files[@]}"
+
+if command -v uv >/dev/null 2>&1; then
+  ty_cmd=(uv run ty)
+elif command -v ty >/dev/null 2>&1; then
+  ty_cmd=(ty)
+else
+  echo "ty is not installed; install it or run 'uv sync'." >&2
+  exit 1
+fi
 
 echo "Running ty check on repository..."
 "${ty_cmd[@]}" check .
