@@ -93,7 +93,7 @@ def commit(
 
         typer.echo(f"  Found public key: {backend_public_key[:16]}...")
 
-    if backend_public_key and len(backend_public_key) != 64:
+    if encrypt and backend_public_key and len(backend_public_key) != 64:
         typer.echo(
             f"Error: Invalid public key length ({len(backend_public_key)}). Expected 64 hex characters.",
             err=True,

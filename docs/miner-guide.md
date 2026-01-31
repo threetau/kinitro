@@ -357,14 +357,14 @@ uv run kinitro miner commit \
 
 The `--backend-hotkey` is the SS58 address of the backend operator (subnet owner). This automatically fetches their public key from the chain and encrypts your deployment endpoint.
 
-**Why use encrypted commitments?**
+#### Why use encrypted commitments?
 
 - Your Basilica endpoint URL is not publicly visible on-chain
 - Only the backend operator (who runs evaluations) can decrypt your endpoint
 - Prevents competitors from directly accessing or probing your deployment
 - The backend operator publishes their public key on-chain for miners to use
 
-**Alternative: Provide the public key directly**
+#### Alternative: Provide the public key directly
 
 If you have the backend operator's public key (64-character hex string), you can provide it directly:
 

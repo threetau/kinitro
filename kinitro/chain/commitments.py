@@ -426,7 +426,7 @@ def commit_model(
                 encrypted_blob_length=len(encrypted_blob),
             )
         except Exception as e:
-            logger.error("encryption_failed", error=str(e))
+            logger.exception("encryption_failed", error=str(e))
             return False
     else:
         # Plain commitment (deployment_id visible on-chain)
