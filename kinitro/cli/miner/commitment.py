@@ -83,13 +83,15 @@ def show_commitment(
         typer.echo(f"  Hotkey: {query_hotkey}")
 
     # Query the commitment
-    raw = _query_commitment_by_hotkey(subtensor, netuid, query_hotkey)
+    raw, block = _query_commitment_by_hotkey(subtensor, netuid, query_hotkey)
 
     if not raw:
         typer.echo("\nNo commitment found.")
         raise typer.Exit(0)
 
     typer.echo(f"\nRaw commitment: {raw[:100]}{'...' if len(raw) > 100 else ''}")
+    if block is not None:
+        typer.echo(f"Committed at block: {block}")
 
     # Parse the commitment (supports both JSON and legacy formats)
     parsed = parse_commitment(raw)

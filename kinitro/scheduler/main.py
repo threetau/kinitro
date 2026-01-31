@@ -167,19 +167,24 @@ class Scheduler:
 
             miner_scores = aggregate_task_results(completed_tasks)
 
-            # 5. Compute weights
+            # 5. Compute weights (with first-commit advantage)
+            miners_by_uid = {m.uid: m for m in miners}
             weights, weights_u16 = compute_weights(
                 miner_scores=miner_scores,
                 env_ids=self.env_ids,
                 episodes_per_env=self.config.episodes_per_env,
+                miners=miners_by_uid,
                 pareto_temperature=self.config.pareto_temperature,
+                threshold_z_score=self.config.threshold_z_score,
+                threshold_min_gap=self.config.threshold_min_gap,
+                threshold_max_gap=self.config.threshold_max_gap,
             )
 
             # 6. Store scores and weights
-            miners_by_uid = {m.uid: m.hotkey for m in miners}
+            miners_by_uid_hotkey = {m.uid: m.hotkey for m in miners}
             scores_data = convert_to_scores_data(
                 miner_scores,
-                miners_by_uid,
+                miners_by_uid_hotkey,
                 self.config.episodes_per_env,
             )
 

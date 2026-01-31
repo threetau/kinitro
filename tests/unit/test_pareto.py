@@ -7,9 +7,10 @@ from kinitro.scoring.pareto import (
     compute_pareto_frontier,
     epsilon_dominates,
 )
+from kinitro.scoring.threshold import calculate_threshold, compute_miner_thresholds
 from kinitro.scoring.winners_take_all import (
-    compute_full_scoring,
-    compute_subset_scores,
+    compute_subset_scores_with_priority,
+    find_subset_winner_with_priority,
     scores_to_weights,
 )
 
@@ -107,21 +108,27 @@ class TestWinnersTakeAll:
             0: {"a": 0.9, "b": 0.9},
             1: {"a": 0.5, "b": 0.5},
         }
-        epsilons = {"a": 0.05, "b": 0.05}
+        thresholds = compute_miner_thresholds(scores, episodes_per_env=50)
+        first_blocks = {0: 1000, 1: 1000}  # Same block
 
-        subset_scores = compute_subset_scores(scores, ["a", "b"], epsilons)
+        subset_scores = compute_subset_scores_with_priority(
+            scores, thresholds, first_blocks, ["a", "b"]
+        )
 
         assert subset_scores[0] > subset_scores[1]
 
     def test_specialists_split_points(self):
-        """Specialists win their respective subsets."""
+        """Specialists win their respective single-env subsets."""
         scores = {
             0: {"a": 0.9, "b": 0.3},  # Specialist in A
             1: {"a": 0.3, "b": 0.9},  # Specialist in B
         }
-        epsilons = {"a": 0.05, "b": 0.05}
+        thresholds = compute_miner_thresholds(scores, episodes_per_env=50)
+        first_blocks = {0: 1000, 1: 1000}  # Same block
 
-        subset_scores = compute_subset_scores(scores, ["a", "b"], epsilons)
+        subset_scores = compute_subset_scores_with_priority(
+            scores, thresholds, first_blocks, ["a", "b"]
+        )
 
         # Both should have some points (from single-env subsets)
         assert subset_scores[0] > 0
@@ -134,17 +141,27 @@ class TestWinnersTakeAll:
 
         assert abs(sum(weights.values()) - 1.0) < 1e-6
 
-    def test_full_scoring_sybil_resistance(self):
+    def test_sybil_resistance(self):
         """Sybil attack (copies) doesn't increase total reward."""
         env_ids = ["a", "b"]
 
         # Single honest miner
-        single = {0: {"a": 0.8, "b": 0.8}}
-        single_weights = compute_full_scoring(single, env_ids)
+        single_scores = {0: {"a": 0.8, "b": 0.8}}
+        single_thresholds = compute_miner_thresholds(single_scores, episodes_per_env=50)
+        single_blocks = {0: 1000}
+        single_subset = compute_subset_scores_with_priority(
+            single_scores, single_thresholds, single_blocks, env_ids
+        )
+        single_weights = scores_to_weights(single_subset)
 
-        # Same policy across 5 sybil identities
-        sybil = {i: {"a": 0.8, "b": 0.8} for i in range(5)}
-        sybil_weights = compute_full_scoring(sybil, env_ids)
+        # Same policy across 5 sybil identities (all same block)
+        sybil_scores = {i: {"a": 0.8, "b": 0.8} for i in range(5)}
+        sybil_thresholds = compute_miner_thresholds(sybil_scores, episodes_per_env=50)
+        sybil_blocks = {i: 1000 for i in range(5)}  # All same block
+        sybil_subset = compute_subset_scores_with_priority(
+            sybil_scores, sybil_thresholds, sybil_blocks, env_ids
+        )
+        sybil_weights = scores_to_weights(sybil_subset)
 
         # Total reward is same (just split across identities)
         single_total = sum(single_weights.values())
@@ -174,3 +191,144 @@ class TestComputeEpsilon:
         eps_many = compute_epsilon(values, 100)
 
         assert eps_many < eps_few
+
+
+class TestThreshold:
+    """Tests for threshold calculation."""
+
+    def test_threshold_basic(self):
+        """Threshold should be score + gap."""
+        threshold = calculate_threshold(0.5, 100)
+        assert threshold > 0.5
+        assert threshold <= 0.6  # Should be <= score + max_gap
+
+    def test_threshold_more_samples_smaller_gap(self):
+        """More samples should result in smaller gap."""
+        t_few = calculate_threshold(0.5, 50)
+        t_many = calculate_threshold(0.5, 500)
+
+        # More samples = smaller gap = lower threshold
+        assert t_many < t_few
+
+    def test_threshold_min_gap_enforced(self):
+        """Minimum gap should be enforced."""
+        # With many samples, gap would be tiny, but min_gap enforces 2%
+        threshold = calculate_threshold(0.5, 10000, min_gap=0.02)
+        assert threshold >= 0.52  # At least score + min_gap
+
+    def test_threshold_max_gap_enforced(self):
+        """Maximum gap should be enforced."""
+        # With few samples, gap would be huge, but max_gap caps at 10%
+        threshold = calculate_threshold(0.5, 5, max_gap=0.10)
+        assert threshold <= 0.60  # At most score + max_gap
+
+    def test_compute_miner_thresholds(self):
+        """Should compute thresholds for all miners and environments."""
+        scores = {
+            0: {"a": 0.8, "b": 0.7},
+            1: {"a": 0.6, "b": 0.9},
+        }
+        thresholds = compute_miner_thresholds(scores, episodes_per_env=50)
+
+        assert 0 in thresholds
+        assert 1 in thresholds
+        assert "a" in thresholds[0]
+        assert "b" in thresholds[0]
+        # Threshold should be higher than score
+        assert thresholds[0]["a"] > 0.8
+        assert thresholds[1]["b"] > 0.9
+
+
+class TestFirstCommitAdvantage:
+    """Tests for first-commit advantage scoring."""
+
+    def test_earlier_miner_wins_tie(self):
+        """Earlier miner should win when scores are identical."""
+        scores = {
+            0: {"a": 0.8, "b": 0.8},
+            1: {"a": 0.8, "b": 0.8},  # Identical to miner 0
+        }
+        thresholds = compute_miner_thresholds(scores, episodes_per_env=50)
+        first_blocks = {0: 1000, 1: 2000}  # Miner 0 came first
+
+        winner = find_subset_winner_with_priority(scores, thresholds, first_blocks, ("a", "b"))
+
+        # Miner 0 should win because they came first
+        assert winner == 0
+
+    def test_later_miner_wins_if_beats_threshold(self):
+        """Later miner should win if they beat the threshold on all envs."""
+        scores = {
+            0: {"a": 0.7, "b": 0.7},
+            1: {"a": 0.9, "b": 0.9},  # Much better than miner 0
+        }
+        thresholds = compute_miner_thresholds(scores, episodes_per_env=50)
+        first_blocks = {0: 1000, 1: 2000}  # Miner 0 came first
+
+        winner = find_subset_winner_with_priority(scores, thresholds, first_blocks, ("a", "b"))
+
+        # Miner 1 should win because they beat the threshold
+        assert winner == 1
+
+    def test_tradeoff_earlier_wins_by_default(self):
+        """Earlier miner wins tradeoff because later can't beat threshold on all envs."""
+        scores = {
+            0: {"a": 0.9, "b": 0.5},  # Specialist in A, came first
+            1: {"a": 0.5, "b": 0.9},  # Specialist in B, came later
+        }
+        thresholds = compute_miner_thresholds(scores, episodes_per_env=50)
+        first_blocks = {0: 1000, 1: 2000}
+
+        winner = find_subset_winner_with_priority(scores, thresholds, first_blocks, ("a", "b"))
+
+        # Miner 0 wins because miner 1 can't beat threshold on env "a"
+        # (1 has 0.5, threshold for 0's 0.9 is ~0.92-1.0)
+        assert winner == 0
+
+    def test_tradeoff_lower_uid_wins_same_block(self):
+        """Lower UID wins when both registered at the same block."""
+        scores = {
+            0: {"a": 0.9, "b": 0.5},  # Specialist in A
+            1: {"a": 0.5, "b": 0.9},  # Specialist in B
+        }
+        thresholds = compute_miner_thresholds(scores, episodes_per_env=50)
+        # Same block - neither has time priority, so lower UID wins
+        first_blocks = {0: 1000, 1: 1000}
+
+        winner = find_subset_winner_with_priority(scores, thresholds, first_blocks, ("a", "b"))
+
+        # Miner 0 wins by UID tiebreaker (lower UID when same block)
+        assert winner == 0
+
+    def test_copy_attack_fails(self):
+        """Copying the leader should not help the copier."""
+        scores = {
+            0: {"a": 0.8, "b": 0.8},  # Leader
+            1: {"a": 0.8, "b": 0.8},  # Copier
+        }
+        thresholds = compute_miner_thresholds(scores, episodes_per_env=50)
+        first_blocks = {0: 1000, 1: 2000}
+
+        subset_scores = compute_subset_scores_with_priority(
+            scores, thresholds, first_blocks, ["a", "b"]
+        )
+
+        # Leader should get all points, copier gets nothing
+        assert subset_scores[0] > 0
+        assert subset_scores[1] == 0
+
+    def test_genuine_improvement_rewarded(self):
+        """Genuine improvement over the leader should be rewarded."""
+        scores = {
+            0: {"a": 0.7, "b": 0.7},  # Leader
+            1: {"a": 0.85, "b": 0.85},  # Genuinely better
+        }
+        thresholds = compute_miner_thresholds(scores, episodes_per_env=50)
+        first_blocks = {0: 1000, 1: 2000}
+
+        subset_scores = compute_subset_scores_with_priority(
+            scores, thresholds, first_blocks, ["a", "b"]
+        )
+
+        # The genuinely better miner should get more points
+        assert subset_scores[1] > subset_scores[0]

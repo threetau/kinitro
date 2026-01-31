@@ -111,7 +111,9 @@ def parse_commitment(raw: str) -> dict:
     }
 
 
-def _query_commitment_by_hotkey(subtensor, netuid: int, hotkey: str) -> str | None:
+def _query_commitment_by_hotkey(
+    subtensor, netuid: int, hotkey: str
+) -> tuple[str | None, int | None]:
     """
     Query commitment directly from chain storage by hotkey.
 
@@ -123,14 +125,14 @@ def _query_commitment_by_hotkey(subtensor, netuid: int, hotkey: str) -> str | No
         hotkey: Hotkey SS58 address
 
     Returns:
-        Commitment string or None
+        Tuple of (commitment_string, block_number) or (None, None)
     """
     try:
         result = subtensor.substrate.query("Commitments", "CommitmentOf", [netuid, hotkey])
 
         # Handle different result types
         if result is None:
-            return None
+            return None, None
 
         # Result might be a dict directly (newer substrate interface)
         if isinstance(result, dict):
@@ -138,13 +140,21 @@ def _query_commitment_by_hotkey(subtensor, netuid: int, hotkey: str) -> str | No
         elif hasattr(result, "value"):
             data = result.value
         else:
-            return None
+            return None, None
 
         if not data:
-            return None
+            return None, None
 
         # Handle structured commitment format: {'deposit': ..., 'block': ..., 'info': {'fields': ...}}
         if isinstance(data, dict) and "info" in data:
+            # Extract block number from commitment data
+            block = data.get("block")
+            if block is not None:
+                try:
+                    block = int(block)
+                except (TypeError, ValueError):
+                    block = None
+
             info = data.get("info", {})
             fields = info.get("fields", ())
 
@@ -165,26 +175,26 @@ def _query_commitment_by_hotkey(subtensor, netuid: int, hotkey: str) -> str | No
                             if isinstance(value, tuple) and len(value) > 0:
                                 byte_data = value[0]
                                 if isinstance(byte_data, (list, tuple)):
-                                    return bytes(byte_data).decode("utf-8", errors="ignore")
+                                    return bytes(byte_data).decode("utf-8", errors="ignore"), block
                             elif isinstance(value, (bytes, bytearray)):
-                                return value.decode("utf-8", errors="ignore")
+                                return value.decode("utf-8", errors="ignore"), block
                             elif isinstance(value, str):
-                                return value
+                                return value, block
                 elif isinstance(first_field, (bytes, bytearray)):
-                    return first_field.decode("utf-8", errors="ignore")
+                    return first_field.decode("utf-8", errors="ignore"), block
                 elif isinstance(first_field, str):
-                    return first_field
+                    return first_field, block
 
-        # Handle simple formats
+        # Handle simple formats (no block info available)
         elif isinstance(data, (bytes, bytearray)):
-            return data.decode("utf-8", errors="ignore")
+            return data.decode("utf-8", errors="ignore"), None
         elif isinstance(data, str):
-            return data
+            return data, None
 
-        return None
+        return None, None
     except Exception as e:
         logger.debug("commitment_query_failed", hotkey=hotkey[:16], error=str(e))
-        return None
+        return None, None
 
 
 def read_miner_commitments(
@@ -220,10 +230,12 @@ def read_miner_commitments(
 
         try:
             # Query commitment directly by hotkey to avoid broken SDK API
-            raw = _query_commitment_by_hotkey(subtensor, netuid, hotkey)
+            raw, block = _query_commitment_by_hotkey(subtensor, netuid, hotkey)
 
             if raw:
                 parsed = parse_commitment(raw)
+                # Use block from commitment data if available, fallback to neuron.last_update
+                committed_block = block if block is not None else neuron.last_update
                 commitment = MinerCommitment(
                     uid=uid,
                     hotkey=hotkey,
@@ -231,7 +243,7 @@ def read_miner_commitments(
                     revision_sha=parsed["revision_sha"],
                     deployment_id=parsed["deployment_id"],
                     docker_image=parsed["docker_image"],
-                    committed_block=neuron.last_update,
+                    committed_block=committed_block,
                 )
                 if commitment.is_valid:
                     commitments.append(commitment)
@@ -239,6 +251,7 @@ def read_miner_commitments(
                         "found_commitment",
                         uid=uid,
                         repo=commitment.huggingface_repo,
+                        block=committed_block,
                     )
         except Exception as e:
             logger.warning("commitment_read_failed", uid=uid, error=str(e))

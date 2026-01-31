@@ -35,6 +35,20 @@ class SchedulerConfig(BaseSettings):
         description="Softmax temperature for weight conversion",
     )
 
+    # First-commit advantage settings
+    threshold_z_score: float = Field(
+        default=1.5,
+        description="Z-score for threshold calculation (~87% confidence)",
+    )
+    threshold_min_gap: float = Field(
+        default=0.02,
+        description="Minimum improvement required to beat earlier miner (2%)",
+    )
+    threshold_max_gap: float = Field(
+        default=0.10,
+        description="Maximum improvement cap (10%)",
+    )
+
     # Task pool settings
     task_stale_threshold_seconds: int = Field(
         default=300,

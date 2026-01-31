@@ -10,37 +10,55 @@ from pydantic import BaseModel
 
 from kinitro.rl_interface import CanonicalAction, CanonicalObservation
 from kinitro.scoring.pareto import compute_pareto_frontier
-from kinitro.scoring.winners_take_all import compute_full_scoring
+from kinitro.scoring.threshold import compute_miner_thresholds
+from kinitro.scoring.winners_take_all import (
+    compute_subset_scores_with_priority,
+    scores_to_weights,
+)
 
 
 def test_scoring(
     n_miners: int = typer.Option(5, help="Number of simulated miners"),
     n_envs: int = typer.Option(3, help="Number of environments"),
+    episodes_per_env: int = typer.Option(50, help="Simulated episodes per environment"),
 ):
     """
     Test the Pareto scoring mechanism with simulated data.
+
+    Demonstrates first-commit advantage: earlier miners win ties.
     """
     typer.echo(f"Testing Pareto scoring with {n_miners} miners, {n_envs} environments\n")
 
-    # Generate random scores
+    # Generate random scores and commit blocks
     env_ids = [f"env_{i}" for i in range(n_envs)]
     miner_scores = {}
+    miner_blocks = {}
 
     for uid in range(n_miners):
         miner_scores[uid] = {env_id: float(np.random.uniform(0.3, 0.9)) for env_id in env_ids}
+        miner_blocks[uid] = 1000 + uid * 100  # Earlier UIDs committed earlier
 
     # Display scores
-    typer.echo("Miner scores:")
+    typer.echo("Miner scores (earlier block = first-commit advantage):")
     for uid, scores in miner_scores.items():
         scores_str = ", ".join(f"{k}: {v:.2f}" for k, v in scores.items())
-        typer.echo(f"  UID {uid}: {scores_str}")
+        typer.echo(f"  UID {uid} (block {miner_blocks[uid]}): {scores_str}")
 
     # Compute Pareto frontier
-    pareto = compute_pareto_frontier(miner_scores, env_ids, n_samples_per_env=50)
+    pareto = compute_pareto_frontier(miner_scores, env_ids, n_samples_per_env=episodes_per_env)
     typer.echo(f"\nPareto frontier: {pareto.frontier_uids}")
 
-    # Compute weights
-    weights = compute_full_scoring(miner_scores, env_ids)
+    # Compute thresholds and scores with priority
+    miner_thresholds = compute_miner_thresholds(miner_scores, episodes_per_env)
+    subset_scores = compute_subset_scores_with_priority(
+        miner_scores, miner_thresholds, miner_blocks, env_ids
+    )
+    weights = scores_to_weights(subset_scores)
+
+    typer.echo("\nSubset scores:")
+    for uid, score in sorted(subset_scores.items(), key=lambda x: x[1], reverse=True):
+        typer.echo(f"  UID {uid}: {score:.1f} points")
+
     typer.echo("\nFinal weights:")
     for uid, weight in sorted(weights.items(), key=lambda x: x[1], reverse=True):
         typer.echo(f"  UID {uid}: {weight:.4f}")

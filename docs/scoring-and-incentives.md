@@ -8,7 +8,7 @@ There are four key steps to scoring:
 
 1. Evaluation of miners on all environments
 2. Comparing evaluation results using Pareto dominance
-3. Awarding points for environment subsets won
+3. Awarding points for environment subsets won (with first-commit advantage)
 4. Conversion of evaluation points to weights on chain
 
 ### 1. Evaluation
@@ -83,7 +83,23 @@ flowchart TB
 | {1, 2, 3}    | Neither (trade-off) | 0                                |
 | **Total**    |                     | **Specialist: 1, Generalist: 4** |
 
-The specialist only wins the single-environment subset where they excel. The generalist wins multiple subsets because they're consistently good. If no miner dominates all others on a subset (due to trade-offs or ties), no points are awarded for that subset.
+The specialist only wins the single-environment subset where they excel. The generalist wins multiple subsets because they're consistently good.
+
+#### First-Commit Advantage
+
+When two miners have similar scores on a subset, who wins? The miner who committed their policy first gets priority.
+
+A later miner must beat the earlier miner's score by a *threshold gap* on *all* environments in the subset to win. This gap scales with standard error—more evaluation samples means a smaller required gap.
+
+| Samples | Typical Gap |
+| ------- | ----------- |
+| 50      | 10% (max)   |
+| 100     | ~7.5%       |
+| 500     | ~3.4%       |
+
+*These values assume default parameters: `threshold_z_score=1.5`, `threshold_min_gap=0.02`, `threshold_max_gap=0.10`. Different parameter values will change the gap.*
+
+This prevents *griefing attacks* where someone copies the leader just to force a tie and deny them rewards. If you copy, you tie on score but lose on commit time.
 
 ### 4. Weight Conversion
 
@@ -91,25 +107,30 @@ Points are converted to weights using softmax, then submitted to the chain for e
 
 ## Anti-gaming Properties
 
-| Attack                                         | Why It Fails                                                                                            |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **Sybil** (multiple accounts with same policy) | Identical scores = ties. No one wins any subset.                                                        |
-| **Copying** the leader                         | You tie with them. Must *improve* to dominate. In a tie, the miner that submitted first takes priority. |
-| **Specializing** in one environment            | You only win small subsets. Generalists win the larger, more valuable ones.                             |
+| Attack                                         | Why It Fails                                                                                |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **Sybil** (multiple accounts with same policy) | Identical scores = ties. The earliest account wins; later copies get nothing.               |
+| **Copying** the leader                         | You tie on score but lose on time. Must beat their score + threshold gap to take the lead.  |
+| **Griefing** (copy to deny rewards)            | First-commit advantage means the original miner still wins ties.                            |
+| **Specializing** in one environment            | You only win small subsets. Generalists win the larger, more valuable ones.                 |
 
 ## Relevant Parameters
 
-| Parameter            | Default | Description                                      |
-| -------------------- | ------- | ------------------------------------------------ |
-| `episodes_per_env`   | 50      | Evaluation episodes per environment              |
-| `pareto_temperature` | 1.0     | Softmax sharpness (lower = more winner-take-all) |
-| `min_epsilon`        | 0.01    | Minimum dominance threshold (1%)                 |
-| `max_epsilon`        | 0.20    | Maximum dominance threshold (20%)                |
+| Parameter            | Default | Description                                          |
+| -------------------- | ------- | ---------------------------------------------------- |
+| `episodes_per_env`   | 50      | Evaluation episodes per environment                  |
+| `pareto_temperature` | 1.0     | Softmax sharpness (lower = more winner-take-all)     |
+| `min_epsilon`        | 0.01    | Minimum dominance threshold (1%)                     |
+| `max_epsilon`        | 0.20    | Maximum dominance threshold (20%)                    |
+| `threshold_z_score`  | 1.5     | Z-score for first-commit threshold calculation       |
+| `threshold_min_gap`  | 0.02    | Minimum gap to beat earlier miner (2%)               |
+| `threshold_max_gap`  | 0.10    | Maximum gap to beat earlier miner (10%)              |
 
 ## Further Reading
 
 For implementation details, see:
 
 - `kinitro/scoring/pareto.py`: Epsilon-Pareto dominance
+- `kinitro/scoring/threshold.py`: First-commit advantage thresholds
 - `kinitro/scoring/winners_take_all.py`: Subset scoring
 - `kinitro/scheduler/scoring.py`: Score aggregation
