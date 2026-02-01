@@ -466,20 +466,23 @@ def miner_deploy(
 
             typer.echo(f"  Wallet: {wallet.hotkey.ss58_address[:16]}...")
 
-            success = commit_model(
-                subtensor=subtensor,
-                wallet=wallet,
-                netuid=netuid,
-                repo=repo,
-                revision=revision_value,
-                deployment_id=deployment_id,
-            )
+            try:
+                success = commit_model(
+                    subtensor=subtensor,
+                    wallet=wallet,
+                    netuid=netuid,
+                    repo=repo,
+                    revision=revision_value,
+                    deployment_id=deployment_id,
+                )
 
-            if success:
-                typer.echo("  Commitment successful!")
-            else:
-                typer.echo("  Commitment failed!", err=True)
-                raise typer.Exit(1)
+                if success:
+                    typer.echo("  Commitment successful!")
+                else:
+                    typer.echo("  Commitment failed!", err=True)
+                    raise typer.Exit(1)
+            finally:
+                subtensor.close()
 
     # Summary
     typer.echo("\n" + "=" * 60)

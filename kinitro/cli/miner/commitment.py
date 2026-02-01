@@ -114,21 +114,24 @@ def commit(
     else:
         typer.echo("  Encryption: disabled (endpoint visible on-chain)")
 
-    success = commit_model(
-        subtensor=subtensor,
-        wallet=wallet,
-        netuid=netuid,
-        repo=repo,
-        revision=revision,
-        deployment_id=deployment_id,
-        backend_public_key=backend_public_key if encrypt else None,
-    )
+    try:
+        success = commit_model(
+            subtensor=subtensor,
+            wallet=wallet,
+            netuid=netuid,
+            repo=repo,
+            revision=revision,
+            deployment_id=deployment_id,
+            backend_public_key=backend_public_key if encrypt else None,
+        )
 
-    if success:
-        typer.echo("Commitment successful!")
-    else:
-        typer.echo("Commitment failed!", err=True)
-        raise typer.Exit(1)
+        if success:
+            typer.echo("Commitment successful!")
+        else:
+            typer.echo("Commitment failed!", err=True)
+            raise typer.Exit(1)
+    finally:
+        subtensor.close()
 
 
 def show_commitment(
@@ -146,46 +149,49 @@ def show_commitment(
     """
     subtensor = bt.Subtensor(network=network)
 
-    # Determine which hotkey to query
-    if hotkey:
-        query_hotkey = hotkey
-        typer.echo(f"Querying commitment for hotkey: {hotkey[:16]}...")
-    elif uid is not None:
-        neurons = subtensor.neurons(netuid=netuid)
-        if uid >= len(neurons):
-            typer.echo(f"UID {uid} not found on subnet {netuid}", err=True)
-            raise typer.Exit(1)
-        query_hotkey = neurons[uid].hotkey
-        typer.echo(f"Querying commitment for UID {uid} ({query_hotkey[:16]}...)")
-    else:
-        wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)
-        query_hotkey = wallet.hotkey.ss58_address
-        typer.echo(f"Querying commitment for wallet {wallet_name}/{hotkey_name}")
-        typer.echo(f"  Hotkey: {query_hotkey}")
-
-    # Query the commitment
-    raw, block = _query_commitment_by_hotkey(subtensor, netuid, query_hotkey)
-
-    if not raw:
-        typer.echo("\nNo commitment found.")
-        raise typer.Exit(0)
-
-    typer.echo(f"\nRaw commitment: {raw[:100]}{'...' if len(raw) > 100 else ''}")
-    if block is not None:
-        typer.echo(f"Committed at block: {block}")
-
-    # Parse the commitment (supports both JSON and legacy formats)
-    parsed = parse_commitment(raw)
-    if parsed["huggingface_repo"]:
-        typer.echo("\nParsed commitment:")
-        typer.echo(f"  Repo: {parsed['huggingface_repo']}")
-        typer.echo(f"  Revision: {parsed['revision_sha']}")
-        if parsed.get("encrypted_deployment"):
-            typer.echo("  Encrypted: YES")
-            typer.echo(f"  Encrypted Blob: {parsed['encrypted_deployment'][:40]}...")
+    try:
+        # Determine which hotkey to query
+        if hotkey:
+            query_hotkey = hotkey
+            typer.echo(f"Querying commitment for hotkey: {hotkey[:16]}...")
+        elif uid is not None:
+            neurons = subtensor.neurons(netuid=netuid)
+            if uid >= len(neurons):
+                typer.echo(f"UID {uid} not found on subnet {netuid}", err=True)
+                raise typer.Exit(1)
+            query_hotkey = neurons[uid].hotkey
+            typer.echo(f"Querying commitment for UID {uid} ({query_hotkey[:16]}...)")
         else:
-            typer.echo(f"  Deployment ID: {parsed['deployment_id']}")
-        if parsed["docker_image"]:
-            typer.echo(f"  Docker Image: {parsed['docker_image']}")
-    else:
-        typer.echo("\nCould not parse commitment format.")
+            wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)
+            query_hotkey = wallet.hotkey.ss58_address
+            typer.echo(f"Querying commitment for wallet {wallet_name}/{hotkey_name}")
+            typer.echo(f"  Hotkey: {query_hotkey}")
+
+        # Query the commitment
+        raw, block = _query_commitment_by_hotkey(subtensor, netuid, query_hotkey)
+
+        if not raw:
+            typer.echo("\nNo commitment found.")
+            raise typer.Exit(0)
+
+        typer.echo(f"\nRaw commitment: {raw[:100]}{'...' if len(raw) > 100 else ''}")
+        if block is not None:
+            typer.echo(f"Committed at block: {block}")
+
+        # Parse the commitment (supports both JSON and legacy formats)
+        parsed = parse_commitment(raw)
+        if parsed["huggingface_repo"]:
+            typer.echo("\nParsed commitment:")
+            typer.echo(f"  Repo: {parsed['huggingface_repo']}")
+            typer.echo(f"  Revision: {parsed['revision_sha']}")
+            if parsed.get("encrypted_deployment"):
+                typer.echo("  Encrypted: YES")
+                typer.echo(f"  Encrypted Blob: {parsed['encrypted_deployment'][:40]}...")
+            else:
+                typer.echo(f"  Deployment ID: {parsed['deployment_id']}")
+            if parsed["docker_image"]:
+                typer.echo(f"  Docker Image: {parsed['docker_image']}")
+        else:
+            typer.echo("\nCould not parse commitment format.")
+    finally:
+        subtensor.close()

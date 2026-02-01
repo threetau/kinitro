@@ -20,22 +20,23 @@ Security Properties:
 from __future__ import annotations
 
 import base64
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 # Encrypted blob structure sizes
 EPHEMERAL_PUBLIC_KEY_SIZE = 32  # X25519 public key
-NONCE_SIZE = 12  # ChaCha20-Poly1305 nonce
+NONCE_SIZE = 12  # ChaCha20-Poly1305 nonce (derived from ephemeral key, not stored)
 AUTH_TAG_SIZE = 16  # Poly1305 tag
 UUID_BYTES_SIZE = 16  # UUID as raw bytes (no dashes)
 
-# Total encrypted package size: 32 + 12 + 16 + 16 = 76 bytes
-ENCRYPTED_PACKAGE_SIZE = EPHEMERAL_PUBLIC_KEY_SIZE + NONCE_SIZE + UUID_BYTES_SIZE + AUTH_TAG_SIZE
+# Package: ephemeral_public (32) + ciphertext (16) + tag (16) = 64 bytes
+# Nonce is derived from SHA256(ephemeral_public_key)[:12], not stored
+ENCRYPTED_PACKAGE_SIZE = EPHEMERAL_PUBLIC_KEY_SIZE + UUID_BYTES_SIZE + AUTH_TAG_SIZE
 
 
 @dataclass
@@ -124,6 +125,13 @@ def bytes_to_uuid(data: bytes) -> str:
     return f"{hex_str[:8]}-{hex_str[8:12]}-{hex_str[12:16]}-{hex_str[16:20]}-{hex_str[20:]}"
 
 
+def _derive_nonce(ephemeral_public_bytes: bytes) -> bytes:
+    """Derive a nonce from the ephemeral public key using SHA256."""
+    digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
+    digest.update(ephemeral_public_bytes)
+    return digest.finalize()[:NONCE_SIZE]
+
+
 def encrypt_deployment_id(
     deployment_id: str,
     backend_public_key: x25519.X25519PublicKey | str,
@@ -136,12 +144,12 @@ def encrypt_deployment_id(
         backend_public_key: Backend operator's public key (hex string or key object)
 
     Returns:
-        Base85-encoded encrypted blob (95 characters)
+        Base85-encoded encrypted blob (~80 characters)
 
-    The encrypted blob contains:
+    The encrypted blob contains (64 bytes):
         - Ephemeral public key (32 bytes): For ECDH key derivation
-        - Nonce (12 bytes): Random nonce for ChaCha20-Poly1305
         - Ciphertext + tag (32 bytes): Encrypted UUID + authentication tag
+        - Nonce is derived from SHA256(ephemeral_public_key)[:12]
     """
     # Parse public key if string
     if isinstance(backend_public_key, str):
@@ -157,17 +165,21 @@ def encrypt_deployment_id(
     # Convert deployment ID to bytes
     plaintext = uuid_to_bytes(deployment_id)
 
-    # Encrypt with ChaCha20-Poly1305
-    nonce = os.urandom(NONCE_SIZE)
-    cipher = ChaCha20Poly1305(shared_secret)
-    ciphertext = cipher.encrypt(nonce, plaintext, None)
-
-    # Package: ephemeral_public || nonce || ciphertext
+    # Get ephemeral public key bytes
     ephemeral_public_bytes = ephemeral_public.public_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw,
     )
-    package = ephemeral_public_bytes + nonce + ciphertext
+
+    # Derive nonce from ephemeral public key (deterministic, saves 12 bytes)
+    nonce = _derive_nonce(ephemeral_public_bytes)
+
+    # Encrypt with ChaCha20-Poly1305
+    cipher = ChaCha20Poly1305(shared_secret)
+    ciphertext = cipher.encrypt(nonce, plaintext, None)
+
+    # Package: ephemeral_public || ciphertext (no nonce - it's derived)
+    package = ephemeral_public_bytes + ciphertext
 
     # Base85 encode for compact representation
     return base64.b85encode(package).decode("ascii")
@@ -194,17 +206,19 @@ def decrypt_deployment_id(
         # Decode from base85
         package = base64.b85decode(encrypted_blob.encode("ascii"))
     except Exception as e:
-        raise ValueError(f"Invalid base85 encoding: {e}")
+        raise ValueError(f"Invalid base85 encoding: {e}") from e
 
     if len(package) != ENCRYPTED_PACKAGE_SIZE:
         raise ValueError(
             f"Invalid encrypted package size: {len(package)} (expected {ENCRYPTED_PACKAGE_SIZE})"
         )
 
-    # Extract components
+    # Extract ephemeral public key and ciphertext
     ephemeral_public_bytes = package[:EPHEMERAL_PUBLIC_KEY_SIZE]
-    nonce = package[EPHEMERAL_PUBLIC_KEY_SIZE : EPHEMERAL_PUBLIC_KEY_SIZE + NONCE_SIZE]
-    ciphertext = package[EPHEMERAL_PUBLIC_KEY_SIZE + NONCE_SIZE :]
+    ciphertext = package[EPHEMERAL_PUBLIC_KEY_SIZE:]
+
+    # Derive nonce from ephemeral public key
+    nonce = _derive_nonce(ephemeral_public_bytes)
 
     # Reconstruct ephemeral public key
     ephemeral_public = x25519.X25519PublicKey.from_public_bytes(ephemeral_public_bytes)
@@ -217,17 +231,7 @@ def decrypt_deployment_id(
     try:
         plaintext = cipher.decrypt(nonce, ciphertext, None)
     except Exception as e:
-        raise ValueError(f"Decryption failed (invalid key or tampered data): {e}")
+        raise ValueError(f"Decryption failed (invalid key or tampered data): {e}") from e
 
     # Convert bytes back to UUID string
     return bytes_to_uuid(plaintext)
-
-
-def is_encrypted_commitment(data: dict) -> bool:
-    """Check if a parsed commitment contains an encrypted endpoint."""
-    return "e" in data or "encrypted_endpoint" in data
-
-
-def get_encrypted_blob(data: dict) -> str | None:
-    """Extract encrypted blob from parsed commitment data."""
-    return data.get("e") or data.get("encrypted_endpoint")
