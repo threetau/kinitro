@@ -244,10 +244,7 @@ def test_env(
         # Setup recording directory
         recording = record_dir is not None
         record_path: Path | None = None
-        if recording:
-            if record_dir is None:
-                typer.echo("Error: --record-dir is required when recording", err=True)
-                raise typer.Exit(1)
+        if record_dir is not None:
             record_path = Path(record_dir)
             record_path.mkdir(parents=True, exist_ok=True)
             # Save run metadata

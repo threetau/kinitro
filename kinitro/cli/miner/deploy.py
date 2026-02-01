@@ -50,12 +50,16 @@ sys.path.insert(0, "/app")
 
 # Start the FastAPI server from /app directory
 print("Starting uvicorn server on port 8000...")
-subprocess.run([
-    sys.executable, "-m", "uvicorn",
-    "server:app",
-    "--host", "0.0.0.0",
-    "--port", "8000",
-], cwd="/app")
+subprocess.run(
+    [
+        sys.executable, "-m", "uvicorn",
+        "server:app",
+        "--host", "0.0.0.0",
+        "--port", "8000",
+    ],
+    cwd="/app",
+    check=True,
+)
 """
 
 
