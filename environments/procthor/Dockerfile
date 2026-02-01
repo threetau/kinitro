@@ -102,4 +102,9 @@ ENV PYTHONPATH="/app:${PYTHONPATH}"
 # Copy the eval environment Actor
 COPY env.py /app/
 
-# Affinetes will inject its HTTP server - do not set CMD/ENTRYPOINT
+# Copy and set up entrypoint script to start Xvfb before the server
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# Affinetes will inject its HTTP server CMD

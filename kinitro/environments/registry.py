@@ -7,10 +7,11 @@ from pathlib import Path
 import structlog
 
 from kinitro.environments.base import RoboticsEnvironment
-from kinitro.environments.metaworld_env import MetaWorldEnvironment
-from kinitro.environments.procthor import ProcTHOREnvironment
 
 logger = structlog.get_logger()
+
+# Note: Environment classes are imported lazily in factory functions to allow
+# containers with partial dependencies (e.g., procthor container without metaworld)
 
 # Path to environments directory (robo-subnet/environments/)
 _ENVIRONMENTS_DIR = Path(__file__).parent.parent.parent / "environments"
@@ -23,6 +24,9 @@ def _make_metaworld_env(task: str) -> EnvFactory:
     """Create factory for MetaWorld environment."""
 
     def factory() -> RoboticsEnvironment:
+        # Lazy import to allow containers with partial dependencies
+        from kinitro.environments.metaworld_env import MetaWorldEnvironment  # noqa: PLC0415
+
         return MetaWorldEnvironment(task)
 
     return factory
@@ -32,6 +36,9 @@ def _make_procthor_env(task: str) -> EnvFactory:
     """Create factory for ProcTHOR procedural environment."""
 
     def factory() -> RoboticsEnvironment:
+        # Lazy import to allow containers with partial dependencies
+        from kinitro.environments.procthor import ProcTHOREnvironment  # noqa: PLC0415
+
         return ProcTHOREnvironment(task_name=task)
 
     return factory
