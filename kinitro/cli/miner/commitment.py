@@ -171,8 +171,8 @@ def show_commitment(
         raw, block = _query_commitment_by_hotkey(subtensor, netuid, query_hotkey)
 
         if not raw:
-            typer.echo("\nNo commitment found.")
-            raise typer.Exit(0)
+            typer.echo("\nNo commitment found.", err=True)
+            raise typer.Exit(1)
 
         typer.echo(f"\nRaw commitment: {raw[:100]}{'...' if len(raw) > 100 else ''}")
         if block is not None:

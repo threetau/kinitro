@@ -106,7 +106,7 @@ def parse_commitment(raw: str) -> dict:
             - deployment_id (for plain commitments)
             - encrypted_deployment (for encrypted commitments)
     """
-    parts = raw.split(":")
+    parts = raw.split(":", 3)
 
     if len(parts) >= 3:
         hf_repo = parts[0]
@@ -398,6 +398,16 @@ def commit_model(
     """
     # Truncate revision to 12 chars for compactness (usually unique enough)
     revision_short = revision[:12]
+
+    # Validate no colons in fields (would break colon-separated format)
+    if ":" in repo or ":" in revision_short or ":" in deployment_id:
+        logger.error(
+            "commitment_field_contains_colon",
+            repo=repo,
+            revision=revision_short,
+            deployment_id=deployment_id,
+        )
+        return False
 
     # Build commitment data using colon-separated format (more compact than JSON)
     if backend_public_key:

@@ -23,7 +23,6 @@ import base64
 from dataclasses import dataclass
 from pathlib import Path
 
-from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
@@ -127,7 +126,7 @@ def bytes_to_uuid(data: bytes) -> str:
 
 def _derive_nonce(ephemeral_public_bytes: bytes) -> bytes:
     """Derive a nonce from the ephemeral public key using SHA256."""
-    digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
+    digest = hashes.Hash(hashes.SHA256())
     digest.update(ephemeral_public_bytes)
     return digest.finalize()[:NONCE_SIZE]
 
