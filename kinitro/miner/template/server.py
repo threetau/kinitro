@@ -30,7 +30,7 @@ Usage:
 import json
 import logging
 import time
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import Any
 
 import uvicorn
@@ -119,29 +119,42 @@ class StructuredLogger:
 # Initialize logger
 logger = StructuredLogger("kinitro.policy")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting policy server")
+    get_policy()
+    yield
+    await shutdown()
+
+
 app = FastAPI(
     title="Robotics Policy Server",
     description="Miner policy endpoint for robotics subnet evaluation",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Global state
-_policy: RobotPolicy | None = None
-_request_count = 0
-_error_count = 0
+_state: dict[str, Any] = {
+    "policy": None,
+    "request_count": 0,
+    "error_count": 0,
+}
 
 
 def get_policy() -> RobotPolicy:
     """Get or initialize the policy."""
-    global _policy
-    if _policy is None:
+    policy = _state["policy"]
+    if policy is None:
         with logger.measure("policy_load"):
-            _policy = RobotPolicy()
+            policy = RobotPolicy()
+            _state["policy"] = policy
         logger.info(
             "Policy initialized",
-            model_loaded=_policy.is_loaded() if _policy else False,
+            model_loaded=policy.is_loaded() if policy else False,
         )
-    return _policy
+    return policy
 
 
 # =============================================================================
@@ -215,8 +228,8 @@ async def health_check():
         status="healthy",
         model_loaded=model_loaded,
         uptime_seconds=round(uptime, 2),
-        request_count=_request_count,
-        error_count=_error_count,
+        request_count=_state["request_count"],
+        error_count=_state["error_count"],
     )
 
     return HealthResponse(
@@ -241,8 +254,7 @@ async def reset(request: ResetRequest):
     Returns:
         Status and optional episode ID
     """
-    global _request_count, _error_count
-    _request_count += 1
+    _state["request_count"] += 1
     task_config = request.task_config.model_dump()
 
     try:
@@ -255,7 +267,7 @@ async def reset(request: ResetRequest):
             episode_id = await policy.reset(task_config)
         return ResetResponse(status="ok", episode_id=episode_id)
     except Exception as e:
-        _error_count += 1
+        _state["error_count"] += 1
         logger.error(
             "Reset failed",
             error=str(e),
@@ -280,8 +292,7 @@ async def act(request: ActRequest):
     Returns:
         Canonical action payload
     """
-    global _request_count, _error_count
-    _request_count += 1
+    _state["request_count"] += 1
 
     try:
         policy = get_policy()
@@ -294,11 +305,11 @@ async def act(request: ActRequest):
         duration_ms = (time.time() - start) * 1000
 
         # Log periodically (every 100 requests) or if slow
-        if _request_count % 100 == 0 or duration_ms > 100:
+        if _state["request_count"] % 100 == 0 or duration_ms > 100:
             logger.info(
                 "Act request",
                 duration_ms=round(duration_ms, 2),
-                request_count=_request_count,
+                request_count=_state["request_count"],
                 obs_dim=len(obs.proprio_array()),
                 has_images=bool(obs.rgb),
             )
@@ -311,7 +322,7 @@ async def act(request: ActRequest):
             canonical_action = CanonicalAction.from_array(action)
         return ActResponse(action=canonical_action)
     except Exception as e:
-        _error_count += 1
+        _state["error_count"] += 1
         logger.error(
             "Act failed",
             error=str(e),
@@ -326,28 +337,20 @@ async def act(request: ActRequest):
 # =============================================================================
 
 
-@app.on_event("startup")
-async def startup():
-    """Initialize policy on startup."""
-    logger.info("Starting policy server")
-    get_policy()
-
-
-@app.on_event("shutdown")
 async def shutdown():
     """Cleanup on shutdown."""
-    global _policy
     logger.info(
         "Shutting down policy server",
-        total_requests=_request_count,
-        total_errors=_error_count,
+        total_requests=_state["request_count"],
+        total_errors=_state["error_count"],
     )
-    if _policy is not None:
+    policy = _state["policy"]
+    if policy is not None:
         # Guard cleanup() call in case policy doesn't implement it
-        cleanup = getattr(_policy, "cleanup", None)
+        cleanup = getattr(policy, "cleanup", None)
         if callable(cleanup):
             await cleanup()
-        _policy = None
+        _state["policy"] = None
 
 
 # =============================================================================

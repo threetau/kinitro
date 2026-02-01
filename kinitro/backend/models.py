@@ -6,20 +6,9 @@ from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import (
-    BigInteger,
-    Column,
-    DateTime,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    func,
-)
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 def generate_task_uuid() -> str:
@@ -61,21 +50,25 @@ class EvaluationCycleORM(Base):
 
     __tablename__ = "evaluation_cycles"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    block_number = Column(BigInteger, nullable=False, index=True)
-    started_at = Column(DateTime, nullable=False, default=func.now())
-    completed_at = Column(DateTime, nullable=True)
-    status = Column(String(20), nullable=False, default=EvaluationCycleStatus.PENDING.value)
-    n_miners = Column(Integer, nullable=True)
-    n_environments = Column(Integer, nullable=True)
-    duration_seconds = Column(Float, nullable=True)
-    error_message = Column(Text, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    block_number: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=EvaluationCycleStatus.PENDING.value
+    )
+    n_miners: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    n_environments: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
-    miner_scores = relationship(
+    miner_scores: Mapped[list["MinerScoreORM"]] = relationship(
         "MinerScoreORM", back_populates="cycle", cascade="all, delete-orphan"
     )
-    computed_weights = relationship(
+    computed_weights: Mapped[list["ComputedWeightsORM"]] = relationship(
         "ComputedWeightsORM", back_populates="cycle", cascade="all, delete-orphan"
     )
 
@@ -85,20 +78,22 @@ class MinerScoreORM(Base):
 
     __tablename__ = "miner_scores"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    cycle_id = Column(
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cycle_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("evaluation_cycles.id", ondelete="CASCADE"), nullable=False
     )
-    uid = Column(Integer, nullable=False)
-    hotkey = Column(String(64), nullable=False)
-    env_id = Column(String(64), nullable=False)
-    success_rate = Column(Float, nullable=False)
-    mean_reward = Column(Float, nullable=False)
-    episodes_completed = Column(Integer, nullable=False)
-    episodes_failed = Column(Integer, nullable=False)
+    uid: Mapped[int] = mapped_column(Integer, nullable=False)
+    hotkey: Mapped[str] = mapped_column(String(64), nullable=False)
+    env_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    success_rate: Mapped[float] = mapped_column(Float, nullable=False)
+    mean_reward: Mapped[float] = mapped_column(Float, nullable=False)
+    episodes_completed: Mapped[int] = mapped_column(Integer, nullable=False)
+    episodes_failed: Mapped[int] = mapped_column(Integer, nullable=False)
 
     # Relationships
-    cycle = relationship("EvaluationCycleORM", back_populates="miner_scores")
+    cycle: Mapped["EvaluationCycleORM"] = relationship(
+        "EvaluationCycleORM", back_populates="miner_scores"
+    )
 
     __table_args__ = (
         Index("idx_miner_scores_cycle", "cycle_id"),
@@ -119,17 +114,21 @@ class ComputedWeightsORM(Base):
 
     __tablename__ = "computed_weights"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    cycle_id = Column(
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cycle_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("evaluation_cycles.id", ondelete="CASCADE"), nullable=False
     )
-    block_number = Column(BigInteger, nullable=False)
-    weights_json = Column(JSONB, nullable=False)  # {uid: weight_float}
-    weights_u16_json = Column(JSONB, nullable=False)  # {uids: [], values: []}
-    created_at = Column(DateTime, nullable=False, default=func.now())
+    block_number: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    weights_json: Mapped[dict[str, float]] = mapped_column(JSONB, nullable=False)
+    weights_u16_json: Mapped[dict[str, list[int]]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=func.now()
+    )
 
     # Relationships
-    cycle = relationship("EvaluationCycleORM", back_populates="computed_weights")
+    cycle: Mapped["EvaluationCycleORM"] = relationship(
+        "EvaluationCycleORM", back_populates="computed_weights"
+    )
 
     __table_args__ = (Index("idx_weights_block", "block_number"),)
 
@@ -147,29 +146,33 @@ class TaskPoolORM(Base):
 
     __tablename__ = "task_pool"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    task_uuid = Column(
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_uuid: Mapped[str] = mapped_column(
         String(36), nullable=False, unique=True, default=generate_task_uuid
-    )  # Random UUID for tracking
-    cycle_id = Column(
+    )
+    cycle_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("evaluation_cycles.id", ondelete="CASCADE"), nullable=False
     )
-    miner_uid = Column(Integer, nullable=False)
-    miner_hotkey = Column(String(64), nullable=False)
-    miner_endpoint = Column(Text, nullable=False)  # Base URL for miner policy
-    miner_repo = Column(String(256), nullable=True)  # HuggingFace repo for verification
-    miner_revision = Column(String(64), nullable=True)  # HuggingFace revision for verification
-    env_id = Column(String(64), nullable=False)
-    seed = Column(Integer, nullable=False)  # Deterministic seed for reproducibility
-    status = Column(String(20), nullable=False, default=TaskStatus.PENDING.value)
-    assigned_to = Column(String(64), nullable=True)  # Executor ID
-    assigned_at = Column(DateTime, nullable=True)
-    completed_at = Column(DateTime, nullable=True)
-    result = Column(JSONB, nullable=True)  # {success, score, error, etc.}
-    created_at = Column(DateTime, nullable=False, default=func.now())
+    miner_uid: Mapped[int] = mapped_column(Integer, nullable=False)
+    miner_hotkey: Mapped[str] = mapped_column(String(64), nullable=False)
+    miner_endpoint: Mapped[str] = mapped_column(Text, nullable=False)
+    miner_repo: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    miner_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    env_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    seed: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=TaskStatus.PENDING.value
+    )
+    assigned_to: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=func.now()
+    )
 
     # Relationships
-    cycle = relationship("EvaluationCycleORM")
+    cycle: Mapped["EvaluationCycleORM"] = relationship("EvaluationCycleORM")
 
     __table_args__ = (
         Index("idx_task_pool_status", "status"),

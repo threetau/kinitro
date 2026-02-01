@@ -2,6 +2,7 @@
 
 import os
 import platform
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -54,20 +55,21 @@ class TestMetaWorldActionFormatE2E:
                 gripper_01=1.0,
             )
 
-            original_step = env._env.step
+            env_inner = cast(Any, env._env)
+            original_step = env_inner.step
             captured: dict[str, np.ndarray] = {}
 
             def _wrapped_step(native_action):
                 captured["action"] = np.array(native_action)
                 return original_step(native_action)
 
-            env._env.step = _wrapped_step
+            env_inner.step = _wrapped_step
 
             try:
                 with capture_logs() as logs:
                     obs, reward, done, info = env.step(action)
             finally:
-                env._env.step = original_step
+                env_inner.step = original_step
 
             assert captured["action"].shape == (4,)
             assert np.all(captured["action"][:3] != 0.0)

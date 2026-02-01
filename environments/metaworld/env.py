@@ -29,6 +29,7 @@ Usage (from backend):
 """
 
 import time
+import traceback
 
 import httpx
 import numpy as np
@@ -97,9 +98,9 @@ class Actor:
     async def evaluate(
         self,
         task_id: int,
-        seed: int = None,
-        model: str = None,
-        base_url: str = None,
+        seed: int | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
         env_id: str = "metaworld/pick-place-v3",
         max_timesteps: int = 500,
         action_timeout: float = 0.5,
@@ -169,8 +170,6 @@ class Actor:
                 overall_timeout=timeout,
             )
         except Exception as e:
-            import traceback
-
             return self._build_error_result(
                 env_id=env_id,
                 task_id=task_id,
@@ -319,24 +318,24 @@ class Actor:
         seed: int,
         start_time: float,
         error: str,
-        extra: dict = None,
+        extra: dict[str, object] | None = None,
     ) -> dict:
         """Build error result dict."""
-        result = {
+        extra_fields: dict[str, object] = {
+            "task_id": task_id,
+            "seed": seed,
+            "env_id": env_id,
+        }
+        if extra:
+            extra_fields.update(extra)
+        return {
             "task_name": f"robotics:{env_id}",
             "score": 0.0,
             "success": False,
             "error": error,
             "time_taken": time.time() - start_time,
-            "extra": {
-                "task_id": task_id,
-                "seed": seed,
-                "env_id": env_id,
-            },
+            "extra": extra_fields,
         }
-        if extra:
-            result["extra"].update(extra)
-        return result
 
     async def cleanup(self):
         """Cleanup resources."""

@@ -7,6 +7,8 @@ from pathlib import Path
 import structlog
 
 from kinitro.environments.base import RoboticsEnvironment
+from kinitro.environments.metaworld_env import MetaWorldEnvironment
+from kinitro.environments.procthor import ProcTHOREnvironment
 
 logger = structlog.get_logger()
 
@@ -21,8 +23,6 @@ def _make_metaworld_env(task: str) -> EnvFactory:
     """Create factory for MetaWorld environment."""
 
     def factory() -> RoboticsEnvironment:
-        from kinitro.environments.metaworld_env import MetaWorldEnvironment
-
         return MetaWorldEnvironment(task)
 
     return factory
@@ -32,8 +32,6 @@ def _make_procthor_env(task: str) -> EnvFactory:
     """Create factory for ProcTHOR procedural environment."""
 
     def factory() -> RoboticsEnvironment:
-        from kinitro.environments.procthor import ProcTHOREnvironment
-
         return ProcTHOREnvironment(task_name=task)
 
     return factory
@@ -130,16 +128,21 @@ def _load_family_metadata() -> dict[str, dict[str, str]]:
     return metadata
 
 
-# Cache for family metadata (loaded on first access)
-_family_metadata_cache: dict[str, dict[str, str]] | None = None
+class _FamilyMetadataCache:
+    def __init__(self) -> None:
+        self.loaded = False
+        self.cache: dict[str, dict[str, str]] = {}
+
+
+_family_metadata_cache = _FamilyMetadataCache()
 
 
 def _get_family_metadata_cache() -> dict[str, dict[str, str]]:
     """Get cached family metadata, loading if necessary."""
-    global _family_metadata_cache
-    if _family_metadata_cache is None:
-        _family_metadata_cache = _load_family_metadata()
-    return _family_metadata_cache
+    if not _family_metadata_cache.loaded:
+        _family_metadata_cache.cache = _load_family_metadata()
+        _family_metadata_cache.loaded = True
+    return _family_metadata_cache.cache
 
 
 def get_available_families() -> list[str]:

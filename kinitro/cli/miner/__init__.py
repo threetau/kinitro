@@ -28,6 +28,7 @@ def build(
         ["docker", "build", "-t", tag, env_path],
         capture_output=True,
         text=True,
+        check=False,
     )
 
     if result.returncode != 0:
@@ -43,6 +44,7 @@ def build(
             ["docker", "push", tag],
             capture_output=True,
             text=True,
+            check=False,
         )
 
         if result.returncode != 0:

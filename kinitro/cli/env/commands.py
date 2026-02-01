@@ -4,6 +4,7 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 import affinetes
 import numpy as np
@@ -17,9 +18,18 @@ from kinitro.environments.registry import (
     get_environments_by_family,
     get_family_metadata,
 )
+from kinitro.rl_interface import CanonicalObservation, coerce_action
 
 # Available environment families for build command
 AVAILABLE_ENV_FAMILIES = ["metaworld", "procthor"]
+
+
+@runtime_checkable
+class CameraCapable(Protocol):
+    num_cameras: int
+    image_shape: tuple[int, ...]
+
+    def get_observation(self) -> CanonicalObservation: ...
 
 
 def build_env(
@@ -225,15 +235,16 @@ def test_env(
         typer.echo(f"  Canonical action shape: {env.action_shape}")
 
         # Check for camera support
-        has_cameras = hasattr(env, "num_cameras") and env.num_cameras > 0
-        if has_cameras:
-            typer.echo(f"  Number of cameras: {env.num_cameras}")
-            if hasattr(env, "image_shape"):
-                typer.echo(f"  Image shape: {env.image_shape}")
+        camera_env = env if isinstance(env, CameraCapable) else None
+        has_cameras = camera_env is not None and camera_env.num_cameras > 0
+        if has_cameras and camera_env is not None:
+            typer.echo(f"  Number of cameras: {camera_env.num_cameras}")
+            typer.echo(f"  Image shape: {camera_env.image_shape}")
 
         # Setup recording directory
         recording = record_dir is not None
-        if recording:
+        record_path: Path | None = None
+        if record_dir is not None:
             record_path = Path(record_dir)
             record_path.mkdir(parents=True, exist_ok=True)
             # Save run metadata
@@ -246,12 +257,16 @@ def test_env(
                 "observation_shape": list(env.observation_shape),
                 "action_shape": list(env.action_shape),
             }
-            if has_cameras and hasattr(env, "image_shape"):
-                metadata["image_shape"] = list(env.image_shape)
-                metadata["num_cameras"] = env.num_cameras
+            if has_cameras and camera_env is not None:
+                metadata["image_shape"] = list(camera_env.image_shape)
+                metadata["num_cameras"] = camera_env.num_cameras
             with open(record_path / "metadata.json", "w") as f:
                 json.dump(metadata, f, indent=2)
             typer.echo(f"  Recording to: {record_path}")
+
+        if recording and record_path is None:
+            typer.echo("Error: record path was not initialized", err=True)
+            raise typer.Exit(1)
 
         successes = 0
         total_reward = 0.0
@@ -271,21 +286,32 @@ def test_env(
             images: dict[str, list[np.ndarray]] = {}
 
             # Capture initial images if recording
-            if recording and save_images and has_cameras and hasattr(env, "get_observation"):
+            if recording and save_images and has_cameras and camera_env is not None:
                 typer.echo("    Capturing initial images...")
-                full_obs = env.get_observation()
+                full_obs = camera_env.get_observation()
                 for cam_name, img in full_obs.rgb.items():
                     if cam_name not in images:
                         images[cam_name] = []
                     images[cam_name].append(np.array(img))
-                typer.echo("    Done.")
+                if images:
+                    typer.echo("    Done.")
+                else:
+                    typer.secho(
+                        "    Warning: No images captured. Camera rendering may have failed.",
+                        fg="yellow",
+                    )
+                    typer.secho(
+                        "    Hint: Try running with MUJOCO_GL=egl or MUJOCO_GL=osmesa",
+                        fg="yellow",
+                    )
 
             ep_reward = 0.0
             steps = 0
             for step_idx in range(max_steps):
                 # Random action
                 low, high = env.action_bounds
-                action = np.random.uniform(low, high)
+                action_array = np.random.uniform(low, high)
+                action = coerce_action(action_array)
                 obs, reward, done, info = env.step(action)
                 ep_reward += reward
                 steps += 1
@@ -293,7 +319,7 @@ def test_env(
                 # Record trajectory data
                 if recording:
                     observations.append(obs.to_payload(include_images=save_images))
-                    actions.append(action)
+                    actions.append(action_array)
                     rewards.append(reward)
                     dones.append(done)
 
@@ -303,10 +329,10 @@ def test_env(
                     )
 
                     # Capture images
-                    if save_images and has_cameras and hasattr(env, "get_observation"):
+                    if save_images and has_cameras and camera_env is not None:
                         if step_idx % 100 == 0:
                             typer.echo(f"    Step {step_idx}...")
-                        full_obs = env.get_observation()
+                        full_obs = camera_env.get_observation()
                         for cam_name, img in full_obs.rgb.items():
                             if cam_name not in images:
                                 images[cam_name] = []
@@ -322,6 +348,8 @@ def test_env(
 
             # Save episode data
             if recording:
+                if record_path is None:
+                    raise typer.Exit(1)
                 ep_dir = record_path / f"episode_{ep:03d}"
                 ep_dir.mkdir(exist_ok=True)
 
@@ -355,13 +383,19 @@ def test_env(
                     for cam_name, cam_images in images.items():
                         for i, img in enumerate(cam_images):
                             img_path = images_dir / f"{cam_name}_{i:04d}.png"
-                            Image.fromarray(img).save(img_path)
+                            Image.fromarray(img.astype(np.uint8)).save(img_path)
                     typer.echo(f"    Saved {sum(len(v) for v in images.values())} images")
+                elif save_images and not images:
+                    typer.secho(
+                        "    Warning: --save-images was set but no images were captured. "
+                        "Camera rendering may have failed (try MUJOCO_GL=egl or osmesa).",
+                        fg="yellow",
+                    )
 
         typer.echo(f"\nResults: {successes}/{episodes} successful")
         typer.echo(f"Average reward: {total_reward / episodes:.2f}")
     finally:
         env.close()
 
-    if recording:
+    if recording and record_path is not None:
         typer.echo(f"\nRecordings saved to: {record_path}")

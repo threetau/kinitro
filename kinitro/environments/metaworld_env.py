@@ -1,5 +1,7 @@
-from typing import Any
+from typing import Any, cast
 
+import metaworld
+import mujoco
 import numpy as np
 import structlog
 
@@ -12,29 +14,9 @@ from kinitro.rl_interface import (
     normalize_quaternion,
 )
 
-# Lazy import to avoid import errors if metaworld not installed
-_metaworld = None
-_available_tasks: list[str] | None = None
-
 logger = structlog.get_logger()
 
-
-def _get_metaworld():
-    global _metaworld
-    if _metaworld is None:
-        import metaworld
-
-        _metaworld = metaworld
-    return _metaworld
-
-
-def _get_available_tasks() -> list[str]:
-    """Get list of available MetaWorld V3 tasks."""
-    global _available_tasks
-    if _available_tasks is None:
-        metaworld = _get_metaworld()
-        _available_tasks = list(metaworld._env_dict.ALL_V3_ENVIRONMENTS.keys())
-    return _available_tasks
+_AVAILABLE_TASKS = list(metaworld._env_dict.ALL_V3_ENVIRONMENTS.keys())
 
 
 class MetaWorldEnvironment(RoboticsEnvironment):
@@ -100,7 +82,7 @@ class MetaWorldEnvironment(RoboticsEnvironment):
             action_format: Override action format (auto, xyz_gripper, xyz_quat, xyz_quat_gripper).
             warn_on_orientation_mismatch: Warn once when twist/gripper inputs are ignored.
         """
-        available = _get_available_tasks()
+        available = _AVAILABLE_TASKS
         if task_name not in available:
             raise ValueError(
                 f"Unknown task: {task_name}. Available tasks include: {available[:10]}..."
@@ -111,11 +93,11 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         self._camera_names = camera_names or self.CAMERA_NAMES
         self._image_width, self._image_height = image_size
 
-        self._env = None
+        self._env: Any | None = None
         self._camera_envs: dict[str, Any] = {}  # Separate env instances for each camera
-        self._ml1 = None
+        self._ml1: Any | None = None
         self._current_task_config: TaskConfig | None = None
-        self._current_task = None
+        self._current_task: Any | None = None
         self._episode_reward = 0.0
         self._episode_success = False
         self._prev_ee_pos: np.ndarray | None = None
@@ -148,7 +130,6 @@ class MetaWorldEnvironment(RoboticsEnvironment):
     def _ensure_env(self) -> None:
         """Lazy initialization of MetaWorld environment."""
         if self._env is None:
-            metaworld = _get_metaworld()
             self._ml1 = metaworld.ML1(self._task_name)
             env_cls = self._ml1.train_classes[self._task_name]
 
@@ -158,6 +139,7 @@ class MetaWorldEnvironment(RoboticsEnvironment):
 
             # Camera environments (with rendering)
             if self._use_camera:
+                camera_init_errors = []
                 for cam_name in self._camera_names:
                     try:
                         cam_env = env_cls(
@@ -168,12 +150,18 @@ class MetaWorldEnvironment(RoboticsEnvironment):
                         )
                         self._camera_envs[cam_name] = cam_env
                     except Exception as e:
-                        # Camera may not be available in headless mode
+                        camera_init_errors.append((cam_name, str(e)))
                         logger.warning(
                             "metaworld_camera_unavailable",
                             camera_name=cam_name,
                             error=str(e),
                         )
+                if camera_init_errors and not self._camera_envs:
+                    logger.error(
+                        "metaworld_all_cameras_failed",
+                        errors=camera_init_errors,
+                        hint="Try setting MUJOCO_GL=egl or MUJOCO_GL=osmesa",
+                    )
 
     @property
     def env_name(self) -> str:
@@ -196,8 +184,13 @@ class MetaWorldEnvironment(RoboticsEnvironment):
 
     @property
     def num_cameras(self) -> int:
-        """Number of camera views."""
-        return len(self._camera_names) if self._use_camera else 0
+        """Number of camera views (actual initialized cameras after reset)."""
+        if not self._use_camera:
+            return 0
+        # After initialization, return actual count; before, return configured count
+        if self._env is not None:
+            return len(self._camera_envs)
+        return len(self._camera_names)
 
     @property
     def action_shape(self) -> tuple[int, ...]:
@@ -227,7 +220,8 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         if self._env is None:
             return
 
-        action_dim = int(self._env.action_space.shape[0])
+        env = cast(Any, self._env)
+        action_dim = int(env.action_space.shape[0])
         valid_formats = {"auto", "xyz_gripper", "xyz_quat", "xyz_quat_gripper"}
         if self._action_format not in valid_formats:
             raise ValueError(
@@ -281,15 +275,14 @@ class MetaWorldEnvironment(RoboticsEnvironment):
 
     def _get_camera_images(self) -> dict[str, np.ndarray]:
         """Render images from all configured cameras."""
-        import mujoco
-
         images = {}
 
         for cam_name, cam_env in self._camera_envs.items():
             try:
                 # Copy the physics state from main env to camera env
                 if hasattr(self._env, "unwrapped") and hasattr(cam_env, "unwrapped"):
-                    main_data = self._env.unwrapped.data
+                    env = cast(Any, self._env)
+                    main_data = env.unwrapped.data
                     cam_data = cam_env.unwrapped.data
 
                     # Copy qpos and qvel
@@ -297,7 +290,9 @@ class MetaWorldEnvironment(RoboticsEnvironment):
                     cam_data.qvel[:] = main_data.qvel[:]
 
                     # Forward kinematics to update derived quantities
-                    mujoco.mj_forward(cam_env.unwrapped.model, cam_data)
+                    mj_forward = getattr(mujoco, "mj_forward", None)
+                    if callable(mj_forward):
+                        mj_forward(cam_env.unwrapped.model, cam_data)
 
                 # Render
                 img = cam_env.render()
@@ -314,8 +309,9 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         """Return end-effector quaternion in XYZW order."""
         self._ensure_env()
         try:
-            data = self._env.unwrapped.data
-            ee_site = self._env.unwrapped.model.site_name2id(self._ee_site_name)
+            env = cast(Any, self._env)
+            data = env.unwrapped.data
+            ee_site = env.unwrapped.model.site_name2id(self._ee_site_name)
             quat_wxyz = data.site_xquat[ee_site]
             quat_xyzw = np.array([quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]])
             return normalize_quaternion(quat_xyzw.astype(np.float32))
@@ -358,8 +354,9 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         ee_ang_vel = None
 
         try:
-            data = self._env.unwrapped.data
-            ee_site = self._env.unwrapped.model.site_name2id(self._ee_site_name)
+            env = cast(Any, self._env)
+            data = env.unwrapped.data
+            ee_site = env.unwrapped.model.site_name2id(self._ee_site_name)
             ee_lin_vel = np.array(data.site_xvelp[ee_site], dtype=np.float32)
             ee_ang_vel = np.array(data.site_xvelr[ee_site], dtype=np.float32)
         except Exception:
@@ -411,17 +408,19 @@ class MetaWorldEnvironment(RoboticsEnvironment):
             CanonicalObservation with end-effector state and camera views
         """
         self._ensure_env()
-        full_obs = self._env.unwrapped._get_obs()
+        env = cast(Any, self._env)
+        full_obs = env.unwrapped._get_obs()
         return self._build_observation(full_obs)
 
     def generate_task(self, seed: int) -> TaskConfig:
         """Generate procedural task configuration."""
         self._ensure_env()
+        ml1 = cast(Any, self._ml1)
 
         rng = np.random.default_rng(seed)
 
         # Sample a base task from MetaWorld's task distribution
-        task_idx = rng.integers(0, len(self._ml1.train_tasks))
+        task_idx = rng.integers(0, len(ml1.train_tasks))
 
         # Apply procedural randomization
         proc_params = self._proc_gen.generate(seed=seed)
@@ -447,6 +446,8 @@ class MetaWorldEnvironment(RoboticsEnvironment):
             Canonical observation
         """
         self._ensure_env()
+        env = cast(Any, self._env)
+        ml1 = cast(Any, self._ml1)
         self._current_task_config = task_config
         self._episode_reward = 0.0
         self._episode_success = False
@@ -454,19 +455,19 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         self._prev_ee_quat = None
         self._prev_gripper = None
         if self._control_dt is None:
-            self._control_dt = float(self._env.dt) if hasattr(self._env, "dt") else 0.05
+            self._control_dt = float(env.dt) if hasattr(env, "dt") else 0.05
 
         # Get task index from domain randomization or use seed-based selection
         task_idx = task_config.domain_randomization.get("task_idx")
         if task_idx is None:
             rng = np.random.default_rng(task_config.seed)
-            task_idx = rng.integers(0, len(self._ml1.train_tasks))
+            task_idx = rng.integers(0, len(ml1.train_tasks))
 
-        self._current_task = self._ml1.train_tasks[task_idx]
-        self._env.set_task(self._current_task)
+        self._current_task = ml1.train_tasks[task_idx]
+        env.set_task(self._current_task)
 
         # Reset main environment
-        full_obs, _ = self._env.reset(seed=task_config.seed)
+        full_obs, _ = env.reset(seed=task_config.seed)
 
         # Reset camera environments with same task
         for cam_env in self._camera_envs.values():
@@ -484,7 +485,8 @@ class MetaWorldEnvironment(RoboticsEnvironment):
             return
 
         try:
-            model = self._env.unwrapped.model
+            env = cast(Any, self._env)
+            model = env.unwrapped.model
 
             # Friction randomization
             if "friction" in physics_params:
@@ -521,9 +523,10 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         if action_format is None:
             raise ValueError("Action format resolution failed for MetaWorld environment.")
 
+        control_dt = self._control_dt if self._control_dt is not None else 0.05
         v = twist[:3] * self._v_max
         w = twist[3:6] * self._w_max
-        delta_pos = v * self._control_dt
+        delta_pos = v * control_dt
 
         if action_format == "xyz_gripper":
             if np.linalg.norm(w) > 0.0 and self._warn_on_orientation_mismatch:
@@ -544,14 +547,14 @@ class MetaWorldEnvironment(RoboticsEnvironment):
                     env_id=self._env_id,
                     action_format=action_format,
                 )
-            delta_quat = self._orientation_delta(w, self._control_dt)
+            delta_quat = self._orientation_delta(w, control_dt)
             current_quat = self._get_ee_quaternion()
             target_quat = normalize_quaternion(self._quat_multiply(delta_quat, current_quat))
             mw_action = np.zeros(7, dtype=np.float32)
             mw_action[0:3] = delta_pos
             mw_action[3:7] = target_quat
         elif action_format == "xyz_quat_gripper":
-            delta_quat = self._orientation_delta(w, self._control_dt)
+            delta_quat = self._orientation_delta(w, control_dt)
             current_quat = self._get_ee_quaternion()
             target_quat = normalize_quaternion(self._quat_multiply(delta_quat, current_quat))
             mw_action = np.zeros(8, dtype=np.float32)
@@ -561,7 +564,8 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         else:
             raise ValueError(f"Unsupported action_format '{action_format}'.")
 
-        mw_action = np.clip(mw_action, self._env.action_space.low, self._env.action_space.high)
+        env = cast(Any, self._env)
+        mw_action = np.clip(mw_action, env.action_space.low, env.action_space.high)
 
         total_reward = 0.0
         info = {}
@@ -570,7 +574,7 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         full_obs = None
 
         for _ in range(self._action_repeat):
-            full_obs, reward, terminated, truncated, info = self._env.step(mw_action)
+            full_obs, reward, terminated, truncated, info = env.step(mw_action)
             total_reward += reward
             if terminated or truncated:
                 break
@@ -581,6 +585,8 @@ class MetaWorldEnvironment(RoboticsEnvironment):
 
         done = terminated or truncated
 
+        if full_obs is None:
+            raise RuntimeError("MetaWorld step returned no observation")
         return self._build_observation(full_obs), float(total_reward), done, info
 
     def get_success(self) -> bool:
@@ -615,13 +621,14 @@ class MetaWorldEnvironment(RoboticsEnvironment):
                 # Sync state and render
                 cam_env = self._camera_envs[camera_name]
                 if hasattr(self._env, "unwrapped") and hasattr(cam_env, "unwrapped"):
-                    main_data = self._env.unwrapped.data
+                    env = cast(Any, self._env)
+                    main_data = env.unwrapped.data
                     cam_data = cam_env.unwrapped.data
                     cam_data.qpos[:] = main_data.qpos[:]
                     cam_data.qvel[:] = main_data.qvel[:]
-                    import mujoco
-
-                    mujoco.mj_forward(cam_env.unwrapped.model, cam_data)
+                    mj_forward = getattr(mujoco, "mj_forward", None)
+                    if callable(mj_forward):
+                        mj_forward(cam_env.unwrapped.model, cam_data)
                 return cam_env.render()
             except Exception:
                 return None

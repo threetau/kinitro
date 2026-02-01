@@ -8,7 +8,7 @@ import bittensor as bt
 import typer
 
 from kinitro.chain.commitments import _query_commitment_by_hotkey
-from kinitro.crypto import BackendKeypair
+from kinitro.crypto import BackendKeypair, decrypt_deployment_id, encrypt_deployment_id
 
 # Subcommand group for crypto operations
 crypto_app = typer.Typer(
@@ -365,8 +365,6 @@ def test_encryption(
         # Or specify both keys explicitly
         kinitro crypto test-encryption --public-key <pub> --private-key <priv>
     """
-    from kinitro.crypto import decrypt_deployment_id, encrypt_deployment_id
-
     # Load keys
     if private_key_file:
         keypair = BackendKeypair.from_private_key_file(private_key_file)

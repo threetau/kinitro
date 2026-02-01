@@ -27,14 +27,14 @@ def commit(
         "-e",
         help="Encrypt the endpoint using the backend operator's public key",
     ),
-    backend_hotkey: str = typer.Option(
+    backend_hotkey: str | None = typer.Option(
         None,
         "--backend-hotkey",
         "-b",
         envvar="KINITRO_BACKEND_HOTKEY",
         help="Backend operator's hotkey (fetches public key from chain)",
     ),
-    backend_public_key: str = typer.Option(
+    backend_public_key: str | None = typer.Option(
         None,
         "--backend-public-key",
         envvar="KINITRO_BACKEND_PUBLIC_KEY",
@@ -92,9 +92,10 @@ def commit(
 
         typer.echo(f"  Found public key: {backend_public_key[:16]}...")
 
-    if encrypt and backend_public_key:
-        is_valid_hex = all(c in "0123456789abcdefABCDEF" for c in backend_public_key)
-        if len(backend_public_key) != 64 or not is_valid_hex:
+    backend_public_key_value = backend_public_key
+    if encrypt and backend_public_key_value:
+        is_valid_hex = all(c in "0123456789abcdefABCDEF" for c in backend_public_key_value)
+        if len(backend_public_key_value) != 64 or not is_valid_hex:
             typer.echo(
                 "Error: Invalid public key. Expected 64 hex characters.",
                 err=True,

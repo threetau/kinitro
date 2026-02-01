@@ -1,0 +1,14 @@
+name: Setup uv
+description: Check out repo, install uv, sync dependencies
+runs:
+  using: "composite"
+  steps:
+    - name: Set up uv
+      uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41
+      with:
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+      shell: bash
