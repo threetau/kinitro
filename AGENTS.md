@@ -59,9 +59,9 @@ Keep it current when commands or conventions change.
 - Build env image: `uv run kinitro env build --env-id metaworld/pick-place-v3 --tag my-env:v1`
 
 ## Git Hooks
-- Hook script: `.githooks/pre-commit` (formats, lints, and type-checks staged Python files).
-- Enable locally with: `git config core.hooksPath .githooks`
-- Ruff hooks are managed via pre-commit (`.pre-commit-config.yaml`); install with `uv tool install pre-commit`.
+- Hook script: `.githooks/pre-commit` invokes the `pre-commit` tool for ruff formatting/linting, then runs `ty` type checking.
+- Setup: `git config core.hooksPath .githooks && uv tool install pre-commit`
+- The hook uses `.pre-commit-config.yaml` for ruff rules via the pre-commit framework.
 
 ## Services (local dev)
 - API: `uv run kinitro api --database-url postgresql://user:pass@host/db`
