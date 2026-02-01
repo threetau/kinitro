@@ -45,9 +45,14 @@ class ExecutorConfig(BaseSettings):
     )
 
     # Affinetes settings for evaluation
-    eval_image: str = Field(
-        default="kinitro/eval-env:v1",
-        description="Docker image for evaluation environment",
+    eval_images: dict[str, str] = Field(
+        default_factory=lambda: {
+            "metaworld": "kinitro/metaworld:v1",
+            "procthor": "kinitro/procthor:v1",
+        },
+        description="Mapping of environment family to Docker image. "
+        "Keys are family prefixes (e.g., 'metaworld'), values are image tags. "
+        "Build images with 'kinitro env build <family>'.",
     )
     eval_mode: str = Field(
         default="docker",
@@ -114,3 +119,29 @@ class ExecutorConfig(BaseSettings):
         le=50.0,
         description="Maximum allowed HuggingFace repo size in GB",
     )
+
+    def get_image_for_env(self, env_id: str) -> str:
+        """
+        Get the Docker image for a given environment ID.
+
+        Args:
+            env_id: Environment ID (e.g., 'metaworld/pick-place-v3')
+
+        Returns:
+            Docker image tag for the environment's family
+
+        Raises:
+            ValueError: If no image is configured for the environment's family
+        """
+        # Extract family from env_id (e.g., 'metaworld' from 'metaworld/pick-place-v3')
+        family = env_id.split("/")[0] if "/" in env_id else env_id
+
+        if family not in self.eval_images:
+            available = list(self.eval_images.keys())
+            raise ValueError(
+                f"No Docker image configured for environment family '{family}'. "
+                f"Available families: {available}. "
+                f"Set KINITRO_EXECUTOR_EVAL_IMAGES to configure."
+            )
+
+        return self.eval_images[family]

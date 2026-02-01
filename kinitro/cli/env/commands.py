@@ -52,8 +52,7 @@ def build_env(
     Build an environment-specific Docker image using affinetes.
 
     This creates a focused Docker image containing only the dependencies
-    for a specific environment family, resulting in smaller images and
-    faster builds compared to the monolithic eval-env image.
+    for a specific environment family.
 
     Environment families:
       - metaworld: MuJoCo-based manipulation tasks (~400MB image)
