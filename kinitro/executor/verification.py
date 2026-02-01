@@ -337,7 +337,9 @@ class PolicyVerifier:
                 action = policy.act(canonical_obs)
 
             # Handle different action return types
-            if isinstance(action, CanonicalAction):
+            # Note: Check by method/attribute rather than isinstance() because
+            # the miner's bundled rl_interface.py has its own CanonicalAction class
+            if hasattr(action, "to_array"):
                 return action.to_array()
             if isinstance(action, dict):
                 return CanonicalAction.model_validate(action).to_array()
