@@ -5,32 +5,32 @@ Keep it current when commands or conventions change.
 
 ## Scope
 - Project: Kinitro robotics evaluation subnet (Python 3.12).
-- Primary entry point: `kinitro` CLI (see `kinitro/cli.py`).
+- Primary entry point: `kinitro` CLI (see `kinitro/cli/`).
 - Services: API, scheduler, executor, validator, miner tooling.
 
-## Repo Map 
-- `environments/` evaluation environments.
+## Repo Map
+- `demos/` demonstration scripts and examples.
+- `docs/` operator, validator, and miner guides.
+- `environments/` evaluation environments (MetaWorld, ProcTHOR).
+- `scripts/` utility scripts.
+- `tests/` unit and integration tests.
 - `kinitro/` core package.
 - `kinitro/api/` FastAPI app and routes.
 - `kinitro/backend/` storage, models, database logic.
 - `kinitro/chain/` chain integration and networking.
 - `kinitro/cli/` CLI command group modules.
 - `kinitro/environments/` environment discovery and helpers.
-- `kinitro/scheduler/` task generation + scoring.
 - `kinitro/executor/` evaluation executor.
 - `kinitro/miner/` miner tooling and workflows.
+- `kinitro/scheduler/` task generation + scoring.
 - `kinitro/scoring/` pareto + winners-take-all scoring.
-- `kinitro/tasks/` task definitions and utilities.
 - `kinitro/validator/` validator workflows.
-- `tests/` unit and integration tests.
 
 ### Key Modules
-- `kinitro/cli.py` primary CLI entry module.
+- `kinitro/cli/` CLI entry point and command groups.
 - `kinitro/config.py` runtime settings and configuration.
 - `kinitro/crypto.py` cryptography helpers.
-- `kinitro/rl_interface.py` RL interface utilities.
-- `tests/` pytest suites.
-- `docs/` operator, validator, and miner guides.
+- `kinitro/rl_interface.py` RL interface utilities (CanonicalObservation, CanonicalAction).
 
 ## Setup / Install
 - Recommended: `uv sync`
@@ -39,7 +39,7 @@ Keep it current when commands or conventions change.
 
 ## Common Commands
 ### Lint
-- `ruff check kinitro/`
+- `ruff check .` (checks entire project: kinitro/, tests/, environments/, scripts/, demos/)
 
 ### Type Check
 - `ty check .`
@@ -54,8 +54,9 @@ Keep it current when commands or conventions change.
 - `pytest -k pareto tests/unit`
 
 ### CLI Examples
-- List environments: `uv run kinitro list-envs`
+- List environments: `uv run kinitro env list`
 - Test an env: `uv run kinitro env test metaworld/pick-place-v3`
+- Build env image: `uv run kinitro env build --env-id metaworld/pick-place-v3 --tag my-env:v1`
 
 ## Git Hooks
 - Hook script: `.githooks/pre-commit` (formats, lints, and type-checks staged Python files).
@@ -69,14 +70,13 @@ Keep it current when commands or conventions change.
 - Validator: `uv run kinitro validate --backend-url https://api.kinitro.ai --netuid <id> --network finney`
 
 ## Backend Setup (operator quick start)
-- Build eval env image: `uv run kinitro build-eval-env --tag kinitro/eval-env:v1`
 - Init DB: `uv run kinitro db init --database-url postgresql://user:pass@host/db`
 - DB status: `uv run kinitro db status --database-url postgresql://user:pass@host/db`
 
 ## Environment Config
 - See `.env.example` for common env vars.
 - Runtime settings are read via Pydantic settings classes in `kinitro/config.py`.
-- Keep secrets out of the repo; do not commit `.env` files, or any other files included in `.gitignore`.
+- Keep secrets out of the repo; do not commit `.env` files or any files listed in `.gitignore`.
 
 ## Code Style Guidelines
 ### Imports
@@ -132,10 +132,11 @@ Keep it current when commands or conventions change.
 - Keep unit tests fast; integration tests go in `tests/integration`.
 
 ## Docs and References
-- Developer overview and commands: `README.md`.
-- Operator guides: `docs/backend-guide.md`.
+- Developer overview: `README.md`.
+- Backend operator guide: `docs/backend-guide.md`.
 - Miner guide: `docs/miner-guide.md`.
 - Validator guide: `docs/validator-guide.md`.
+- Scoring and incentives: `docs/scoring-and-incentives.md`.
 
 ## Change Hygiene for Agents
 - Do not modify files outside the task scope.
