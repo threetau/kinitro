@@ -10,7 +10,6 @@ the backend operator to decrypt and evaluate miners.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 
 import structlog
@@ -19,7 +18,6 @@ from cryptography.hazmat.primitives.asymmetric import x25519
 from kinitro.crypto import (
     decrypt_deployment_id,
     encrypt_deployment_id,
-    get_encrypted_blob,
 )
 
 logger = structlog.get_logger()
@@ -27,6 +25,9 @@ logger = structlog.get_logger()
 
 # Basilica deployment URL template
 BASILICA_URL_TEMPLATE = "https://{deployment_id}.deployments.basilica.ai"
+
+# Chain commitment size limit (bytes)
+MAX_COMMITMENT_SIZE = 128
 
 
 def deployment_id_to_url(deployment_id: str) -> str:
@@ -96,10 +97,10 @@ def parse_commitment(raw: str) -> dict:
     """
     Parse raw commitment string from chain.
 
-    Supports multiple formats:
-    1. JSON with encrypted endpoint: {"m": "user/repo", "r": "sha", "e": "<base85>"}
-    2. JSON with plain deployment_id: {"m": "user/repo", "r": "sha", "d": "uuid"}
-    3. Legacy colon-separated: "huggingface_repo:revision_sha:deployment_id[:docker_image]"
+    Format: "user/repo:rev8char:deployment_id" (plain)
+            "user/repo:rev8char:e:<base85_blob>" (encrypted)
+
+    Note: revision is truncated to 8 characters (short SHA).
 
     Args:
         raw: Raw commitment string
@@ -110,51 +111,28 @@ def parse_commitment(raw: str) -> dict:
             - deployment_id (for plain commitments)
             - encrypted_deployment (for encrypted commitments)
     """
-    # Try JSON format first
-    # Supports both full keys and short keys for compactness:
-    #   Plain: {"m": "...", "r": "...", "d": "..."}
-    #   Encrypted: {"m": "...", "r": "...", "e": "..."}
-    if raw.strip().startswith("{"):
-        try:
-            data = json.loads(raw)
-            # Support both full and short keys
-            hf_repo = data.get("model", "") or data.get("m", "")
-            revision = data.get("revision", "") or data.get("r", "")
-            docker_image = f"{hf_repo}:{revision}" if hf_repo else ""
-
-            if hf_repo and revision:
-                # Check for encrypted endpoint first
-                encrypted_blob = get_encrypted_blob(data)
-                if encrypted_blob:
-                    return {
-                        "huggingface_repo": hf_repo,
-                        "revision_sha": revision,
-                        "deployment_id": "",  # Will be decrypted later
-                        "encrypted_deployment": encrypted_blob,
-                        "docker_image": docker_image,
-                    }
-
-                # Plain deployment_id
-                deployment_id = data.get("deployment_id", "") or data.get("d", "")
-                return {
-                    "huggingface_repo": hf_repo,
-                    "revision_sha": revision,
-                    "deployment_id": deployment_id,
-                    "encrypted_deployment": None,
-                    "docker_image": docker_image,
-                }
-        except json.JSONDecodeError:
-            pass
-
-    # Fallback to legacy colon-separated format (always plain)
-    parts = raw.split(":")
+    parts = raw.split(":", 3)
 
     if len(parts) >= 3:
         hf_repo = parts[0]
         revision = parts[1]
-        deployment_id = parts[2]
-        docker_image = parts[3] if len(parts) > 3 else f"{hf_repo}:{revision}"
+        third_part = parts[2]
+        docker_image = f"{hf_repo}:{revision}"
 
+        # Check if encrypted (third part is "e" followed by blob in fourth part)
+        if third_part == "e" and len(parts) >= 4:
+            # Encrypted format: repo:rev:e:<base85_blob>
+            encrypted_blob = parts[3]
+            return {
+                "huggingface_repo": hf_repo,
+                "revision_sha": revision,
+                "deployment_id": "",  # Will be decrypted later
+                "encrypted_deployment": encrypted_blob,
+                "docker_image": docker_image,
+            }
+
+        # Plain format: repo:rev:uuid
+        deployment_id = third_part
         return {
             "huggingface_repo": hf_repo,
             "revision_sha": revision,
@@ -401,16 +379,23 @@ def commit_model(
     backend_public_key: str | None = None,
 ) -> bool:
     """
-    Commit model info to chain using JSON format.
+    Commit model info to chain using compact colon-separated format.
 
     This is called by miners to register their model.
+
+    Format:
+        - Plain: "user/repo:rev8char:uuid" (~67 bytes for 30-char repo)
+        - Encrypted: "user/repo:rev8char:e:<base85_blob>" (~121 bytes for 30-char repo)
+
+    The 128-byte chain limit allows repo names up to ~37 chars for encrypted
+    commitments or ~97 chars for plain commitments.
 
     Args:
         subtensor: Bittensor subtensor connection
         wallet: Miner's wallet
         netuid: Subnet UID
-        repo: HuggingFace repository (user/model)
-        revision: Commit SHA
+        repo: HuggingFace repository (user/model), max ~37 chars for encrypted mode
+        revision: Commit SHA (will be truncated to 8 chars)
         deployment_id: Basilica deployment ID (UUID only, not full URL)
         backend_public_key: Optional hex-encoded X25519 public key for encrypting endpoint.
                            If provided, the deployment_id will be encrypted so only
@@ -419,19 +404,26 @@ def commit_model(
     Returns:
         True if commitment succeeded
     """
-    # Build commitment data
+    # Truncate revision to 8 chars (standard git short SHA, sufficient for uniqueness)
+    revision_short = revision[:8]
+
+    # Validate no colons in fields (would break colon-separated format)
+    if ":" in repo or ":" in revision_short or ":" in deployment_id:
+        logger.error(
+            "commitment_field_contains_colon",
+            repo=repo,
+            revision=revision_short,
+            deployment_id=deployment_id,
+        )
+        return False
+
+    # Build commitment data using colon-separated format (more compact than JSON)
     if backend_public_key:
         # Encrypt the deployment ID
         try:
             encrypted_blob = encrypt_deployment_id(deployment_id, backend_public_key)
-            commitment_data = json.dumps(
-                {
-                    "m": repo,
-                    "r": revision,
-                    "e": encrypted_blob,  # 'e' for encrypted endpoint
-                },
-                separators=(",", ":"),
-            )
+            # Format: repo:revision:e:<encrypted_blob>
+            commitment_data = f"{repo}:{revision_short}:e:{encrypted_blob}"
             logger.info(
                 "commitment_encrypted",
                 data_length=len(commitment_data),
@@ -442,15 +434,19 @@ def commit_model(
             return False
     else:
         # Plain commitment (deployment_id visible on-chain)
-        commitment_data = json.dumps(
-            {
-                "m": repo,
-                "r": revision,
-                "d": deployment_id,
-            },
-            separators=(",", ":"),
-        )
+        # Format: repo:revision:uuid
+        commitment_data = f"{repo}:{revision_short}:{deployment_id}"
         logger.info("commitment_data", data=commitment_data, length=len(commitment_data))
+
+    # Validate commitment size fits chain limit
+    if len(commitment_data) > MAX_COMMITMENT_SIZE:
+        logger.error(
+            "commitment_too_large",
+            size=len(commitment_data),
+            max_size=MAX_COMMITMENT_SIZE,
+            repo_length=len(repo),
+        )
+        return False
 
     try:
         result = subtensor.set_commitment(
@@ -467,8 +463,8 @@ def commit_model(
             logger.info(
                 "commitment_submitted",
                 repo=repo,
-                revision=revision[:12],
-                deployment_id=deployment_id[:12] + "..." if deployment_id else None,
+                revision=revision[:8],
+                deployment_id=deployment_id[:8] + "..." if deployment_id else None,
                 encrypted=bool(backend_public_key),
             )
         return success

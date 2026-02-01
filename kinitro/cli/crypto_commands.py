@@ -67,11 +67,14 @@ def fetch_backend_public_key(
         Public key hex string, or None if not found
     """
     subtensor = bt.Subtensor(network=network)
-    commitment_str, _ = _query_commitment_by_hotkey(subtensor, netuid, backend_hotkey)
+    try:
+        commitment_str, _ = _query_commitment_by_hotkey(subtensor, netuid, backend_hotkey)
 
-    if commitment_str:
-        return _parse_backend_pubkey_commitment(commitment_str)
-    return None
+        if commitment_str:
+            return _parse_backend_pubkey_commitment(commitment_str)
+        return None
+    finally:
+        subtensor.close()
 
 
 @crypto_app.command("generate-keypair")
@@ -248,9 +251,13 @@ def publish_public_key(
         else:
             typer.echo("Failed to publish public key!", err=True)
             raise typer.Exit(1)
+    except typer.Exit:
+        raise
     except Exception as e:
         typer.echo(f"Error publishing: {e}", err=True)
         raise typer.Exit(1)
+    finally:
+        subtensor.close()
 
 
 @crypto_app.command("fetch-public-key")

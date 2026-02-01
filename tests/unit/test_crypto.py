@@ -1,7 +1,6 @@
 """Tests for encrypted endpoint commitments (crypto module)."""
 
 import base64
-import json
 import os
 
 import pytest
@@ -12,8 +11,6 @@ from kinitro.crypto import (
     bytes_to_uuid,
     decrypt_deployment_id,
     encrypt_deployment_id,
-    get_encrypted_blob,
-    is_encrypted_commitment,
     load_public_key,
     uuid_to_bytes,
 )
@@ -175,7 +172,7 @@ class TestEncryptDecrypt:
 
         # Should be decodable as base85
         decoded = base64.b85decode(encrypted.encode("ascii"))
-        assert len(decoded) == 76  # 32 + 12 + 32 (pubkey + nonce + ciphertext+tag)
+        assert len(decoded) == 64  # 32 + 16 + 16 (pubkey + ciphertext + tag, nonce derived)
 
     def test_encrypted_blob_length(self):
         """Encrypted blob should be ~95 characters (base85 of 76 bytes)."""
@@ -184,8 +181,8 @@ class TestEncryptDecrypt:
 
         encrypted = encrypt_deployment_id(deployment_id, keypair.public_key_hex())
 
-        # Base85: 76 bytes -> ceil(76 * 5 / 4) = 95 characters
-        assert len(encrypted) == 95
+        # Base85: 64 bytes -> ceil(64 * 5 / 4) = 80 characters
+        assert len(encrypted) == 80
 
     def test_decrypt_with_wrong_key_fails(self):
         """Decryption with wrong key should fail."""
@@ -227,40 +224,6 @@ class TestEncryptDecrypt:
         assert decrypt_deployment_id(encrypted2, keypair.private_key) == deployment_id
 
 
-class TestCommitmentHelpers:
-    """Tests for commitment parsing helpers."""
-
-    def test_is_encrypted_commitment_with_e_key(self):
-        """Commitment with 'e' key is encrypted."""
-        data = {"m": "user/repo", "r": "abc123", "e": "encrypted_blob"}
-        assert is_encrypted_commitment(data) is True
-
-    def test_is_encrypted_commitment_with_full_key(self):
-        """Commitment with 'encrypted_endpoint' key is encrypted."""
-        data = {"model": "user/repo", "revision": "abc123", "encrypted_endpoint": "blob"}
-        assert is_encrypted_commitment(data) is True
-
-    def test_is_encrypted_commitment_plain(self):
-        """Plain commitment without encryption key."""
-        data = {"m": "user/repo", "r": "abc123", "d": "uuid-here"}
-        assert is_encrypted_commitment(data) is False
-
-    def test_get_encrypted_blob_short_key(self):
-        """Get encrypted blob with short key 'e'."""
-        data = {"m": "user/repo", "r": "abc123", "e": "encrypted_blob_here"}
-        assert get_encrypted_blob(data) == "encrypted_blob_here"
-
-    def test_get_encrypted_blob_full_key(self):
-        """Get encrypted blob with full key."""
-        data = {"model": "user/repo", "encrypted_endpoint": "full_blob"}
-        assert get_encrypted_blob(data) == "full_blob"
-
-    def test_get_encrypted_blob_none_for_plain(self):
-        """Get encrypted blob returns None for plain commitment."""
-        data = {"m": "user/repo", "r": "abc123", "d": "uuid"}
-        assert get_encrypted_blob(data) is None
-
-
 class TestIntegration:
     """Integration tests for the full encryption flow."""
 
@@ -273,17 +236,14 @@ class TestIntegration:
         deployment_id = "95edf2b6-e18b-400a-8398-5573df10e5e4"
         encrypted_blob = encrypt_deployment_id(deployment_id, backend_keypair.public_key_hex())
 
-        # Miner creates commitment (this is what goes on-chain)
-        commitment_json = json.dumps(
-            {"m": "user/policy", "r": "abc123def456", "e": encrypted_blob},
-            separators=(",", ":"),
-        )
+        # Miner creates commitment (colon-separated format)
+        commitment = f"user/policy:abc123def456:e:{encrypted_blob}"
 
-        # Verify commitment is under chain limit (~128 bytes)
-        assert len(commitment_json) < 150
+        # Verify commitment is under chain limit (128 bytes)
+        assert len(commitment) <= 128
 
         # Backend parses commitment from chain
-        parsed = parse_commitment(commitment_json)
+        parsed = parse_commitment(commitment)
 
         assert parsed["huggingface_repo"] == "user/policy"
         assert parsed["revision_sha"] == "abc123def456"
@@ -299,11 +259,9 @@ class TestIntegration:
 
     def test_plain_commitment_still_works(self):
         """Plain commitments should still work."""
-        commitment_json = (
-            '{"m":"user/policy","r":"abc123","d":"95edf2b6-e18b-400a-8398-5573df10e5e4"}'
-        )
+        commitment = "user/policy:abc123:95edf2b6-e18b-400a-8398-5573df10e5e4"
 
-        parsed = parse_commitment(commitment_json)
+        parsed = parse_commitment(commitment)
 
         assert parsed["huggingface_repo"] == "user/policy"
         assert parsed["revision_sha"] == "abc123"
