@@ -139,6 +139,7 @@ class MetaWorldEnvironment(RoboticsEnvironment):
 
             # Camera environments (with rendering)
             if self._use_camera:
+                camera_init_errors = []
                 for cam_name in self._camera_names:
                     try:
                         cam_env = env_cls(
@@ -149,12 +150,18 @@ class MetaWorldEnvironment(RoboticsEnvironment):
                         )
                         self._camera_envs[cam_name] = cam_env
                     except Exception as e:
-                        # Camera may not be available in headless mode
+                        camera_init_errors.append((cam_name, str(e)))
                         logger.warning(
                             "metaworld_camera_unavailable",
                             camera_name=cam_name,
                             error=str(e),
                         )
+                if camera_init_errors and not self._camera_envs:
+                    logger.error(
+                        "metaworld_all_cameras_failed",
+                        errors=camera_init_errors,
+                        hint="Try setting MUJOCO_GL=egl or MUJOCO_GL=osmesa",
+                    )
 
     @property
     def env_name(self) -> str:
@@ -177,8 +184,13 @@ class MetaWorldEnvironment(RoboticsEnvironment):
 
     @property
     def num_cameras(self) -> int:
-        """Number of camera views."""
-        return len(self._camera_names) if self._use_camera else 0
+        """Number of camera views (actual initialized cameras after reset)."""
+        if not self._use_camera:
+            return 0
+        # After initialization, return actual count; before, return configured count
+        if self._env is not None:
+            return len(self._camera_envs)
+        return len(self._camera_names)
 
     @property
     def action_shape(self) -> tuple[int, ...]:

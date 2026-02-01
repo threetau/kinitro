@@ -296,7 +296,17 @@ def test_env(
                     if cam_name not in images:
                         images[cam_name] = []
                     images[cam_name].append(np.array(img))
-                typer.echo("    Done.")
+                if images:
+                    typer.echo("    Done.")
+                else:
+                    typer.secho(
+                        "    Warning: No images captured. Camera rendering may have failed.",
+                        fg="yellow",
+                    )
+                    typer.secho(
+                        "    Hint: Try running with MUJOCO_GL=egl or MUJOCO_GL=osmesa",
+                        fg="yellow",
+                    )
 
             ep_reward = 0.0
             steps = 0
@@ -376,8 +386,14 @@ def test_env(
                     for cam_name, cam_images in images.items():
                         for i, img in enumerate(cam_images):
                             img_path = images_dir / f"{cam_name}_{i:04d}.png"
-                            Image.fromarray(img).save(img_path)
+                            Image.fromarray(img.astype(np.uint8)).save(img_path)
                     typer.echo(f"    Saved {sum(len(v) for v in images.values())} images")
+                elif save_images and not images:
+                    typer.secho(
+                        "    Warning: --save-images was set but no images were captured. "
+                        "Camera rendering may have failed (try MUJOCO_GL=egl or osmesa).",
+                        fg="yellow",
+                    )
 
         typer.echo(f"\nResults: {successes}/{episodes} successful")
         typer.echo(f"Average reward: {total_reward / episodes:.2f}")
