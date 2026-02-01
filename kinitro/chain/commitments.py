@@ -26,6 +26,9 @@ logger = structlog.get_logger()
 # Basilica deployment URL template
 BASILICA_URL_TEMPLATE = "https://{deployment_id}.deployments.basilica.ai"
 
+# Chain commitment size limit (bytes)
+MAX_COMMITMENT_SIZE = 128
+
 
 def deployment_id_to_url(deployment_id: str) -> str:
     """Convert a Basilica deployment ID to a full URL."""
@@ -94,8 +97,10 @@ def parse_commitment(raw: str) -> dict:
     """
     Parse raw commitment string from chain.
 
-    Format: "user/repo:revision:deployment_id" (plain)
-            "user/repo:revision:e:<base85_blob>" (encrypted)
+    Format: "user/repo:rev8char:deployment_id" (plain)
+            "user/repo:rev8char:e:<base85_blob>" (encrypted)
+
+    Note: revision is truncated to 8 characters (short SHA).
 
     Args:
         raw: Raw commitment string
@@ -378,16 +383,19 @@ def commit_model(
 
     This is called by miners to register their model.
 
-    Format (fits in 128 bytes for typical repo names):
-        - Plain: "user/repo:revision12:uuid"
-        - Encrypted: "user/repo:revision12:e:<base85_blob>"
+    Format:
+        - Plain: "user/repo:rev8char:uuid" (~67 bytes for 30-char repo)
+        - Encrypted: "user/repo:rev8char:e:<base85_blob>" (~121 bytes for 30-char repo)
+
+    The 128-byte chain limit allows repo names up to ~37 chars for encrypted
+    commitments or ~97 chars for plain commitments.
 
     Args:
         subtensor: Bittensor subtensor connection
         wallet: Miner's wallet
         netuid: Subnet UID
-        repo: HuggingFace repository (user/model)
-        revision: Commit SHA (will be truncated to 12 chars)
+        repo: HuggingFace repository (user/model), max ~37 chars for encrypted mode
+        revision: Commit SHA (will be truncated to 8 chars)
         deployment_id: Basilica deployment ID (UUID only, not full URL)
         backend_public_key: Optional hex-encoded X25519 public key for encrypting endpoint.
                            If provided, the deployment_id will be encrypted so only
@@ -396,8 +404,8 @@ def commit_model(
     Returns:
         True if commitment succeeded
     """
-    # Truncate revision to 12 chars for compactness (usually unique enough)
-    revision_short = revision[:12]
+    # Truncate revision to 8 chars (standard git short SHA, sufficient for uniqueness)
+    revision_short = revision[:8]
 
     # Validate no colons in fields (would break colon-separated format)
     if ":" in repo or ":" in revision_short or ":" in deployment_id:
@@ -430,6 +438,16 @@ def commit_model(
         commitment_data = f"{repo}:{revision_short}:{deployment_id}"
         logger.info("commitment_data", data=commitment_data, length=len(commitment_data))
 
+    # Validate commitment size fits chain limit
+    if len(commitment_data) > MAX_COMMITMENT_SIZE:
+        logger.error(
+            "commitment_too_large",
+            size=len(commitment_data),
+            max_size=MAX_COMMITMENT_SIZE,
+            repo_length=len(repo),
+        )
+        return False
+
     try:
         result = subtensor.set_commitment(
             wallet=wallet,
@@ -445,8 +463,8 @@ def commit_model(
             logger.info(
                 "commitment_submitted",
                 repo=repo,
-                revision=revision[:12],
-                deployment_id=deployment_id[:12] + "..." if deployment_id else None,
+                revision=revision[:8],
+                deployment_id=deployment_id[:8] + "..." if deployment_id else None,
                 encrypted=bool(backend_public_key),
             )
         return success
