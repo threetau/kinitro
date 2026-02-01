@@ -172,9 +172,32 @@ Additional Scheduler settings:
 | `--api-url`       | `KINITRO_EXECUTOR_API_URL`               | `http://localhost:8000` | URL of the Kinitro API service          |
 | `--batch-size`    | `KINITRO_EXECUTOR_BATCH_SIZE`            | `10`                    | Number of tasks to fetch at a time      |
 | `--poll-interval` | `KINITRO_EXECUTOR_POLL_INTERVAL_SECONDS` | `5`                     | Seconds between polling for tasks       |
-| `--eval-image`    | `KINITRO_EXECUTOR_EVAL_IMAGE`            | `kinitro/eval-env:v1`   | Docker image for evaluation             |
+| `--eval-images`   | `KINITRO_EXECUTOR_EVAL_IMAGES`           | See below               | JSON mapping of env family to Docker image   |
 | `--eval-mode`     | `KINITRO_EXECUTOR_EVAL_MODE`             | `docker`                | Evaluation mode: 'docker' or 'basilica' |
 | `--log-level`     | `KINITRO_EXECUTOR_LOG_LEVEL`             | `INFO`                  | Logging level                           |
+
+**Eval Images Configuration:**
+
+The executor uses different Docker images for each environment family. The default configuration is:
+
+```json
+{
+  "metaworld": "kinitro/metaworld:v1",
+  "procthor": "kinitro/procthor:v1"
+}
+```
+
+You can override this via CLI or environment variable:
+
+```bash
+# Via CLI
+uv run kinitro executor --eval-images '{"metaworld": "myregistry/metaworld:latest"}'
+
+# Via environment variable
+export KINITRO_EXECUTOR_EVAL_IMAGES='{"metaworld": "kinitro/metaworld:v1", "procthor": "kinitro/procthor:v1"}'
+```
+
+The executor automatically selects the correct image based on each task's environment family. This allows a single executor to handle all environment types.
 
 Additional Executor settings:
 

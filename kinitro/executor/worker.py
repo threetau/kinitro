@@ -4,6 +4,7 @@ import asyncio
 import os
 import subprocess
 from dataclasses import dataclass
+from typing import Any
 
 import affinetes as af_env
 import structlog
@@ -41,7 +42,8 @@ class Worker:
 
     def __init__(self, config: ExecutorConfig):
         self.config = config
-        self._env = None
+        # Per-family eval environments: family -> affinetes env
+        self._envs: dict[str, Any] = {}
         self._env_lock = asyncio.Lock()
 
         # Initialize verifier if enabled
@@ -66,26 +68,47 @@ class Worker:
         self._verification_results: list[VerificationResult] = []
         self._verified_miners: set[str] = set()  # Track which miners we've verified this cycle
 
-    async def _get_eval_environment(self):
-        """Get or create the affinetes-managed eval environment."""
+    def _get_family(self, env_id: str) -> str:
+        """Extract family from env_id (e.g., 'metaworld' from 'metaworld/pick-place-v3')."""
+        return env_id.split("/")[0] if "/" in env_id else env_id
+
+    async def _get_eval_environment(self, env_id: str):
+        """
+        Get or create the affinetes-managed eval environment for a given env_id.
+
+        Each environment family (metaworld, procthor, etc.) uses a separate
+        Docker container with family-specific dependencies.
+
+        Args:
+            env_id: Environment ID (e.g., 'metaworld/pick-place-v3')
+
+        Returns:
+            affinetes environment instance for the family
+        """
+        family = self._get_family(env_id)
+        image = self.config.get_image_for_env(env_id)
+
         async with self._env_lock:
-            if self._env is not None:
+            # Check if we have a valid environment for this family
+            if family in self._envs:
                 try:
-                    if self._env.is_ready():
-                        return self._env
+                    if self._envs[family].is_ready():
+                        return self._envs[family]
                 except Exception:
                     pass
-                self._env = None
+                # Environment not ready, remove it
+                del self._envs[family]
 
             logger.info(
                 "loading_eval_environment",
-                image=self.config.eval_image,
+                family=family,
+                image=image,
                 mode=self.config.eval_mode,
             )
 
             # Load eval environment via affinetes
             load_kwargs = {
-                "image": self.config.eval_image,
+                "image": image,
                 "mode": self.config.eval_mode,
                 "mem_limit": self.config.eval_mem_limit,
                 "env_vars": {
@@ -98,7 +121,8 @@ class Worker:
                 load_kwargs.update(
                     {
                         "hosts": self.config.eval_hosts,
-                        "container_name": f"kinitro-eval-{self.config.executor_id}",
+                        # Unique container name per family
+                        "container_name": f"kinitro-eval-{self.config.executor_id}-{family}",
                         "force_recreate": True,
                     }
                 )
@@ -110,21 +134,23 @@ class Worker:
                     }
                 )
 
-            self._env = await asyncio.to_thread(af_env.load_env, **load_kwargs)
+            env = await asyncio.to_thread(af_env.load_env, **load_kwargs)
 
             # Warm-up call
-            logger.info("warmup_call_starting")
+            logger.info("warmup_call_starting", family=family)
             try:
-                await self._env.list_environments()
-                logger.info("warmup_call_succeeded")
+                await env.list_environments()
+                logger.info("warmup_call_succeeded", family=family)
             except Exception as e:
                 logger.info(
                     "warmup_call_absorbed_expected_error",
+                    family=family,
                     error=str(e)[:100],
                 )
 
-            logger.info("eval_environment_loaded")
-            return self._env
+            logger.info("eval_environment_loaded", family=family, image=image)
+            self._envs[family] = env
+            return env
 
     async def execute_task(self, task: Task) -> TaskResult:
         """
@@ -148,7 +174,7 @@ class Worker:
         await self._maybe_verify_miner(task)
 
         try:
-            env = await self._get_eval_environment()
+            env = await self._get_eval_environment(task.env_id)
 
             result = await env.evaluate(
                 task_id=task.seed,  # Use seed for environment reproducibility
@@ -301,33 +327,51 @@ class Worker:
         self._verification_results.clear()
 
     async def cleanup(self) -> None:
-        """Cleanup eval environment and verifier."""
+        """Cleanup all eval environments and verifier."""
         async with self._env_lock:
-            if self._env is not None:
+            for family, env in list(self._envs.items()):
                 try:
-                    await self._env.cleanup()
+                    await env.cleanup()
+                    logger.info("cleanup_environment", family=family)
                 except Exception as e:
-                    logger.warning("cleanup_error", error=str(e))
-                self._env = None
+                    logger.warning("cleanup_error", family=family, error=str(e))
+            self._envs.clear()
 
         # Cleanup verifier
         if self._verifier is not None:
             self._verifier.cleanup()
 
     def force_cleanup(self) -> None:
-        """Force cleanup by killing docker container directly."""
-        container_name = f"kinitro-eval-{self.config.executor_id}"
-        logger.info("force_cleanup_container", container=container_name)
+        """Force cleanup by killing docker containers directly."""
+        # Clean up all family-specific containers
+        for family in list(self._envs.keys()):
+            container_name = f"kinitro-eval-{self.config.executor_id}-{family}"
+            logger.info("force_cleanup_container", container=container_name, family=family)
 
-        try:
-            subprocess.run(
-                ["docker", "rm", "-f", container_name],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=False,
-            )
-        except Exception as e:
-            logger.warning("docker_cleanup_failed", error=str(e))
+            try:
+                subprocess.run(
+                    ["docker", "rm", "-f", container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+            except Exception as e:
+                logger.warning("docker_cleanup_failed", family=family, error=str(e))
 
-        self._env = None
+        # Also try to clean up any containers matching the executor pattern
+        # in case there are orphaned containers from previous runs
+        for family in self.config.eval_images.keys():
+            container_name = f"kinitro-eval-{self.config.executor_id}-{family}"
+            try:
+                subprocess.run(
+                    ["docker", "rm", "-f", container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+            except Exception:
+                pass  # Ignore errors for containers that don't exist
+
+        self._envs.clear()
