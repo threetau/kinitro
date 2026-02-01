@@ -1,6 +1,7 @@
 """Service commands (api, scheduler, executor) for Kinitro CLI."""
 
 import asyncio
+import json
 
 import structlog
 import typer
@@ -114,9 +115,9 @@ def executor(
     ),
     batch_size: int = typer.Option(10, help="Number of tasks to fetch at a time"),
     poll_interval: int = typer.Option(5, help="Seconds between polling for tasks"),
-    eval_image: str = typer.Option(
-        "kinitro/eval-env:v1",
-        help="Docker image for evaluation environment",
+    eval_images: str | None = typer.Option(
+        None,
+        help='JSON mapping of env family to Docker image, e.g., \'{"metaworld": "kinitro/metaworld:v1"}\'',
     ),
     eval_mode: str = typer.Option("docker", help="Evaluation mode: docker or basilica"),
     log_level: str = typer.Option("INFO", help="Logging level"),
@@ -144,30 +145,37 @@ def executor(
         ),
     )
 
+    # Parse eval_images JSON if provided
+    parsed_eval_images: dict[str, str] | None = None
+    if eval_images:
+        try:
+            parsed_eval_images = json.loads(eval_images)
+            if not isinstance(parsed_eval_images, dict):
+                typer.echo("Error: --eval-images must be a JSON object", err=True)
+                raise typer.Exit(1)
+        except json.JSONDecodeError as e:
+            typer.echo(f"Error: Invalid JSON for --eval-images: {e}", err=True)
+            raise typer.Exit(1)
+
+    # Build config kwargs
+    config_kwargs: dict = {
+        "api_url": api_url,
+        "batch_size": batch_size,
+        "poll_interval_seconds": poll_interval,
+        "eval_mode": eval_mode,
+        "log_level": log_level,
+    }
     if executor_id:
-        config = ExecutorConfig(
-            api_url=api_url,
-            batch_size=batch_size,
-            poll_interval_seconds=poll_interval,
-            eval_image=eval_image,
-            eval_mode=eval_mode,
-            log_level=log_level,
-            executor_id=executor_id,
-        )
-    else:
-        config = ExecutorConfig(
-            api_url=api_url,
-            batch_size=batch_size,
-            poll_interval_seconds=poll_interval,
-            eval_image=eval_image,
-            eval_mode=eval_mode,
-            log_level=log_level,
-        )
+        config_kwargs["executor_id"] = executor_id
+    if parsed_eval_images:
+        config_kwargs["eval_images"] = parsed_eval_images
+
+    config = ExecutorConfig(**config_kwargs)
 
     typer.echo("Starting executor service")
     typer.echo(f"  Executor ID: {config.executor_id}")
     typer.echo(f"  API URL: {api_url}")
     typer.echo(f"  Batch size: {batch_size}")
-    typer.echo(f"  Eval image: {eval_image}")
+    typer.echo(f"  Eval images: {config.eval_images}")
 
     asyncio.run(run_executor(config))

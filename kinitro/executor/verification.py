@@ -15,7 +15,6 @@ than what they committed.
 import asyncio
 import hashlib
 import importlib.util
-import inspect
 import os
 import random
 import shutil
@@ -29,6 +28,8 @@ import httpx
 import numpy as np
 import structlog
 from huggingface_hub import HfApi, snapshot_download
+
+from kinitro.rl_interface import CanonicalAction, CanonicalObservation
 
 logger = structlog.get_logger()
 
@@ -106,7 +107,6 @@ class PolicyVerifier:
         repo: str,
         revision: str,
         endpoint: str,
-        observation_shape: tuple[int, ...] = (4,),
     ) -> VerificationResult:
         """
         Verify a miner's deployment matches their HuggingFace model.
@@ -117,7 +117,6 @@ class PolicyVerifier:
             repo: HuggingFace repo (e.g., "user/model")
             revision: HuggingFace commit SHA
             endpoint: Miner's Basilica endpoint URL
-            observation_shape: Shape of observation vectors
 
         Returns:
             VerificationResult with match status
@@ -138,10 +137,19 @@ class PolicyVerifier:
             seed_str = f"{miner_uid}:{revision}".encode()
             test_seed = int(hashlib.sha256(seed_str).hexdigest()[:8], 16) % (2**31)
             np.random.seed(test_seed)
-            test_observations = [
-                np.random.uniform(-1, 1, size=observation_shape).astype(np.float32)
-                for _ in range(self.num_samples)
-            ]
+
+            # Generate CanonicalObservation objects for testing
+            test_observations = []
+            for _ in range(self.num_samples):
+                obs = CanonicalObservation(
+                    ee_pos_m=np.random.uniform(-1, 1, size=3).tolist(),
+                    ee_quat_xyzw=[0.0, 0.0, 0.0, 1.0],  # Identity quaternion
+                    ee_lin_vel_mps=np.random.uniform(-0.5, 0.5, size=3).tolist(),
+                    ee_ang_vel_rps=np.random.uniform(-0.5, 0.5, size=3).tolist(),
+                    gripper_01=float(np.random.uniform(0, 1)),
+                    rgb={},  # No images for verification (simpler comparison)
+                )
+                test_observations.append(obs)
 
             # Get actions from local policy
             local_actions = []
@@ -316,28 +324,25 @@ class PolicyVerifier:
         np.random.seed(seed)
 
     async def _get_local_action(
-        self, policy: Any, observation: np.ndarray, seed: int
+        self, policy: Any, canonical_obs: CanonicalObservation, seed: int
     ) -> np.ndarray | None:
         """Get action from local policy."""
         try:
             self._set_seed(seed)
 
-            # Check if policy.act accepts seed parameter
-            sig = inspect.signature(policy.act)
-            accepts_seed = "seed" in sig.parameters
-
             # Try async first, fall back to sync
             if asyncio.iscoroutinefunction(policy.act):
-                if accepts_seed:
-                    action = await policy.act(observation, images=None, seed=seed)
-                else:
-                    action = await policy.act(observation, images=None)
+                action = await policy.act(canonical_obs)
             else:
-                if accepts_seed:
-                    action = policy.act(observation, images=None, seed=seed)
-                else:
-                    action = policy.act(observation, images=None)
+                action = policy.act(canonical_obs)
 
+            # Handle different action return types
+            # Note: Check by method/attribute rather than isinstance() because
+            # the miner's bundled rl_interface.py has its own CanonicalAction class
+            if hasattr(action, "to_array"):
+                return action.to_array()
+            if isinstance(action, dict):
+                return CanonicalAction.model_validate(action).to_array()
             if hasattr(action, "numpy"):
                 action = action.numpy()
             return np.array(action, dtype=np.float32)
@@ -346,21 +351,22 @@ class PolicyVerifier:
             return None
 
     async def _get_remote_action(
-        self, endpoint: str, observation: np.ndarray, seed: int
+        self, endpoint: str, canonical_obs: CanonicalObservation, seed: int
     ) -> np.ndarray | None:
         """Get action from remote miner endpoint."""
         try:
             url = f"{endpoint.rstrip('/')}/act"
-            payload = {
-                "observation": observation.tolist(),
-                "seed": seed,
-            }
+            # Use the same format as the evaluator: {"obs": CanonicalObservation}
+            payload = {"obs": canonical_obs.model_dump(mode="python")}
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(url, json=payload)
                 response.raise_for_status()
                 data = response.json()
-                return np.array(data["action"], dtype=np.float32)
+                action_data = data.get("action", {})
+                if isinstance(action_data, dict):
+                    return CanonicalAction.model_validate(action_data).to_array()
+                return np.array(action_data, dtype=np.float32)
 
         except Exception as e:
             logger.warning("remote_inference_failed", error=str(e))
