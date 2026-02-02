@@ -32,7 +32,7 @@ class ValidatorConfig(BaseSettings):
     )
     max_timesteps_per_episode: int = Field(default=500, description="Maximum timesteps per episode")
     action_timeout_ms: int = Field(
-        default=50, description="Timeout for miner action responses in milliseconds"
+        default=500, description="Timeout for miner action responses in milliseconds"
     )
     eval_interval_seconds: int = Field(
         default=3600, description="Seconds between evaluation cycles"

@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 
 def _to_list(value):
@@ -53,8 +53,8 @@ class CanonicalObservation(BaseModel):
     cam_intrinsics_K: list[list[float]] | None = None  # noqa: N815 (CV convention)
     cam_extrinsics_T_world_cam: list[list[float]] | None = None  # noqa: N815 (CV convention)
     # Internal storage for numpy arrays (not serialized)
-    _rgb_arrays: dict[str, np.ndarray] = {}
-    _depth_array: np.ndarray | None = None
+    _rgb_arrays: dict[str, np.ndarray] = PrivateAttr(default_factory=dict)
+    _depth_array: np.ndarray | None = PrivateAttr(default=None)
 
     @field_validator(
         "ee_pos_m",
