@@ -88,36 +88,52 @@ class ExecutorConfig(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
 
-    # Model verification settings
-    verification_enabled: bool = Field(
+    # Miner deployment settings (executor-managed deployments)
+    miner_deployment_enabled: bool = Field(
         default=True,
-        description="Enable spot-check verification of miner models",
+        description="Enable executor-managed miner deployments",
     )
-    verification_rate: float = Field(
-        default=0.05,
-        ge=0.0,
-        le=1.0,
-        description="Probability of verifying each miner (0.0 to 1.0)",
+    miner_deployment_image: str = Field(
+        default="kinitro/miner-runner:v1",
+        description="Docker image for running miner policies",
     )
-    verification_tolerance: float = Field(
-        default=1e-3,
-        description="Relative tolerance for comparing actions",
-    )
-    verification_samples: int = Field(
-        default=5,
-        ge=1,
-        le=20,
-        description="Number of test observations per verification",
-    )
-    verification_cache_dir: str | None = Field(
+    miner_basilica_api_token: str | None = Field(
         default=None,
-        description="Directory to cache downloaded HuggingFace models",
+        description="Basilica API token for creating miner deployments (only needed for basilica mode)",
     )
-    verification_max_repo_size_gb: float = Field(
-        default=5.0,
-        ge=0.1,
-        le=50.0,
-        description="Maximum allowed HuggingFace repo size in GB",
+    miner_hf_token: str | None = Field(
+        default=None,
+        description="HuggingFace token for accessing private repos",
+    )
+    miner_deployment_ttl_seconds: int = Field(
+        default=600,
+        ge=60,
+        le=3600,
+        description="TTL for idle miner deployments (seconds)",
+    )
+    miner_deployment_warmup_timeout: int = Field(
+        default=300,
+        ge=60,
+        le=600,
+        description="Timeout for deployment to become ready (seconds)",
+    )
+    miner_deployment_gpu_count: int = Field(
+        default=0,
+        ge=0,
+        le=8,
+        description="Number of GPUs for miner deployments (0 for CPU-only)",
+    )
+    miner_deployment_min_gpu_memory_gb: int | None = Field(
+        default=None,
+        description="Minimum GPU VRAM in GB for miner deployments",
+    )
+    miner_deployment_cpu: str = Field(
+        default="1",
+        description="CPU allocation for miner deployments (e.g., '1', '2', '500m')",
+    )
+    miner_deployment_memory: str = Field(
+        default="4Gi",
+        description="Memory allocation for miner deployments (e.g., '4Gi', '8Gi')",
     )
 
     def get_image_for_env(self, env_id: str) -> str:

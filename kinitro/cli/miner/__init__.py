@@ -5,7 +5,7 @@ import subprocess
 import typer
 
 from .commitment import commit, show_commitment
-from .deploy import basilica_push, miner_deploy
+from .deploy import miner_deploy
 from .mock import mock
 from .template import init_miner
 
@@ -68,7 +68,6 @@ miner_app.command()(build)
 miner_app.command()(commit)
 miner_app.command(name="show-commitment")(show_commitment)
 miner_app.command(name="init")(init_miner)
-miner_app.command(name="push")(basilica_push)
 miner_app.command(name="deploy")(miner_deploy)
 miner_app.command()(mock)
 

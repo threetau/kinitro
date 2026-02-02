@@ -30,7 +30,7 @@ Miners receive **limited observations** to prevent overfitting:
 - **Sybil-proof**: Copies tie under Pareto dominance, no benefit from multiple identities
 - **Copy-proof**: Must improve on the leader to earn, not just match them
 - **Specialization-proof**: Must dominate on ALL environments, not just one
-- **Deployment verification**: Spot-checks verify Basilica deployments match HuggingFace uploads
+- **Executor-controlled deployments**: Backend creates deployments from HuggingFace uploads, ensuring evaluation integrity
 
 ### Scoring: ε-Pareto Dominance
 
@@ -44,13 +44,17 @@ This rewards true generalists over specialists.
 
 ## Architecture
 
-The subnet uses a **split service architecture** with miners deployed on **Basilica**:
+The subnet uses a **split service architecture** where executors manage miner deployments on-demand:
 
 ```mermaid
 flowchart TB
     subgraph Chain["Bittensor Chain"]
-        Commitments[("Miner Commitments")]
+        Commitments[("Miner Commitments<br/>repo:revision")]
         Weights[("Validator Weights")]
+    end
+
+    subgraph HuggingFace["HuggingFace"]
+        HFModels[("Miner Models")]
     end
 
     subgraph API["API Service (kinitro api)"]
@@ -68,6 +72,7 @@ flowchart TB
         E1["Executor 1 (GPU)"]
         E2["Executor 2 (GPU)"]
         En["Executor N (GPU)"]
+        DeployMgr["Deployment Manager"]
     end
 
     subgraph Validators["Validator(s) (kinitro validate)"]
@@ -75,9 +80,9 @@ flowchart TB
         Vn["Validator N"]
     end
 
-    subgraph Basilica["Basilica (Miner Policy Servers)"]
-        M1["Miner 1"]
-        Mn["Miner N"]
+    subgraph Basilica["Basilica (Executor-Managed)"]
+        M1["Miner 1 Deploy"]
+        Mn["Miner N Deploy"]
     end
 
     %% Chain interactions
@@ -93,6 +98,10 @@ flowchart TB
     E1 & E2 & En -->|"Fetch tasks"| TaskPool
     E1 & E2 & En -->|"Submit results"| TaskPool
     TaskPool <-->|"Read/Write"| DB
+
+    %% Executor creates deployments
+    DeployMgr -->|"Download model"| HFModels
+    DeployMgr -->|"Create/manage"| M1 & Mn
 
     %% Executor to Miners
     E1 & E2 & En -->|"Get actions"| M1 & Mn
@@ -112,14 +121,15 @@ flowchart TB
 
 ### Evaluation Flow
 
-1. **Miners** deploy policy servers to **Basilica** and commit their endpoint on-chain
-2. **Scheduler** reads miner commitments from chain to discover Basilica endpoints
+1. **Miners** upload policy to HuggingFace and commit `repo:revision` on-chain
+2. **Scheduler** reads miner commitments from chain (repo + revision)
 3. **Scheduler** creates evaluation tasks in PostgreSQL (task pool)
 4. **Executor(s)** fetch tasks from API (`POST /v1/tasks/fetch`)
-5. **Executor** runs MuJoCo simulation, calls miner endpoints for actions
-6. **Executor** submits results to API (`POST /v1/tasks/submit`)
-7. **Scheduler** computes Pareto scores when cycle complete and saves weights
-8. **Validators** poll `GET /v1/weights/latest` and submit to chain
+5. **Executor** creates Basilica deployment for miner (on-demand, cached with TTL)
+6. **Executor** runs MuJoCo simulation, calls miner deployment for actions
+7. **Executor** submits results to API (`POST /v1/tasks/submit`)
+8. **Scheduler** computes Pareto scores when cycle complete and saves weights
+9. **Validators** poll `GET /v1/weights/latest` and submit to chain
 
 ## Quick Start
 
@@ -151,22 +161,26 @@ cd my-policy
 # 3. Test locally
 uvicorn server:app --port 8001
 
-# 4. Upload to HuggingFace
+# 4. One-command deployment (upload + commit)
+export HF_TOKEN="your-huggingface-token"
+
+uv run kinitro miner deploy \
+  --repo your-username/kinitro-policy \
+  --path ./my-policy \
+  --netuid YOUR_NETUID \
+  --network finney
+```
+
+Or do each step separately:
+
+```bash
+# Upload to HuggingFace
 huggingface-cli upload your-username/kinitro-policy .
 
-# 5. Deploy to Basilica
-export BASILICA_API_TOKEN="your-api-token"
-
-uv run kinitro miner push \
-  --repo your-username/kinitro-policy \
-  --revision YOUR_HF_COMMIT_SHA \
-  --gpu-count 1 --min-vram 16
-
-# 6. Register on chain
+# Commit on-chain
 uv run kinitro miner commit \
   --repo your-username/kinitro-policy \
   --revision YOUR_HF_COMMIT_SHA \
-  --endpoint YOUR_BASILICA_URL \
   --netuid YOUR_NETUID \
   --network finney
 ```

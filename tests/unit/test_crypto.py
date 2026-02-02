@@ -227,43 +227,39 @@ class TestEncryptDecrypt:
 class TestIntegration:
     """Integration tests for the full encryption flow."""
 
-    def test_full_commitment_flow(self):
-        """Test full flow: generate keys, encrypt, parse, decrypt."""
+    def test_encrypt_decrypt_deployment_id(self):
+        """Test full flow: generate keys, encrypt, decrypt."""
         # Backend generates keypair
         backend_keypair = BackendKeypair.generate()
 
-        # Miner encrypts their deployment ID
+        # Encrypt a deployment ID
         deployment_id = "95edf2b6-e18b-400a-8398-5573df10e5e4"
         encrypted_blob = encrypt_deployment_id(deployment_id, backend_keypair.public_key_hex())
 
-        # Miner creates commitment (colon-separated format)
-        commitment = f"user/policy:abc123def456:e:{encrypted_blob}"
+        # Encrypted blob should be under 100 chars (for potential future use in commitments)
+        assert len(encrypted_blob) <= 100
 
-        # Verify commitment is under chain limit (128 bytes)
-        assert len(commitment) <= 128
-
-        # Backend parses commitment from chain
-        parsed = parse_commitment(commitment)
-
-        assert parsed["huggingface_repo"] == "user/policy"
-        assert parsed["revision_sha"] == "abc123def456"
-        assert parsed["deployment_id"] == ""  # Empty until decrypted
-        assert parsed["encrypted_deployment"] == encrypted_blob
-
-        # Backend decrypts the endpoint
-        decrypted = decrypt_deployment_id(
-            parsed["encrypted_deployment"], backend_keypair.private_key
-        )
+        # Decrypt the deployment ID
+        decrypted = decrypt_deployment_id(encrypted_blob, backend_keypair.private_key)
 
         assert decrypted == deployment_id
 
-    def test_plain_commitment_still_works(self):
-        """Plain commitments should still work."""
-        commitment = "user/policy:abc123:95edf2b6-e18b-400a-8398-5573df10e5e4"
+    def test_commitment_format(self):
+        """Test the new simplified commitment format."""
+        commitment = "user/policy:abc123de"
 
         parsed = parse_commitment(commitment)
 
         assert parsed["huggingface_repo"] == "user/policy"
-        assert parsed["revision_sha"] == "abc123"
-        assert parsed["deployment_id"] == "95edf2b6-e18b-400a-8398-5573df10e5e4"
-        assert parsed["encrypted_deployment"] is None
+        assert parsed["revision_sha"] == "abc123de"
+
+    def test_legacy_commitment_format_backward_compat(self):
+        """Legacy commitments with deployment_id should still parse (backward compat)."""
+        # Old format: repo:rev:deployment_id
+        commitment = "user/policy:abc123de:95edf2b6-e18b-400a-8398-5573df10e5e4"
+
+        parsed = parse_commitment(commitment)
+
+        # We extract repo and revision, ignoring the deployment_id
+        assert parsed["huggingface_repo"] == "user/policy"
+        assert parsed["revision_sha"] == "abc123de"

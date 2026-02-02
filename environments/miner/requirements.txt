@@ -1,0 +1,20 @@
+# Miner runner dependencies
+# Note: Miner policies may have additional dependencies that get installed at runtime
+
+# Core web framework (to run miner's server.py)
+fastapi>=0.100.0
+uvicorn>=0.23.0
+
+# HTTP client for health checks
+httpx>=0.24.0
+
+# HuggingFace for downloading models
+huggingface-hub>=0.20.0
+
+# Common ML dependencies (likely needed by policies)
+numpy>=1.24.0
+pydantic>=2.0.0
+pillow>=10.0.0
+
+# Logging
+structlog>=24.0.0

@@ -31,20 +31,6 @@ def generate_seed(task_uuid: str) -> int:
     return int.from_bytes(hash_bytes, byteorder="big") & 0x7FFFFFFF
 
 
-def get_miner_endpoint(miner: MinerCommitment) -> str:
-    """
-    Build miner's base URL from commitment.
-
-    Uses the MinerCommitment.endpoint property which converts deployment_id to full URL.
-    """
-    if miner.deployment_id:
-        return miner.endpoint  # This property converts deployment_id to full URL
-
-    raise ValueError(
-        f"Miner {miner.uid} has no deployment_id. Miners must deploy their policy to Basilica."
-    )
-
-
 def generate_tasks(
     miners: list[MinerCommitment],
     env_ids: list[str],
@@ -63,6 +49,9 @@ def generate_tasks(
     - Miners cannot predict future seeds (UUID is random)
     - Evaluations are reproducible (same UUID = same seed = same environment)
 
+    Note: miner_endpoint is set to None. The executor will create deployments
+    on-demand using miner_repo and miner_revision.
+
     Args:
         miners: List of miner commitments
         env_ids: List of environment IDs to evaluate
@@ -76,10 +65,8 @@ def generate_tasks(
     tasks = []
 
     for miner in miners:
-        try:
-            endpoint = get_miner_endpoint(miner)
-        except ValueError as e:
-            logger.warning("miner_no_endpoint", uid=miner.uid, error=str(e))
+        if not miner.is_valid:
+            logger.warning("miner_invalid_commitment", uid=miner.uid)
             continue
 
         for env_id in env_ids:
@@ -97,7 +84,7 @@ def generate_tasks(
                         "cycle_id": cycle_id,
                         "miner_uid": miner.uid,
                         "miner_hotkey": miner.hotkey,
-                        "miner_endpoint": endpoint,
+                        "miner_endpoint": None,  # Resolved at execution time by executor
                         "miner_repo": miner.huggingface_repo,
                         "miner_revision": miner.revision_sha,
                         "env_id": env_id,

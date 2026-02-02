@@ -1,104 +1,48 @@
 """Miner commitment handling for on-chain model registration.
 
-Supports two commitment modes:
-1. Plain: deployment_id is stored directly (public endpoint)
-2. Encrypted: deployment_id is encrypted with backend operator's public key
-
-Encrypted mode protects miner endpoints from public disclosure while allowing
-the backend operator to decrypt and evaluate miners.
+Miners commit their HuggingFace repo and revision on-chain. The executor
+downloads models from HuggingFace and creates deployments on-demand.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import structlog
-from cryptography.hazmat.primitives.asymmetric import x25519
-
-from kinitro.crypto import (
-    decrypt_deployment_id,
-    encrypt_deployment_id,
-)
 
 logger = structlog.get_logger()
 
 
-# Basilica deployment URL template
-BASILICA_URL_TEMPLATE = "https://{deployment_id}.deployments.basilica.ai"
-
 # Chain commitment size limit (bytes)
 MAX_COMMITMENT_SIZE = 128
-
-
-def deployment_id_to_url(deployment_id: str) -> str:
-    """Convert a Basilica deployment ID to a full URL."""
-    # If already a full URL, return as-is
-    if deployment_id.startswith("http://") or deployment_id.startswith("https://"):
-        return deployment_id.rstrip("/")
-    # Otherwise, construct the Basilica URL
-    return BASILICA_URL_TEMPLATE.format(deployment_id=deployment_id)
 
 
 @dataclass
 class MinerCommitment:
     """Parsed miner commitment from chain.
 
-    Supports both plain and encrypted deployment IDs:
-    - Plain: deployment_id contains the UUID directly
-    - Encrypted: encrypted_deployment contains the encrypted blob,
-                 deployment_id is populated after decryption
+    Contains HuggingFace repo and revision for executor-managed deployments.
     """
 
     uid: int
     hotkey: str
     huggingface_repo: str
     revision_sha: str
-    deployment_id: str  # Basilica deployment ID (UUID, not full URL) - decrypted if encrypted
-    docker_image: str
     committed_block: int
-    encrypted_deployment: str | None = field(default=None)  # Base85 encrypted blob (if encrypted)
-
-    @property
-    def endpoint(self) -> str:
-        """Get the full endpoint URL from deployment ID.
-
-        Raises:
-            ValueError: If deployment_id is empty (commitment needs decryption first)
-        """
-        if not self.deployment_id:
-            raise ValueError(
-                f"Cannot access endpoint: commitment requires decryption first "
-                f"(encrypted={self.is_encrypted}, needs_decryption={self.needs_decryption})"
-            )
-        return deployment_id_to_url(self.deployment_id)
-
-    @property
-    def is_encrypted(self) -> bool:
-        """Check if this commitment uses encrypted endpoint."""
-        return self.encrypted_deployment is not None
 
     @property
     def is_valid(self) -> bool:
-        """Check if commitment has all required fields.
-
-        For encrypted commitments, deployment_id may be empty until decrypted.
-        """
-        has_basic_fields = bool(self.huggingface_repo and self.revision_sha)
-        has_endpoint = bool(self.deployment_id) or bool(self.encrypted_deployment)
-        return has_basic_fields and has_endpoint
-
-    @property
-    def needs_decryption(self) -> bool:
-        """Check if this commitment needs decryption before use."""
-        return bool(self.encrypted_deployment) and not bool(self.deployment_id)
+        """Check if commitment has all required fields."""
+        return bool(self.huggingface_repo and self.revision_sha)
 
 
 def parse_commitment(raw: str) -> dict:
     """
     Parse raw commitment string from chain.
 
-    Format: "user/repo:rev8char:deployment_id" (plain)
-            "user/repo:rev8char:e:<base85_blob>" (encrypted)
+    New format: "user/repo:rev8char"
+    Legacy format (backward compatible): "user/repo:rev8char:deployment_id"
+                                         "user/repo:rev8char:e:<base85_blob>"
 
     Note: revision is truncated to 8 characters (short SHA).
 
@@ -107,38 +51,20 @@ def parse_commitment(raw: str) -> dict:
 
     Returns:
         Dict with parsed fields:
-            - huggingface_repo, revision_sha, docker_image (always)
-            - deployment_id (for plain commitments)
-            - encrypted_deployment (for encrypted commitments)
+            - huggingface_repo: HuggingFace repo (e.g., "user/model")
+            - revision_sha: Commit SHA (truncated to 8 chars)
     """
     parts = raw.split(":", 3)
 
-    if len(parts) >= 3:
+    if len(parts) >= 2:
         hf_repo = parts[0]
         revision = parts[1]
-        third_part = parts[2]
-        docker_image = f"{hf_repo}:{revision}"
 
-        # Check if encrypted (third part is "e" followed by blob in fourth part)
-        if third_part == "e" and len(parts) >= 4:
-            # Encrypted format: repo:rev:e:<base85_blob>
-            encrypted_blob = parts[3]
-            return {
-                "huggingface_repo": hf_repo,
-                "revision_sha": revision,
-                "deployment_id": "",  # Will be decrypted later
-                "encrypted_deployment": encrypted_blob,
-                "docker_image": docker_image,
-            }
-
-        # Plain format: repo:rev:uuid
-        deployment_id = third_part
+        # Legacy format with deployment_id (3+ parts) - ignore deployment info
+        # New format is just repo:revision (2 parts)
         return {
             "huggingface_repo": hf_repo,
             "revision_sha": revision,
-            "deployment_id": deployment_id,
-            "encrypted_deployment": None,
-            "docker_image": docker_image,
         }
 
     # Invalid format
@@ -146,9 +72,6 @@ def parse_commitment(raw: str) -> dict:
     return {
         "huggingface_repo": "",
         "revision_sha": "",
-        "deployment_id": "",
-        "encrypted_deployment": None,
-        "docker_image": "",
     }
 
 
@@ -242,20 +165,14 @@ def read_miner_commitments(
     subtensor,  # bt.Subtensor
     netuid: int,
     neurons: list | None = None,  # List of NeuronInfo (optional, will fetch if not provided)
-    backend_private_key: x25519.X25519PrivateKey | None = None,
 ) -> list[MinerCommitment]:
     """
     Read all miner commitments from chain.
-
-    If backend_private_key is provided, encrypted commitments will be decrypted.
-    Otherwise, encrypted commitments will have empty deployment_id and need
-    separate decryption via decrypt_commitments().
 
     Args:
         subtensor: Bittensor subtensor connection
         netuid: Subnet UID
         neurons: Optional pre-fetched neurons list (from subtensor.neurons())
-        backend_private_key: Optional X25519 private key for decrypting endpoints
 
     Returns:
         List of MinerCommitment for miners with valid commitments
@@ -284,39 +201,12 @@ def read_miner_commitments(
                 # Use block from commitment data if available, fallback to neuron.last_update
                 committed_block = block if block is not None else neuron.last_update
 
-                # Handle encrypted deployment if private key provided
-                deployment_id = parsed["deployment_id"]
-                encrypted_deployment = parsed.get("encrypted_deployment")
-
-                if encrypted_deployment and backend_private_key:
-                    try:
-                        deployment_id = decrypt_deployment_id(
-                            encrypted_deployment, backend_private_key
-                        )
-                        logger.debug(
-                            "decrypted_endpoint",
-                            uid=uid,
-                            deployment_id=deployment_id[:12] + "...",
-                        )
-                    except ValueError as e:
-                        logger.warning(
-                            "decryption_failed",
-                            uid=uid,
-                            error=str(e),
-                        )
-                        # Decryption failed - commitment will have needs_decryption=True.
-                        # The encrypted_deployment blob is preserved so decrypt_commitments()
-                        # can retry later with a different key if needed.
-
                 commitment = MinerCommitment(
                     uid=uid,
                     hotkey=hotkey,
                     huggingface_repo=parsed["huggingface_repo"],
                     revision_sha=parsed["revision_sha"],
-                    deployment_id=deployment_id,
-                    docker_image=parsed["docker_image"],
                     committed_block=committed_block,
-                    encrypted_deployment=encrypted_deployment,
                 )
                 if commitment.is_valid:
                     commitments.append(commitment)
@@ -325,47 +215,11 @@ def read_miner_commitments(
                         uid=uid,
                         repo=commitment.huggingface_repo,
                         block=committed_block,
-                        encrypted=commitment.is_encrypted,
                     )
         except Exception as e:
             logger.warning("commitment_read_failed", uid=uid, error=str(e))
 
     logger.info("commitments_loaded", count=len(commitments), total_miners=n_neurons)
-    return commitments
-
-
-def decrypt_commitments(
-    commitments: list[MinerCommitment],
-    backend_private_key: x25519.X25519PrivateKey,
-) -> list[MinerCommitment]:
-    """
-    Decrypt encrypted commitments in-place.
-
-    Args:
-        commitments: List of MinerCommitment (may have encrypted endpoints)
-        backend_private_key: X25519 private key for decryption
-
-    Returns:
-        Same list with deployment_id populated for encrypted commitments
-    """
-    for commitment in commitments:
-        if commitment.needs_decryption:
-            try:
-                commitment.deployment_id = decrypt_deployment_id(
-                    commitment.encrypted_deployment,  # type: ignore
-                    backend_private_key,
-                )
-                logger.debug(
-                    "decrypted_endpoint",
-                    uid=commitment.uid,
-                    deployment_id=commitment.deployment_id[:12] + "...",
-                )
-            except ValueError as e:
-                logger.warning(
-                    "decryption_failed",
-                    uid=commitment.uid,
-                    error=str(e),
-                )
     return commitments
 
 
@@ -375,31 +229,22 @@ def commit_model(
     netuid: int,
     repo: str,
     revision: str,
-    deployment_id: str,
-    backend_public_key: str | None = None,
 ) -> bool:
     """
     Commit model info to chain using compact colon-separated format.
 
     This is called by miners to register their model.
 
-    Format:
-        - Plain: "user/repo:rev8char:uuid" (~67 bytes for 30-char repo)
-        - Encrypted: "user/repo:rev8char:e:<base85_blob>" (~121 bytes for 30-char repo)
+    Format: "user/repo:rev8char"
 
-    The 128-byte chain limit allows repo names up to ~37 chars for encrypted
-    commitments or ~97 chars for plain commitments.
+    The executor will download from HuggingFace and create deployments on-demand.
 
     Args:
         subtensor: Bittensor subtensor connection
         wallet: Miner's wallet
         netuid: Subnet UID
-        repo: HuggingFace repository (user/model), max ~37 chars for encrypted mode
+        repo: HuggingFace repository (user/model)
         revision: Commit SHA (will be truncated to 8 chars)
-        deployment_id: Basilica deployment ID (UUID only, not full URL)
-        backend_public_key: Optional hex-encoded X25519 public key for encrypting endpoint.
-                           If provided, the deployment_id will be encrypted so only
-                           the backend operator can decrypt it.
 
     Returns:
         True if commitment succeeded
@@ -409,35 +254,17 @@ def commit_model(
     revision_short = revision[:8]
 
     # Validate no colons in fields (would break colon-separated format)
-    if ":" in repo or ":" in revision_short or ":" in deployment_id:
+    if ":" in repo or ":" in revision_short:
         logger.error(
             "commitment_field_contains_colon",
             repo=repo,
             revision=revision_short,
-            deployment_id=deployment_id,
         )
         return False
 
-    # Build commitment data using colon-separated format (more compact than JSON)
-    if backend_public_key:
-        # Encrypt the deployment ID
-        try:
-            encrypted_blob = encrypt_deployment_id(deployment_id, backend_public_key)
-            # Format: repo:revision:e:<encrypted_blob>
-            commitment_data = f"{repo}:{revision_short}:e:{encrypted_blob}"
-            logger.info(
-                "commitment_encrypted",
-                data_length=len(commitment_data),
-                encrypted_blob_length=len(encrypted_blob),
-            )
-        except Exception as e:
-            logger.exception("encryption_failed", error=str(e))
-            return False
-    else:
-        # Plain commitment (deployment_id visible on-chain)
-        # Format: repo:revision:uuid
-        commitment_data = f"{repo}:{revision_short}:{deployment_id}"
-        logger.info("commitment_data", data=commitment_data, length=len(commitment_data))
+    # Build commitment data: repo:revision
+    commitment_data = f"{repo}:{revision_short}"
+    logger.info("commitment_data", data=commitment_data, length=len(commitment_data))
 
     # Validate commitment size fits chain limit
     if len(commitment_data) > MAX_COMMITMENT_SIZE:
@@ -465,8 +292,6 @@ def commit_model(
                 "commitment_submitted",
                 repo=repo,
                 revision=revision[:8],
-                deployment_id=deployment_id[:8] + "..." if deployment_id else None,
-                encrypted=bool(backend_public_key),
             )
         return success
     except Exception as e:

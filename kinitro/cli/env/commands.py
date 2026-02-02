@@ -21,7 +21,7 @@ from kinitro.environments.registry import (
 from kinitro.rl_interface import CanonicalObservation, coerce_action
 
 # Available environment families for build command
-AVAILABLE_ENV_FAMILIES = ["metaworld", "procthor"]
+AVAILABLE_ENV_FAMILIES = ["metaworld", "procthor", "miner"]
 
 
 @runtime_checkable
@@ -57,6 +57,7 @@ def build_env(
     Environment families:
       - metaworld: MuJoCo-based manipulation tasks (~400MB image)
       - procthor: AI2-THOR procedural house tasks (~1.5GB image, x86_64 Linux only)
+      - miner: Miner policy runner (~200MB image)
 
     Examples:
         # Build MetaWorld environment
@@ -64,6 +65,9 @@ def build_env(
 
         # Build ProcTHOR environment
         kinitro env build procthor --tag kinitro/procthor:v1
+
+        # Build miner runner
+        kinitro env build miner --tag kinitro/miner-runner:v1
 
         # Build and push to registry
         kinitro env build metaworld --push --registry docker.io/myuser
@@ -98,7 +102,10 @@ def build_env(
         typer.echo(f"Dockerfile not found at {env_path}", err=True)
         raise typer.Exit(1)
 
-    if not environments_src.exists():
+    # Miner environment doesn't need kinitro/environments module
+    needs_kinitro_module = family != "miner"
+
+    if needs_kinitro_module and not environments_src.exists():
         typer.echo(f"environments module not found at {environments_src}", err=True)
         raise typer.Exit(1)
 
@@ -108,44 +115,48 @@ def build_env(
         typer.echo(f"  Push: True (registry: {registry or 'from tag'})")
 
     # Copy kinitro/environments to env/kinitro/environments for the build
+    # (not needed for miner environment)
     env_kinitro = env_path / "kinitro"
     env_environments = env_kinitro / "environments"
     created_kinitro_dir = False
 
-    if env_kinitro.exists():
-        typer.echo(f"Refusing to overwrite existing {env_kinitro}", err=True)
-        raise typer.Exit(1)
-    env_kinitro.mkdir()
-    created_kinitro_dir = True
+    if needs_kinitro_module:
+        if env_kinitro.exists():
+            typer.echo(f"Refusing to overwrite existing {env_kinitro}", err=True)
+            raise typer.Exit(1)
+        env_kinitro.mkdir()
+        created_kinitro_dir = True
 
-    # Also need rl_interface.py for the Actor
+    # Also need rl_interface.py for the Actor (not needed for miner)
     rl_interface_src = kinitro_package_dir / "rl_interface.py"
 
     try:
-        # Create kinitro package structure
-        env_kinitro.mkdir(exist_ok=True)
+        # Copy kinitro module for eval environments (not needed for miner)
+        if needs_kinitro_module:
+            # Create kinitro package structure
+            env_kinitro.mkdir(exist_ok=True)
 
-        # Create __init__.py for kinitro package
-        (env_kinitro / "__init__.py").write_text(
-            '"""Kinitro package subset for eval environment."""\n'
-        )
+            # Create __init__.py for kinitro package
+            (env_kinitro / "__init__.py").write_text(
+                '"""Kinitro package subset for eval environment."""\n'
+            )
 
-        # Copy environments module (filtered based on family)
-        if env_environments.exists():
-            shutil.rmtree(env_environments)
+            # Copy environments module (filtered based on family)
+            if env_environments.exists():
+                shutil.rmtree(env_environments)
 
-        # Copy the full environments module
-        shutil.copytree(
-            environments_src,
-            env_environments,
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
-        )
-        typer.echo("  Copied environments module to build context")
+            # Copy the full environments module
+            shutil.copytree(
+                environments_src,
+                env_environments,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+            )
+            typer.echo("  Copied environments module to build context")
 
-        # Copy rl_interface.py
-        if rl_interface_src.exists():
-            shutil.copy(rl_interface_src, env_kinitro / "rl_interface.py")
-            typer.echo("  Copied rl_interface module to build context")
+            # Copy rl_interface.py
+            if rl_interface_src.exists():
+                shutil.copy(rl_interface_src, env_kinitro / "rl_interface.py")
+                typer.echo("  Copied rl_interface module to build context")
 
         # Build the image
         result_tag = affinetes.build_image_from_env(

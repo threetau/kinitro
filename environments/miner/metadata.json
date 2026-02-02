@@ -1,0 +1,5 @@
+{
+  "name": "Miner Policy Runner",
+  "description": "Downloads and runs miner policies from HuggingFace",
+  "version": "1.0.0"
+}

@@ -12,8 +12,8 @@ This guide explains how to run the evaluation backend for Kinitro. The backend i
 │    - PostgreSQL database for storing results                    │
 │    - FastAPI server exposing weights API                        │
 │    - Scheduler running periodic evaluation cycles               │
+│    - Executors download miner models and create deployments     │
 │    - affinetes containers for isolated simulation               │
-│    - Calls miner Basilica endpoints for policy actions          │
 │    - Computes epsilon-Pareto scores and weights                 │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ HTTP API
@@ -67,23 +67,27 @@ sudo -u postgres createdb kinitro -O kinitro
 sudo -u postgres psql -c "ALTER USER kinitro PASSWORD 'your-secure-password';"
 ```
 
-### 3. Build the Evaluation Environment Images
+### 3. Build the Docker Images
 
-The evaluation runs in Docker containers managed by Affinetes. Build separate images for each environment family:
+The backend uses Docker containers managed by Affinetes. Build the required images:
 
 ```bash
-# Build MetaWorld environment (~1GB image, works on any platform)
+# Build MetaWorld evaluation environment (~1GB image, works on any platform)
 uv run kinitro env build metaworld --tag kinitro/metaworld:v1
 
-# Build ProcTHOR environment (~3GB image, requires x86_64 Linux)
+# Build ProcTHOR evaluation environment (~3GB image, requires x86_64 Linux)
 uv run kinitro env build procthor --tag kinitro/procthor:v1
+
+# Build miner policy runner (~200MB image, for Docker mode deployments)
+uv run kinitro env build miner --tag kinitro/miner-runner:v1
 ```
 
-Each image is self-contained with:
-
+**Evaluation environment images** are self-contained with:
 - Simulation engine (MuJoCo for MetaWorld, ProcTHOR renderer on AI2-THOR framework)
 - HTTP client for calling miner endpoints
 - Environment wrappers and dependencies
+
+**Miner runner image** downloads and runs miner policies from HuggingFace. Only needed for Docker mode (`eval_mode=docker`).
 
 **Note**: ProcTHOR requires native x86_64 Linux and will not work on ARM64 or under emulation.
 
@@ -162,8 +166,6 @@ Additional Scheduler settings:
 | `KINITRO_SCHEDULER_PARETO_TEMPERATURE`           | `1.0`   | Softmax temperature for weight conversion    |
 | `KINITRO_SCHEDULER_TASK_STALE_THRESHOLD_SECONDS` | `300`   | Time after which assigned tasks become stale |
 | `KINITRO_SCHEDULER_CYCLE_TIMEOUT_SECONDS`        | `7200`  | Maximum time to wait for cycle completion    |
-| `KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY`          | `null`  | X25519 private key (hex) for endpoint decrypt |
-| `KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY_FILE`     | `null`  | Path to backend private key file              |
 
 ### Executor Service Configuration
 
@@ -212,27 +214,37 @@ Additional Executor settings:
 | `KINITRO_EXECUTOR_EVAL_TIMEOUT`   | `300`               | Timeout for individual evaluation (seconds) |
 | `KINITRO_EXECUTOR_USE_IMAGES`     | `true`              | Include camera images in observations       |
 
-### Executor Verification Settings
+### Executor Miner Deployment Settings
 
-The executor can perform spot-check verification to ensure miners' Basilica deployments match their HuggingFace uploads. This detects miners running modified code.
+The executor manages miner policy deployments on-demand via affinetes. When a task requires a miner's policy, the executor downloads the model from HuggingFace and creates a temporary deployment with TTL-based caching.
 
-| Variable                                         | Default | Description                                   |
-| ------------------------------------------------ | ------- | --------------------------------------------- |
-| `KINITRO_EXECUTOR_VERIFICATION_ENABLED`          | `false` | Enable spot-check verification                |
-| `KINITRO_EXECUTOR_VERIFICATION_RATE`             | `0.05`  | Probability of verifying each miner (0.0-1.0) |
-| `KINITRO_EXECUTOR_VERIFICATION_TOLERANCE`        | `0.001` | Tolerance for comparing action outputs        |
-| `KINITRO_EXECUTOR_VERIFICATION_SAMPLES`          | `5`     | Number of test observations per verification  |
-| `KINITRO_EXECUTOR_VERIFICATION_MAX_REPO_SIZE_GB` | `5.0`   | Maximum HuggingFace repo size to download     |
+Miner deployments use the same `eval_mode` as evaluation environments:
+- **Docker mode** (`eval_mode=docker`): Runs miner policies in local Docker containers
+- **Basilica mode** (`eval_mode=basilica`): Deploys to Basilica cloud platform
 
-When verification is enabled, the executor will:
+| Variable                                           | Default | Description                                       |
+| -------------------------------------------------- | ------- | ------------------------------------------------- |
+| `KINITRO_EXECUTOR_MINER_DEPLOYMENT_ENABLED`        | `true`  | Enable executor-managed miner deployments         |
+| `KINITRO_EXECUTOR_MINER_DEPLOYMENT_IMAGE`          | `kinitro/miner-runner:v1` | Docker image for miner policies |
+| `KINITRO_EXECUTOR_MINER_BASILICA_API_TOKEN`        | `null`  | Basilica API token (required for basilica mode)   |
+| `KINITRO_EXECUTOR_MINER_HF_TOKEN`                  | `null`  | HuggingFace token for private repos (optional)    |
+| `KINITRO_EXECUTOR_MINER_DEPLOYMENT_TTL_SECONDS`    | `600`   | TTL for idle deployments before cleanup           |
+| `KINITRO_EXECUTOR_MINER_DEPLOYMENT_WARMUP_TIMEOUT` | `300`   | Timeout for deployment to become ready (seconds)  |
+| `KINITRO_EXECUTOR_MINER_DEPLOYMENT_GPU_COUNT`      | `0`     | Number of GPUs for miner deployments              |
+| `KINITRO_EXECUTOR_MINER_DEPLOYMENT_MIN_GPU_MEMORY_GB` | `null` | Minimum GPU memory (GB) for miner deployments   |
+| `KINITRO_EXECUTOR_MINER_DEPLOYMENT_CPU`            | `1`     | CPU allocation for miner deployments              |
+| `KINITRO_EXECUTOR_MINER_DEPLOYMENT_MEMORY`         | `4Gi`   | Memory allocation for miner deployments           |
 
-1. Randomly select miners based on `VERIFICATION_RATE`
-2. Download their policy from HuggingFace
-3. Run local inference with deterministic seeds
-4. Compare outputs against the Basilica endpoint
-5. Log verification results (pass/fail with match score)
+**How it works:**
 
-Miners that fail verification may be serving different code than what they committed to HuggingFace.
+1. Miner commits `repo:revision` on-chain (no need to deploy themselves)
+2. Scheduler creates tasks with `miner_repo` and `miner_revision` (no endpoint)
+3. Executor fetches task and creates deployment on-demand (Docker or Basilica)
+4. Deployments are cached by `(repo, revision)` tuple with TTL
+5. After batch completion, expired deployments are cleaned up
+6. On shutdown, all managed deployments are terminated
+
+This approach simplifies the miner workflow (just upload to HuggingFace) while ensuring evaluation integrity (executors control the deployment).
 
 ## API Reference
 
@@ -375,81 +387,6 @@ pg_dump -h localhost -U kinitro kinitro > backup_$(date +%Y%m%d).sql
 psql -h localhost -U kinitro kinitro < backup_20240115.sql
 ```
 
-## Encrypted Endpoint Commitments
-
-Kinitro supports encrypted miner endpoint commitments to protect miner Basilica deployment URLs from public disclosure. When enabled, only the backend operator can decrypt and access miner endpoints.
-
-### How It Works
-
-1. **Backend generates a keypair**: X25519 key exchange keypair
-2. **Backend publishes public key**: On-chain so miners can discover it
-3. **Miners encrypt their endpoints**: Using the backend's public key when committing
-4. **Scheduler decrypts endpoints**: Using the private key during evaluation
-
-### Setup (Backend Operator)
-
-#### 1. Generate a Keypair
-
-```bash
-uv run kinitro crypto generate-keypair --name backend
-```
-
-This creates (in `$XDG_CONFIG_HOME/kinitro/keys/`, typically `~/.config/kinitro/keys/`):
-- `backend` - Private key (keep secret!)
-- `backend.pub` - Public key (share with miners)
-
-#### 2. Publish Public Key to Chain
-
-```bash
-uv run kinitro crypto publish-public-key \
-  --private-key-file ~/.config/kinitro/keys/backend \
-  --netuid YOUR_NETUID \
-  --network finney \
-  --wallet-name your-wallet \
-  --hotkey-name your-hotkey
-```
-
-After publishing, miners can use `--backend-hotkey YOUR_HOTKEY` to automatically fetch your public key.
-
-#### 3. Configure Scheduler with Private Key
-
-Set the environment variable or CLI flag:
-
-```bash
-# Option 1: Environment variable (path to file)
-export KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY_FILE=~/.config/kinitro/keys/backend
-
-# Option 2: Environment variable (hex string directly)
-export KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY=$(cat ~/.config/kinitro/keys/backend)
-```
-
-The scheduler will automatically decrypt miner endpoints when reading commitments from the chain.
-
-### CLI Commands
-
-```bash
-# Generate new keypair (saves to ~/.config/kinitro/keys/)
-uv run kinitro crypto generate-keypair --name backend
-
-# Publish public key to chain
-uv run kinitro crypto publish-public-key --private-key-file ~/.config/kinitro/keys/backend --netuid 1
-
-# Fetch a backend's public key (for verification)
-uv run kinitro crypto fetch-public-key --backend-hotkey 5Dxxx... --netuid 1
-
-# Show public key from private key
-uv run kinitro crypto show-public-key --private-key-file ~/.config/kinitro/keys/backend
-
-# Test encryption/decryption
-uv run kinitro crypto test-encryption --private-key-file ~/.config/kinitro/keys/backend
-```
-
-### Security Considerations
-
-- **Keep private key secure**: Store in a secure location with restricted permissions (0600)
-- **Backup your keypair**: Loss of private key means inability to decrypt miner endpoints
-- **Key rotation**: If key is compromised, generate new keypair and ask miners to re-commit
-
 ## Production Deployment
 
 ### Docker Compose
@@ -506,6 +443,9 @@ services:
     command: >
       kinitro executor
       --api-url http://api:8000
+    environment:
+      - KINITRO_EXECUTOR_MINER_BASILICA_API_TOKEN=${BASILICA_API_TOKEN}
+      - KINITRO_EXECUTOR_MINER_HF_TOKEN=${HF_TOKEN}
     depends_on:
       api:
         condition: service_started
@@ -525,6 +465,8 @@ NETUID=123
 NETWORK=finney
 EVAL_INTERVAL=3600
 EPISODES_PER_ENV=50
+BASILICA_API_TOKEN=your-basilica-token
+HF_TOKEN=your-huggingface-token  # Optional, for private repos
 ```
 
 Run:
@@ -712,16 +654,6 @@ Monitor these conditions:
 4. **Network**:
    - Use firewall rules
    - Only expose port 8000 (or via reverse proxy)
-
-## Scaling
-
-### Horizontal Scaling
-
-For high miner counts, run multiple evaluation workers:
-
-- Use a job queue (Redis, RabbitMQ) for evaluation tasks
-- Run multiple backend instances with shared database
-- Load balance API requests
 
 ### GPU Acceleration
 

@@ -155,7 +155,7 @@ class TaskPoolORM(Base):
     )
     miner_uid: Mapped[int] = mapped_column(Integer, nullable=False)
     miner_hotkey: Mapped[str] = mapped_column(String(64), nullable=False)
-    miner_endpoint: Mapped[str] = mapped_column(Text, nullable=False)
+    miner_endpoint: Mapped[str | None] = mapped_column(Text, nullable=True)
     miner_repo: Mapped[str | None] = mapped_column(String(256), nullable=True)
     miner_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
     env_id: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -297,9 +297,9 @@ class Task(BaseModel):
     cycle_id: int
     miner_uid: int
     miner_hotkey: str
-    miner_endpoint: str
-    miner_repo: str | None = None  # HuggingFace repo for verification
-    miner_revision: str | None = None  # HuggingFace revision for verification
+    miner_endpoint: str | None = None  # Resolved at execution time by executor
+    miner_repo: str | None = None  # HuggingFace repo for deployment
+    miner_revision: str | None = None  # HuggingFace revision for deployment
     env_id: str
     seed: int  # Deterministic seed for reproducibility
     status: str
@@ -333,14 +333,6 @@ class TaskResult(BaseModel):
     total_reward: float = Field(default=0.0)
     timesteps: int = Field(default=0)
     error: str | None = Field(default=None)
-    verification_passed: bool | None = Field(
-        default=None,
-        description="Whether miner passed model verification (None if not checked)",
-    )
-    verification_score: float | None = Field(
-        default=None,
-        description="Match score between deployed and HuggingFace model (0.0 to 1.0)",
-    )
 
 
 class TaskSubmitRequest(BaseModel):
