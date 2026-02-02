@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from kinitro.environments.procthor.environment import ProcTHOREnvironment
 from kinitro.environments.procthor.house_generator import (
     HouseGenerator,
     get_openable_objects,
@@ -561,3 +562,402 @@ class TestSafetyViolationDetection:
             collision_count = 0
 
         assert collision_count == 0
+
+
+class TestTaskCompletionScoring:
+    """
+    Tests that verify task completion is correctly detected and scored.
+
+    These tests mock the ProcTHOR environment internals to verify that
+    `_update_success()` correctly detects when a task has been completed
+    based on the scene state.
+    """
+
+    def _make_env_with_task(
+        self,
+        task_type: TaskType,
+        target_id: str,
+        target_type: str,
+        destination_id: str | None = None,
+        destination_type: str | None = None,
+    ):
+        """
+        Create a ProcTHOREnvironment with a task but without initializing AI2-THOR.
+
+        We bypass the controller initialization and directly set internal state.
+        """
+        env = object.__new__(ProcTHOREnvironment)
+        # Initialize minimal state needed for _update_success
+        env._current_task = TaskSpec(
+            task_type=task_type,
+            task_prompt=f"Test task for {target_type}",
+            target_object_id=target_id,
+            target_object_type=target_type,
+            destination_object_id=destination_id,
+            destination_object_type=destination_type,
+        )
+        env._scene_objects = []
+        env._holding_object = None
+        env._episode_success = False
+        return env
+
+    # ========== PICKUP task tests ==========
+
+    def test_pickup_success_when_holding_target(self):
+        """PICKUP task should succeed when agent is holding the target object."""
+        env = self._make_env_with_task(
+            task_type=TaskType.PICKUP,
+            target_id="Apple|1|2|3",
+            target_type="Apple",
+        )
+        env._holding_object = "Apple|1|2|3"
+
+        env._update_success()
+
+        assert env._episode_success is True
+
+    def test_pickup_failure_when_not_holding(self):
+        """PICKUP task should fail when agent is not holding anything."""
+        env = self._make_env_with_task(
+            task_type=TaskType.PICKUP,
+            target_id="Apple|1|2|3",
+            target_type="Apple",
+        )
+        env._holding_object = None
+
+        env._update_success()
+
+        assert env._episode_success is False
+
+    def test_pickup_failure_when_holding_wrong_object(self):
+        """PICKUP task should fail when agent is holding a different object."""
+        env = self._make_env_with_task(
+            task_type=TaskType.PICKUP,
+            target_id="Apple|1|2|3",
+            target_type="Apple",
+        )
+        env._holding_object = "Mug|4|5|6"  # Wrong object
+
+        env._update_success()
+
+        assert env._episode_success is False
+
+    # ========== PLACE task tests ==========
+
+    def test_place_success_when_on_destination(self):
+        """PLACE task should succeed when object is on the destination receptacle."""
+        env = self._make_env_with_task(
+            task_type=TaskType.PLACE,
+            target_id="Apple|1|2|3",
+            target_type="Apple",
+            destination_id="CounterTop|1",
+            destination_type="CounterTop",
+        )
+        env._scene_objects = [
+            SceneObject(
+                object_id="Apple|1|2|3",
+                object_type="Apple",
+                position={"x": 0, "y": 1, "z": 0},
+                rotation={"x": 0, "y": 0, "z": 0},
+                pickupable=True,
+                parent_receptacles=["CounterTop|1"],  # On the target receptacle
+            ),
+        ]
+
+        env._update_success()
+
+        assert env._episode_success is True
+
+    def test_place_failure_when_on_wrong_receptacle(self):
+        """PLACE task should fail when object is on a different receptacle."""
+        env = self._make_env_with_task(
+            task_type=TaskType.PLACE,
+            target_id="Apple|1|2|3",
+            target_type="Apple",
+            destination_id="CounterTop|1",
+            destination_type="CounterTop",
+        )
+        env._scene_objects = [
+            SceneObject(
+                object_id="Apple|1|2|3",
+                object_type="Apple",
+                position={"x": 0, "y": 1, "z": 0},
+                rotation={"x": 0, "y": 0, "z": 0},
+                pickupable=True,
+                parent_receptacles=["DiningTable|2"],  # Wrong receptacle
+            ),
+        ]
+
+        env._update_success()
+
+        assert env._episode_success is False
+
+    def test_place_failure_when_still_holding(self):
+        """PLACE task should fail when object has no parent receptacle (still held or dropped)."""
+        env = self._make_env_with_task(
+            task_type=TaskType.PLACE,
+            target_id="Apple|1|2|3",
+            target_type="Apple",
+            destination_id="CounterTop|1",
+            destination_type="CounterTop",
+        )
+        env._scene_objects = [
+            SceneObject(
+                object_id="Apple|1|2|3",
+                object_type="Apple",
+                position={"x": 0, "y": 1, "z": 0},
+                rotation={"x": 0, "y": 0, "z": 0},
+                pickupable=True,
+                parent_receptacles=[],  # Not on any receptacle
+            ),
+        ]
+
+        env._update_success()
+
+        assert env._episode_success is False
+
+    # ========== OPEN task tests ==========
+
+    def test_open_success_when_object_is_open(self):
+        """OPEN task should succeed when target object is now open."""
+        env = self._make_env_with_task(
+            task_type=TaskType.OPEN,
+            target_id="Fridge|1",
+            target_type="Fridge",
+        )
+        env._scene_objects = [
+            SceneObject(
+                object_id="Fridge|1",
+                object_type="Fridge",
+                position={"x": 0, "y": 0, "z": 0},
+                rotation={"x": 0, "y": 0, "z": 0},
+                openable=True,
+                is_open=True,  # Object is open
+            ),
+        ]
+
+        env._update_success()
+
+        assert env._episode_success is True
+
+    def test_open_failure_when_object_still_closed(self):
+        """OPEN task should fail when target object is still closed."""
+        env = self._make_env_with_task(
+            task_type=TaskType.OPEN,
+            target_id="Fridge|1",
+            target_type="Fridge",
+        )
+        env._scene_objects = [
+            SceneObject(
+                object_id="Fridge|1",
+                object_type="Fridge",
+                position={"x": 0, "y": 0, "z": 0},
+                rotation={"x": 0, "y": 0, "z": 0},
+                openable=True,
+                is_open=False,  # Still closed
+            ),
+        ]
+
+        env._update_success()
+
+        assert env._episode_success is False
+
+    # ========== CLOSE task tests ==========
+
+    def test_close_success_when_object_is_closed(self):
+        """CLOSE task should succeed when target object is now closed."""
+        env = self._make_env_with_task(
+            task_type=TaskType.CLOSE,
+            target_id="Drawer|1",
+            target_type="Drawer",
+        )
+        env._scene_objects = [
+            SceneObject(
+                object_id="Drawer|1",
+                object_type="Drawer",
+                position={"x": 0, "y": 0, "z": 0},
+                rotation={"x": 0, "y": 0, "z": 0},
+                openable=True,
+                is_open=False,  # Object is closed
+            ),
+        ]
+
+        env._update_success()
+
+        assert env._episode_success is True
+
+    def test_close_failure_when_object_still_open(self):
+        """CLOSE task should fail when target object is still open."""
+        env = self._make_env_with_task(
+            task_type=TaskType.CLOSE,
+            target_id="Drawer|1",
+            target_type="Drawer",
+        )
+        env._scene_objects = [
+            SceneObject(
+                object_id="Drawer|1",
+                object_type="Drawer",
+                position={"x": 0, "y": 0, "z": 0},
+                rotation={"x": 0, "y": 0, "z": 0},
+                openable=True,
+                is_open=True,  # Still open
+            ),
+        ]
+
+        env._update_success()
+
+        assert env._episode_success is False
+
+    # ========== TOGGLE_ON task tests ==========
+
+    def test_toggle_on_success_when_object_is_on(self):
+        """TOGGLE_ON task should succeed when target object is now on."""
+        env = self._make_env_with_task(
+            task_type=TaskType.TOGGLE_ON,
+            target_id="Lamp|1",
+            target_type="Lamp",
+        )
+        env._scene_objects = [
+            SceneObject(
+                object_id="Lamp|1",
+                object_type="Lamp",
+                position={"x": 0, "y": 0, "z": 0},
+                rotation={"x": 0, "y": 0, "z": 0},
+                toggleable=True,
+                is_toggled=True,  # Object is on
+            ),
+        ]
+
+        env._update_success()
+
+        assert env._episode_success is True
+
+    def test_toggle_on_failure_when_object_still_off(self):
+        """TOGGLE_ON task should fail when target object is still off."""
+        env = self._make_env_with_task(
+            task_type=TaskType.TOGGLE_ON,
+            target_id="Lamp|1",
+            target_type="Lamp",
+        )
+        env._scene_objects = [
+            SceneObject(
+                object_id="Lamp|1",
+                object_type="Lamp",
+                position={"x": 0, "y": 0, "z": 0},
+                rotation={"x": 0, "y": 0, "z": 0},
+                toggleable=True,
+                is_toggled=False,  # Still off
+            ),
+        ]
+
+        env._update_success()
+
+        assert env._episode_success is False
+
+    # ========== TOGGLE_OFF task tests ==========
+
+    def test_toggle_off_success_when_object_is_off(self):
+        """TOGGLE_OFF task should succeed when target object is now off."""
+        env = self._make_env_with_task(
+            task_type=TaskType.TOGGLE_OFF,
+            target_id="Television|1",
+            target_type="Television",
+        )
+        env._scene_objects = [
+            SceneObject(
+                object_id="Television|1",
+                object_type="Television",
+                position={"x": 0, "y": 0, "z": 0},
+                rotation={"x": 0, "y": 0, "z": 0},
+                toggleable=True,
+                is_toggled=False,  # Object is off
+            ),
+        ]
+
+        env._update_success()
+
+        assert env._episode_success is True
+
+    def test_toggle_off_failure_when_object_still_on(self):
+        """TOGGLE_OFF task should fail when target object is still on."""
+        env = self._make_env_with_task(
+            task_type=TaskType.TOGGLE_OFF,
+            target_id="Television|1",
+            target_type="Television",
+        )
+        env._scene_objects = [
+            SceneObject(
+                object_id="Television|1",
+                object_type="Television",
+                position={"x": 0, "y": 0, "z": 0},
+                rotation={"x": 0, "y": 0, "z": 0},
+                toggleable=True,
+                is_toggled=True,  # Still on
+            ),
+        ]
+
+        env._update_success()
+
+        assert env._episode_success is False
+
+    # ========== Edge cases ==========
+
+    def test_failure_when_target_object_not_found(self):
+        """Task should fail when target object is not in scene."""
+        env = self._make_env_with_task(
+            task_type=TaskType.OPEN,
+            target_id="Fridge|1",
+            target_type="Fridge",
+        )
+        env._scene_objects = [
+            # Different object, not the target
+            SceneObject(
+                object_id="Microwave|1",
+                object_type="Microwave",
+                position={"x": 0, "y": 0, "z": 0},
+                rotation={"x": 0, "y": 0, "z": 0},
+                openable=True,
+                is_open=True,
+            ),
+        ]
+
+        env._update_success()
+
+        assert env._episode_success is False
+
+    def test_failure_when_no_task(self):
+        """Should not succeed when there is no current task."""
+        env = object.__new__(ProcTHOREnvironment)
+        env._current_task = None
+        env._scene_objects = []
+        env._holding_object = None
+        env._episode_success = False
+
+        env._update_success()
+
+        assert env._episode_success is False
+
+    def test_place_with_multiple_parent_receptacles(self):
+        """PLACE should succeed if destination is among multiple parent receptacles."""
+        env = self._make_env_with_task(
+            task_type=TaskType.PLACE,
+            target_id="Bowl|1",
+            target_type="Bowl",
+            destination_id="Shelf|2",
+            destination_type="Shelf",
+        )
+        env._scene_objects = [
+            SceneObject(
+                object_id="Bowl|1",
+                object_type="Bowl",
+                position={"x": 0, "y": 1, "z": 0},
+                rotation={"x": 0, "y": 0, "z": 0},
+                pickupable=True,
+                # Object is nested: on a plate, which is on the shelf
+                parent_receptacles=["Plate|1", "Shelf|2"],
+            ),
+        ]
+
+        env._update_success()
+
+        assert env._episode_success is True
