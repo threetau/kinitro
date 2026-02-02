@@ -113,6 +113,7 @@ In a separate terminal:
 
 ```bash
 # For Docker mode (local containers)
+# Uses affinetes for both eval envs and miner deployments
 export KINITRO_EXECUTOR_MINER_HF_TOKEN=$HF_TOKEN
 
 uv run kinitro executor \
@@ -121,9 +122,10 @@ uv run kinitro executor \
   --log-level DEBUG
 
 # For Basilica mode (cloud deployments)
+# Uses affinetes for eval envs, Basilica SDK directly for miner deployments
 export KINITRO_EXECUTOR_MINER_BASILICA_API_TOKEN=$BASILICA_API_TOKEN
 export KINITRO_EXECUTOR_MINER_HF_TOKEN=$HF_TOKEN
-export KINITRO_EXECUTOR_EVAL_MODE=basilica
+export KINITRO_EXECUTOR_EVAL_MEM_LIMIT="8Gi"  # Kubernetes format for Basilica
 
 uv run kinitro executor \
   --api-url http://localhost:8000 \
@@ -244,9 +246,19 @@ kill $API_PID $SCHEDULER_PID 2>/dev/null || true
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `KINITRO_EXECUTOR_EVAL_MODE` | `docker` | `docker` or `basilica` |
+| `KINITRO_EXECUTOR_EVAL_MEM_LIMIT` | `8g` | Memory limit (`8g` for Docker, `8Gi` for Basilica) |
 | `KINITRO_EXECUTOR_MINER_DEPLOYMENT_ENABLED` | `true` | Enable miner deployments |
 | `KINITRO_EXECUTOR_MINER_DEPLOYMENT_IMAGE` | `kinitro/miner-runner:v1` | Miner runner image |
-| `KINITRO_EXECUTOR_MINER_BASILICA_API_TOKEN` | - | Basilica API token |
-| `KINITRO_EXECUTOR_MINER_HF_TOKEN` | - | HuggingFace token |
+| `KINITRO_EXECUTOR_MINER_BASILICA_API_TOKEN` | - | Basilica API token (required for basilica mode) |
+| `KINITRO_EXECUTOR_MINER_HF_TOKEN` | - | HuggingFace token (optional, for private repos) |
 | `KINITRO_EXECUTOR_MINER_DEPLOYMENT_TTL_SECONDS` | `600` | Deployment cache TTL |
 | `KINITRO_EXECUTOR_MINER_DEPLOYMENT_WARMUP_TIMEOUT` | `300` | Deployment ready timeout |
+
+### Mode Differences
+
+| Aspect | Docker Mode | Basilica Mode |
+|--------|-------------|---------------|
+| Eval envs | affinetes (local containers) | affinetes (Basilica backend) |
+| Miner deployments | affinetes (local containers) | Basilica SDK directly |
+| Memory format | Docker format (`8g`) | Kubernetes format (`8Gi`) |
+| Requires | Docker daemon | `BASILICA_API_TOKEN` |

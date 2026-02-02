@@ -11,7 +11,7 @@ Keep it current when commands or conventions change.
 ## Repo Map
 - `demos/` demonstration scripts and examples.
 - `docs/` operator, validator, and miner guides.
-- `environments/` evaluation environments (MetaWorld, ProcTHOR).
+- `environments/` evaluation and miner runner Docker images (MetaWorld, ProcTHOR, miner).
 - `scripts/` utility scripts.
 - `tests/` unit and integration tests.
 - `kinitro/` core package.
@@ -56,7 +56,10 @@ Keep it current when commands or conventions change.
 ### CLI Examples
 - List environments: `uv run kinitro env list`
 - Test an env: `uv run kinitro env test metaworld/pick-place-v3`
-- Build env image: `uv run kinitro env build --env-id metaworld/pick-place-v3 --tag my-env:v1`
+- Build env images:
+  - `uv run kinitro env build metaworld --tag kinitro/metaworld:v1`
+  - `uv run kinitro env build procthor --tag kinitro/procthor:v1`
+  - `uv run kinitro env build miner --tag kinitro/miner-runner:v1`
 
 ## Git Hooks
 - Hook script: `.githooks/pre-commit` invokes the `pre-commit` tool for ruff formatting/linting, then runs `ty` type checking.
@@ -66,12 +69,24 @@ Keep it current when commands or conventions change.
 ## Services (local dev)
 - API: `uv run kinitro api --database-url postgresql://user:pass@host/db`
 - Scheduler: `uv run kinitro scheduler --netuid <id> --network finney --database-url postgresql://user:pass@host/db`
-- Executor: `uv run kinitro executor --api-url http://localhost:8000`
+- Executor (Docker mode): `uv run kinitro executor --api-url http://localhost:8000`
+- Executor (Basilica mode): `uv run kinitro executor --api-url http://localhost:8000 --eval-mode basilica`
 - Validator: `uv run kinitro validate --backend-url https://api.kinitro.ai --netuid <id> --network finney`
+
+### Executor Environment Variables
+- `KINITRO_EXECUTOR_MINER_HF_TOKEN` - HuggingFace token for private repos
+- `KINITRO_EXECUTOR_MINER_BASILICA_API_TOKEN` - Basilica API token (required for basilica mode)
+- `KINITRO_EXECUTOR_EVAL_MEM_LIMIT` - Memory limit (`8g` for Docker, `8Gi` for Basilica)
 
 ## Backend Setup (operator quick start)
 - Init DB: `uv run kinitro db init --database-url postgresql://user:pass@host/db`
 - DB status: `uv run kinitro db status --database-url postgresql://user:pass@host/db`
+
+## Miner Commands
+- Init policy from template: `uv run kinitro miner init ./my-policy`
+- Deploy (upload + commit): `uv run kinitro miner deploy --repo user/policy --path ./my-policy --netuid <id>`
+- Commit only: `uv run kinitro miner commit --repo user/policy --revision abc123 --netuid <id>`
+- Show commitment: `uv run kinitro miner show-commitment --netuid <id>`
 
 ## Environment Config
 - See `.env.example` for common env vars.
@@ -137,6 +152,7 @@ Keep it current when commands or conventions change.
 - Miner guide: `docs/miner-guide.md`.
 - Validator guide: `docs/validator-guide.md`.
 - Scoring and incentives: `docs/scoring-and-incentives.md`.
+- E2E testing guide: `docs/testing-guide.md`.
 
 ## Change Hygiene for Agents
 - Do not modify files outside the task scope.
