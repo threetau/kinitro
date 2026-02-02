@@ -1,8 +1,9 @@
 """Simplified validator that polls backend for weights and submits to chain."""
 
+from __future__ import annotations
+
 import asyncio
 
-import bittensor as bt
 import structlog
 
 from kinitro.chain.weights import set_weights, verify_weight_setting_eligibility
@@ -55,6 +56,8 @@ class Validator:
     def subtensor(self):
         """Lazy-load subtensor connection."""
         if self._subtensor is None:
+            import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
+
             self._subtensor = bt.Subtensor(network=self.config.network)
         return self._subtensor
 
@@ -62,6 +65,8 @@ class Validator:
     def wallet(self):
         """Lazy-load wallet."""
         if self._wallet is None:
+            import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
+
             self._wallet = bt.Wallet(
                 name=self.config.wallet_name,
                 hotkey=self.config.hotkey_name,

@@ -2,7 +2,6 @@
 
 import os
 
-import bittensor as bt
 import typer
 from basilica import BasilicaClient
 from huggingface_hub import HfApi
@@ -461,6 +460,8 @@ def miner_deploy(
                 f"  [DRY RUN] Would commit {repo}@{revision_value[:12]}... with deployment_id {deployment_id}"
             )
         else:
+            import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
+
             subtensor = bt.Subtensor(network=network)
             wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)
 
