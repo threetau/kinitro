@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import time
 
-import bittensor as bt
 import structlog
 
 from kinitro.backend.storage import Storage
@@ -50,6 +49,8 @@ class Scheduler:
     def subtensor(self):
         """Lazy-load subtensor connection."""
         if self._subtensor is None:
+            import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
+
             self._subtensor = bt.Subtensor(network=self.config.network)
         return self._subtensor
 

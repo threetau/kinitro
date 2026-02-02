@@ -4,7 +4,6 @@ import json
 import os
 from pathlib import Path
 
-import bittensor as bt
 import typer
 
 from kinitro.chain.commitments import _query_commitment_by_hotkey
@@ -66,6 +65,8 @@ def fetch_backend_public_key(
     Returns:
         Public key hex string, or None if not found
     """
+    import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
+
     subtensor = bt.Subtensor(network=network)
     try:
         commitment_str, _ = _query_commitment_by_hotkey(subtensor, netuid, backend_hotkey)
@@ -224,6 +225,8 @@ def publish_public_key(
     typer.echo(f"  Commitment size: {len(commitment_data)} bytes")
 
     # Connect and publish
+    import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
+
     subtensor = bt.Subtensor(network=network)
     wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)
 

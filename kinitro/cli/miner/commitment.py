@@ -1,6 +1,5 @@
 """Chain commitment commands for miners."""
 
-import bittensor as bt
 import typer
 
 from kinitro.chain.commitments import (
@@ -102,6 +101,8 @@ def commit(
             )
             raise typer.Exit(1)
 
+    import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
+
     subtensor = bt.Subtensor(network=network)
     wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)
 
@@ -147,6 +148,8 @@ def show_commitment(
 
     Query by wallet (default), UID, or hotkey address.
     """
+    import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
+
     subtensor = bt.Subtensor(network=network)
 
     try:
