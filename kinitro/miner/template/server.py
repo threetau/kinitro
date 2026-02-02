@@ -2,20 +2,17 @@
 Miner Policy Server for Robotics Subnet
 
 This FastAPI server exposes your robotics policy as HTTP endpoints
-that validators can query during evaluation.
+that executors query during evaluation.
 
-DEPLOYMENT OPTIONS:
+WORKFLOW:
 
-1. Basilica Platform (Recommended):
-   - Use kinitro CLI: kinitro miner push --repo YOUR_HF_REPO --revision YOUR_REVISION
-   - Or use one-command deploy: kinitro miner deploy -r YOUR_HF_REPO -p . --netuid YOUR_NETUID
+1. Implement your policy in policy.py
+2. Test locally: uvicorn server:app --port 8001
+3. Upload to HuggingFace: huggingface-cli upload user/repo .
+4. Commit on-chain: kinitro miner deploy -r user/repo -p . --netuid YOUR_NETUID
 
-2. Self-Hosted:
-   - Run this server directly with uvicorn
-   - Ensure your endpoint is publicly accessible
-
-After deployment, commit your policy on-chain:
-    kinitro miner commit --endpoint YOUR_ENDPOINT_URL --netuid YOUR_NETUID
+The executor automatically downloads your model from HuggingFace and
+creates deployments on-demand for evaluation.
 
 Endpoints:
     POST /reset - Reset policy for new episode

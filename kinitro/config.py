@@ -53,23 +53,3 @@ class ValidatorConfig(BaseSettings):
 
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
-
-
-class MinerConfig(BaseSettings):
-    """Miner-specific configuration."""
-
-    model_config = SettingsConfigDict(env_prefix="KINITRO_")
-
-    network: str = Field(default="finney")
-    netuid: int = Field(default=1)
-    wallet_name: str = Field(default="default")
-    hotkey_name: str = Field(default="default")
-
-    # Model settings
-    huggingface_repo: str | None = Field(default=None, description="HuggingFace model repo")
-    model_revision: str | None = Field(default=None, description="Model revision/commit SHA")
-    deployment_id: str | None = Field(default=None, description="Basilica deployment ID")
-
-    # Docker settings
-    docker_registry: str = Field(default="docker.io", description="Docker registry")
-    docker_username: str | None = Field(default=None, description="Docker Hub username")

@@ -40,9 +40,7 @@ def parse_commitment(raw: str) -> dict:
     """
     Parse raw commitment string from chain.
 
-    New format: "user/repo:rev8char"
-    Legacy format (backward compatible): "user/repo:rev8char:deployment_id"
-                                         "user/repo:rev8char:e:<base85_blob>"
+    Format: "user/repo:rev8char"
 
     Note: revision is truncated to 8 characters (short SHA).
 
@@ -54,17 +52,12 @@ def parse_commitment(raw: str) -> dict:
             - huggingface_repo: HuggingFace repo (e.g., "user/model")
             - revision_sha: Commit SHA (truncated to 8 chars)
     """
-    parts = raw.split(":", 3)
+    parts = raw.split(":", 2)
 
-    if len(parts) >= 2:
-        hf_repo = parts[0]
-        revision = parts[1]
-
-        # Legacy format with deployment_id (3+ parts) - ignore deployment info
-        # New format is just repo:revision (2 parts)
+    if len(parts) == 2:
         return {
-            "huggingface_repo": hf_repo,
-            "revision_sha": revision,
+            "huggingface_repo": parts[0],
+            "revision_sha": parts[1],
         }
 
     # Invalid format

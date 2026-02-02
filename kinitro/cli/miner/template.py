@@ -55,7 +55,4 @@ def init_miner(
     typer.echo("  2. Add your model weights to the directory")
     typer.echo("  3. Test locally: uvicorn server:app --port 8001")
     typer.echo("  4. Upload to HuggingFace: huggingface-cli upload user/repo .")
-    typer.echo("  5. Deploy to Basilica: kinitro miner push --repo user/repo --revision SHA")
-    typer.echo(
-        "  6. Or use one-command deploy: kinitro miner deploy -r user/repo -p . --netuid ..."
-    )
+    typer.echo("  5. Commit on-chain: kinitro miner deploy -r user/repo -p . --netuid ...")
