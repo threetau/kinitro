@@ -404,7 +404,8 @@ def commit_model(
     Returns:
         True if commitment succeeded
     """
-    # Truncate revision to 8 chars (standard git short SHA, sufficient for uniqueness)
+    # Truncate revision to 8 chars to fit within MAX_COMMITMENT_SIZE (128 bytes).
+    # HuggingFace supports short SHA resolution like git.
     revision_short = revision[:8]
 
     # Validate no colons in fields (would break colon-separated format)
