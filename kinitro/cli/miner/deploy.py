@@ -231,6 +231,7 @@ def miner_deploy(
     memory: str = typer.Option(
         "512Mi", "--memory", help="Memory allocation (e.g., '512Mi', '16Gi')"
     ),
+    timeout: int = typer.Option(600, "--timeout", help="Deployment timeout in seconds"),
 ):
     """
     One-command deployment: Upload -> Deploy -> Commit.
@@ -418,7 +419,7 @@ def miner_deploy(
                 "cpu": cpu,
                 "memory": memory,
                 "pip_packages": PIP_PACKAGES,
-                "timeout": 600,
+                "timeout": timeout,
             }
 
             if gpu_count > 0:

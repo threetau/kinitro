@@ -136,17 +136,17 @@ class PolicyVerifier:
             # Use hashlib for cross-process determinism (hash() is randomized by PYTHONHASHSEED)
             seed_str = f"{miner_uid}:{revision}".encode()
             test_seed = int(hashlib.sha256(seed_str).hexdigest()[:8], 16) % (2**31)
-            np.random.seed(test_seed)
+            rng = np.random.default_rng(test_seed)
 
             # Generate CanonicalObservation objects for testing
             test_observations = []
             for _ in range(self.num_samples):
                 obs = CanonicalObservation(
-                    ee_pos_m=np.random.uniform(-1, 1, size=3).tolist(),
+                    ee_pos_m=rng.uniform(-1, 1, size=3).tolist(),
                     ee_quat_xyzw=[0.0, 0.0, 0.0, 1.0],  # Identity quaternion
-                    ee_lin_vel_mps=np.random.uniform(-0.5, 0.5, size=3).tolist(),
-                    ee_ang_vel_rps=np.random.uniform(-0.5, 0.5, size=3).tolist(),
-                    gripper_01=float(np.random.uniform(0, 1)),
+                    ee_lin_vel_mps=rng.uniform(-0.5, 0.5, size=3).tolist(),
+                    ee_ang_vel_rps=rng.uniform(-0.5, 0.5, size=3).tolist(),
+                    gripper_01=float(rng.uniform(0, 1)),
                     rgb={},  # No images for verification (simpler comparison)
                 )
                 test_observations.append(obs)

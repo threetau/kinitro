@@ -28,6 +28,7 @@ venv/
 .uv/
 
 # IDE
+.claude/
 .idea/
 .vscode/
 *.swp
@@ -83,3 +84,4 @@ logs/
 tmp/
 temp/
 *.tmp
+

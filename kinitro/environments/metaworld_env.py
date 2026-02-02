@@ -299,9 +299,9 @@ class MetaWorldEnvironment(RoboticsEnvironment):
                 if img is not None:
                     # Flip vertically - MuJoCo renders with origin at bottom-left
                     images[cam_name] = np.flipud(img)
-            except Exception:
+            except Exception as e:
                 # Rendering may fail in headless environments
-                pass
+                logger.debug("metaworld_camera_render_failed", camera_name=cam_name, error=str(e))
 
         return images
 
@@ -315,7 +315,13 @@ class MetaWorldEnvironment(RoboticsEnvironment):
             quat_wxyz = data.site_xquat[ee_site]
             quat_xyzw = np.array([quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]])
             return normalize_quaternion(quat_xyzw.astype(np.float32))
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "metaworld_ee_quaternion_failed",
+                env_id=self._env_id,
+                error=str(e),
+                hint="Using identity quaternion fallback",
+            )
             return np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
 
     def _quat_multiply(self, a_xyzw: np.ndarray, b_xyzw: np.ndarray) -> np.ndarray:
@@ -359,8 +365,8 @@ class MetaWorldEnvironment(RoboticsEnvironment):
             ee_site = env.unwrapped.model.site_name2id(self._ee_site_name)
             ee_lin_vel = np.array(data.site_xvelp[ee_site], dtype=np.float32)
             ee_ang_vel = np.array(data.site_xvelr[ee_site], dtype=np.float32)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("metaworld_velocity_lookup_failed", env_id=self._env_id, error=str(e))
 
         if ee_lin_vel is None:
             if self._prev_ee_pos is None or self._control_dt is None:
@@ -498,8 +504,13 @@ class MetaWorldEnvironment(RoboticsEnvironment):
                 damping_scale = physics_params["damping"]
                 model.dof_damping[:] *= damping_scale
 
-        except (AttributeError, TypeError):
-            pass
+        except (AttributeError, TypeError) as e:
+            logger.warning(
+                "metaworld_physics_randomization_failed",
+                env_id=self._env_id,
+                error=str(e),
+                hint="Evaluation proceeds with default physics parameters",
+            )
 
     def step(
         self,
@@ -599,11 +610,11 @@ class MetaWorldEnvironment(RoboticsEnvironment):
             self._env.close()
             self._env = None
 
-        for cam_env in self._camera_envs.values():
+        for cam_name, cam_env in self._camera_envs.items():
             try:
                 cam_env.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("metaworld_camera_close_failed", camera_name=cam_name, error=str(e))
         self._camera_envs.clear()
 
     def render(self, camera_name: str = "corner") -> np.ndarray | None:
@@ -630,6 +641,7 @@ class MetaWorldEnvironment(RoboticsEnvironment):
                     if callable(mj_forward):
                         mj_forward(cam_env.unwrapped.model, cam_data)
                 return cam_env.render()
-            except Exception:
+            except Exception as e:
+                logger.debug("metaworld_render_failed", camera_name=camera_name, error=str(e))
                 return None
         return None

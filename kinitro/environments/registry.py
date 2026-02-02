@@ -1,6 +1,7 @@
 """Environment registry for loading robotics environments."""
 
 import json
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -137,8 +138,20 @@ def _load_family_metadata() -> dict[str, dict[str, str]]:
 
 class _FamilyMetadataCache:
     def __init__(self) -> None:
-        self.loaded = False
-        self.cache: dict[str, dict[str, str]] = {}
+        self._lock = threading.Lock()
+        self._loaded = False
+        self._cache: dict[str, dict[str, str]] = {}
+
+    def get(self) -> dict[str, dict[str, str]]:
+        """Get cached family metadata, loading if necessary (thread-safe)."""
+        if self._loaded:
+            return self._cache
+        with self._lock:
+            # Double-check after acquiring lock
+            if not self._loaded:
+                self._cache = _load_family_metadata()
+                self._loaded = True
+            return self._cache
 
 
 _family_metadata_cache = _FamilyMetadataCache()
@@ -146,10 +159,7 @@ _family_metadata_cache = _FamilyMetadataCache()
 
 def _get_family_metadata_cache() -> dict[str, dict[str, str]]:
     """Get cached family metadata, loading if necessary."""
-    if not _family_metadata_cache.loaded:
-        _family_metadata_cache.cache = _load_family_metadata()
-        _family_metadata_cache.loaded = True
-    return _family_metadata_cache.cache
+    return _family_metadata_cache.get()
 
 
 def get_available_families() -> list[str]:
