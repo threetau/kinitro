@@ -10,7 +10,7 @@ import structlog
 from kinitro.backend.storage import Storage
 from kinitro.chain.commitments import read_miner_commitments
 from kinitro.crypto import BackendKeypair
-from kinitro.environments import get_all_environment_ids
+from kinitro.environments import get_all_environment_ids, get_environments_by_family
 from kinitro.scheduler.config import SchedulerConfig
 from kinitro.scheduler.scoring import (
     aggregate_task_results,
@@ -37,7 +37,13 @@ class Scheduler:
     def __init__(self, config: SchedulerConfig, storage: Storage):
         self.config = config
         self.storage = storage
-        self.env_ids = get_all_environment_ids()
+        # Filter environments by family if configured
+        if config.env_families:
+            self.env_ids = []
+            for family in config.env_families:
+                self.env_ids.extend(get_environments_by_family(family))
+        else:
+            self.env_ids = get_all_environment_ids()
         self._running = False
         self._subtensor = None
         self._backend_keypair: BackendKeypair | None = None

@@ -77,5 +77,12 @@ class SchedulerConfig(BaseSettings):
         "This ensures cycle isolation when the scheduler restarts.",
     )
 
+    # Environment filtering
+    env_families: list[str] | None = Field(
+        default=None,
+        description="Filter environments to specific families (e.g., ['metaworld']). "
+        "If None, all environments are used.",
+    )
+
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
