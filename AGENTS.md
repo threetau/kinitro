@@ -66,7 +66,10 @@ Keep it current when commands or conventions change.
 ## Services (local dev)
 - API: `uv run kinitro api --database-url postgresql://user:pass@host/db`
 - Scheduler: `uv run kinitro scheduler --netuid <id> --network finney --database-url postgresql://user:pass@host/db`
+  - Filter to specific environment families: `--env-families metaworld` or `--env-families metaworld,procthor`
 - Executor: `uv run kinitro executor --api-url http://localhost:8000`
+  - Docker mode: `--eval-mode docker --eval-images '{"metaworld":"image:tag"}'`
+  - Basilica mode: `--eval-mode basilica --eval-images '{"metaworld":"image:tag"}'`
 - Validator: `uv run kinitro validate --backend-url https://api.kinitro.ai --netuid <id> --network finney`
 
 ## Backend Setup (operator quick start)

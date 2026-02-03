@@ -70,13 +70,6 @@ class SchedulerConfig(BaseSettings):
         description="Maximum time to wait for a cycle to complete",
     )
 
-    # Cycle isolation
-    cleanup_incomplete_cycles: bool = Field(
-        default=True,
-        description="Cancel incomplete cycles and their tasks on startup. "
-        "This ensures cycle isolation when the scheduler restarts.",
-    )
-
     # Environment filtering
     env_families: list[str] | None = Field(
         default=None,

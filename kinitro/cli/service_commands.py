@@ -68,10 +68,6 @@ def scheduler(
         None,
         help="Filter environments to specific families, comma-separated (e.g., metaworld,procthor)",
     ),
-    cleanup_incomplete_cycles: bool = typer.Option(
-        True,
-        help="Cancel incomplete cycles from previous runs on startup (cycle isolation)",
-    ),
     log_level: str = typer.Option("INFO", help="Logging level"),
 ):
     """
@@ -107,7 +103,6 @@ def scheduler(
         eval_interval_seconds=eval_interval,
         episodes_per_env=episodes_per_env,
         env_families=parsed_env_families,
-        cleanup_incomplete_cycles=cleanup_incomplete_cycles,
         log_level=log_level,
     )
 

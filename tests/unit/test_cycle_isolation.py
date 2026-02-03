@@ -11,7 +11,6 @@ from kinitro.backend.models import (
     TaskStatus,
 )
 from kinitro.backend.storage import Storage
-from kinitro.scheduler.config import SchedulerConfig
 
 
 class TestCancelIncompleteCycles:
@@ -106,28 +105,3 @@ class TestCancelIncompleteCycles:
         # Only the pending task is cancelled
         assert tasks_cancelled == 1
         assert mock_task.status == TaskStatus.FAILED.value
-
-
-class TestSchedulerConfig:
-    """Tests for scheduler config cycle isolation option."""
-
-    def test_cleanup_incomplete_cycles_default_true(self):
-        """Default value for cleanup_incomplete_cycles is True."""
-        config = SchedulerConfig(
-            database_url="postgresql+asyncpg://test:test@localhost/test",
-            network="test",
-            netuid=1,
-        )
-
-        assert config.cleanup_incomplete_cycles is True
-
-    def test_cleanup_incomplete_cycles_can_be_disabled(self):
-        """cleanup_incomplete_cycles can be set to False."""
-        config = SchedulerConfig(
-            database_url="postgresql+asyncpg://test:test@localhost/test",
-            network="test",
-            netuid=1,
-            cleanup_incomplete_cycles=False,
-        )
-
-        assert config.cleanup_incomplete_cycles is False

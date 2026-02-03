@@ -71,16 +71,20 @@ class ExecutorConfig(BaseSettings):
     def normalize_mem_limit(cls, v: str) -> str:
         """Normalize Kubernetes-style memory units to Docker format.
 
-        Converts Ki->k, Mi->m, Gi->g, Ti->t for Docker compatibility.
+        Converts Ki->k, Mi->m, Gi->g for Docker compatibility.
+        Ti (terabytes) is converted to gigabytes since Docker doesn't support 't' unit.
         """
         # Pattern matches Kubernetes binary units (Ki, Mi, Gi, Ti)
         k8s_pattern = re.compile(r"^(\d+)(Ki|Mi|Gi|Ti)$", re.IGNORECASE)
         match = k8s_pattern.match(v.strip())
         if match:
-            amount = match.group(1)
+            amount = int(match.group(1))
             unit = match.group(2).lower()
-            # Convert Ki->k, Mi->m, Gi->g, Ti->t
-            docker_unit = unit[0]  # Take first char: ki->k, mi->m, gi->g, ti->t
+            # Docker only supports b, k, m, g - convert Ti to g (1 Ti = 1024 Gi)
+            if unit == "ti":
+                return f"{amount * 1024}g"
+            # Convert Ki->k, Mi->m, Gi->g
+            docker_unit = unit[0]
             return f"{amount}{docker_unit}"
         return v
 
