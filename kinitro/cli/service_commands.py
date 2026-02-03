@@ -64,6 +64,10 @@ def scheduler(
     netuid: int = typer.Option(..., help="Subnet UID"),
     eval_interval: int = typer.Option(3600, help="Seconds between evaluation cycles"),
     episodes_per_env: int = typer.Option(50, help="Episodes per environment"),
+    cleanup_incomplete_cycles: bool = typer.Option(
+        True,
+        help="Cancel incomplete cycles from previous runs on startup (cycle isolation)",
+    ),
     log_level: str = typer.Option("INFO", help="Logging level"),
 ):
     """
@@ -93,6 +97,7 @@ def scheduler(
         netuid=netuid,
         eval_interval_seconds=eval_interval,
         episodes_per_env=episodes_per_env,
+        cleanup_incomplete_cycles=cleanup_incomplete_cycles,
         log_level=log_level,
     )
 

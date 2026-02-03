@@ -95,6 +95,20 @@ class Scheduler:
             return
 
         self._running = True
+
+        # Clean up incomplete cycles from previous runs (cycle isolation)
+        if self.config.cleanup_incomplete_cycles:
+            async with self.storage.session() as session:
+                cycles_cancelled, tasks_cancelled = await self.storage.cancel_incomplete_cycles(
+                    session
+                )
+                if cycles_cancelled > 0:
+                    logger.info(
+                        "startup_cleanup_complete",
+                        cycles_cancelled=cycles_cancelled,
+                        tasks_cancelled=tasks_cancelled,
+                    )
+
         logger.info(
             "scheduler_started",
             interval_seconds=self.config.eval_interval_seconds,

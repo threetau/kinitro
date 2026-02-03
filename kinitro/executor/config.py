@@ -59,8 +59,8 @@ class ExecutorConfig(BaseSettings):
         description="Evaluation mode: 'docker' or 'basilica'",
     )
     eval_mem_limit: str = Field(
-        default="8g",
-        description="Memory limit for evaluation container",
+        default="8Gi",
+        description="Memory limit for evaluation container (use Kubernetes format: 512Mi, 8Gi)",
     )
     eval_hosts: list[str] = Field(
         default_factory=lambda: ["localhost"],
