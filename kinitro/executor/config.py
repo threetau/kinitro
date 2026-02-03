@@ -1,8 +1,9 @@
 """Configuration for the Executor service."""
 
+import re
 import uuid
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -60,8 +61,33 @@ class ExecutorConfig(BaseSettings):
     )
     eval_mem_limit: str = Field(
         default="8g",
-        description="Memory limit for evaluation container",
+        description="Memory limit for evaluation container. "
+        "Docker format with lowercase units: b, k, m, g (e.g., '8g', '512m'). "
+        "Kubernetes-style units (Ki, Mi, Gi, Ti) are auto-converted for docker mode.",
     )
+
+    @field_validator("eval_mem_limit")
+    @classmethod
+    def normalize_mem_limit(cls, v: str) -> str:
+        """Normalize Kubernetes-style memory units to Docker format.
+
+        Converts Ki->k, Mi->m, Gi->g for Docker compatibility.
+        Ti (terabytes) is converted to gigabytes since Docker doesn't support 't' unit.
+        """
+        # Pattern matches Kubernetes binary units (Ki, Mi, Gi, Ti)
+        k8s_pattern = re.compile(r"^(\d+)(Ki|Mi|Gi|Ti)$", re.IGNORECASE)
+        match = k8s_pattern.match(v.strip())
+        if match:
+            amount = int(match.group(1))
+            unit = match.group(2).lower()
+            # Docker only supports b, k, m, g - convert Ti to g (1 Ti = 1024 Gi)
+            if unit == "ti":
+                return f"{amount * 1024}g"
+            # Convert Ki->k, Mi->m, Gi->g
+            docker_unit = unit[0]
+            return f"{amount}{docker_unit}"
+        return v
+
     eval_hosts: list[str] = Field(
         default_factory=lambda: ["localhost"],
         description="Docker hosts for evaluation",

@@ -6,7 +6,12 @@ robotics simulation environments (MetaWorld, ProcTHOR, DM Control, ManiSkill).
 """
 
 from kinitro.environments.base import EpisodeResult, RoboticsEnvironment, TaskConfig
-from kinitro.environments.registry import ENVIRONMENTS, get_all_environment_ids, get_environment
+from kinitro.environments.registry import (
+    ENVIRONMENTS,
+    get_all_environment_ids,
+    get_environment,
+    get_environments_by_family,
+)
 
 __all__ = [
     "RoboticsEnvironment",
@@ -15,4 +20,5 @@ __all__ = [
     "ENVIRONMENTS",
     "get_environment",
     "get_all_environment_ids",
+    "get_environments_by_family",
 ]

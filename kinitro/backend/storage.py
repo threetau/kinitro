@@ -609,3 +609,73 @@ class Storage:
             logger.info("stale_tasks_reassigned", count=len(stale_tasks))
 
         return len(stale_tasks)
+
+    async def cancel_incomplete_cycles(
+        self,
+        session: AsyncSession,
+    ) -> tuple[int, int]:
+        """Cancel all incomplete cycles and their pending/assigned tasks.
+
+        This is used on scheduler startup to ensure cycle isolation - any cycles
+        left in RUNNING or PENDING state from previous runs are marked as FAILED,
+        and their tasks are cancelled.
+
+        Args:
+            session: Database session
+
+        Returns:
+            Tuple of (cycles_cancelled, tasks_cancelled)
+        """
+        # Find incomplete cycles (RUNNING or PENDING)
+        result = await session.execute(
+            select(EvaluationCycleORM).where(
+                EvaluationCycleORM.status.in_(
+                    [
+                        EvaluationCycleStatus.RUNNING.value,
+                        EvaluationCycleStatus.PENDING.value,
+                    ]
+                )
+            )
+        )
+        incomplete_cycles = list(result.scalars().all())
+
+        if not incomplete_cycles:
+            return 0, 0
+
+        cycle_ids = [c.id for c in incomplete_cycles]
+
+        # Cancel pending/assigned tasks for these cycles
+        tasks_result = await session.execute(
+            select(TaskPoolORM)
+            .where(TaskPoolORM.cycle_id.in_(cycle_ids))
+            .where(
+                TaskPoolORM.status.in_(
+                    [
+                        TaskStatus.PENDING.value,
+                        TaskStatus.ASSIGNED.value,
+                    ]
+                )
+            )
+            .with_for_update()
+        )
+        tasks_to_cancel = list(tasks_result.scalars().all())
+
+        for task in tasks_to_cancel:
+            task.status = TaskStatus.FAILED.value
+            task.completed_at = datetime.now(timezone.utc)
+            task.result = {"error": "Cycle cancelled on scheduler restart"}
+
+        # Mark cycles as failed
+        for cycle in incomplete_cycles:
+            cycle.status = EvaluationCycleStatus.FAILED.value
+            cycle.completed_at = datetime.now(timezone.utc)
+            cycle.error_message = "Cancelled on scheduler restart (cycle isolation)"
+
+        logger.info(
+            "incomplete_cycles_cancelled",
+            cycles=len(incomplete_cycles),
+            cycle_ids=cycle_ids,
+            tasks_cancelled=len(tasks_to_cancel),
+        )
+
+        return len(incomplete_cycles), len(tasks_to_cancel)

@@ -146,21 +146,22 @@ Additional API settings:
 
 ### Scheduler Service Configuration
 
-| CLI Flag             | Environment Variable                      | Default                    | Description                 |
-| -------------------- | ----------------------------------------- | -------------------------- | --------------------------- |
-| `--database-url`     | `KINITRO_SCHEDULER_DATABASE_URL`          | `postgresql+asyncpg://...` | PostgreSQL connection URL   |
-| `--network`          | `KINITRO_SCHEDULER_NETWORK`               | `finney`                   | Bittensor network           |
-| `--netuid`           | `KINITRO_SCHEDULER_NETUID`                | `1`                        | Subnet UID                  |
-| `--eval-interval`    | `KINITRO_SCHEDULER_EVAL_INTERVAL_SECONDS` | `3600`                     | Seconds between eval cycles |
-| `--episodes-per-env` | `KINITRO_SCHEDULER_EPISODES_PER_ENV`      | `50`                       | Episodes per environment    |
-| `--log-level`        | `KINITRO_SCHEDULER_LOG_LEVEL`             | `INFO`                     | Logging level               |
+| CLI Flag             | Environment Variable                      | Default                    | Description                                                               |
+| -------------------- | ----------------------------------------- | -------------------------- | ------------------------------------------------------------------------- |
+| `--database-url`     | `KINITRO_SCHEDULER_DATABASE_URL`          | `postgresql+asyncpg://...` | PostgreSQL connection URL                                                 |
+| `--network`          | `KINITRO_SCHEDULER_NETWORK`               | `finney`                   | Bittensor network                                                         |
+| `--netuid`           | `KINITRO_SCHEDULER_NETUID`                | `1`                        | Subnet UID                                                                |
+| `--eval-interval`    | `KINITRO_SCHEDULER_EVAL_INTERVAL_SECONDS` | `3600`                     | Seconds between eval cycles                                               |
+| `--episodes-per-env` | `KINITRO_SCHEDULER_EPISODES_PER_ENV`      | `50`                       | Episodes per environment                                                  |
+| `--env-families`     | `KINITRO_SCHEDULER_ENV_FAMILIES`          | `null` (all)               | Filter to specific families, comma-separated (e.g., `metaworld,procthor`) |
+| `--log-level`        | `KINITRO_SCHEDULER_LOG_LEVEL`             | `INFO`                     | Logging level                                                             |
 
 Additional Scheduler settings:
 
 | Environment Variable                             | Default | Description                                  |
 | ------------------------------------------------ | ------- | -------------------------------------------- |
 | `KINITRO_SCHEDULER_PARETO_TEMPERATURE`           | `1.0`   | Softmax temperature for weight conversion    |
-| `KINITRO_SCHEDULER_TASK_STALE_THRESHOLD_SECONDS` | `300`   | Time after which assigned tasks become stale |
+| `KINITRO_SCHEDULER_TASK_STALE_THRESHOLD_SECONDS` | `900`   | Time after which assigned tasks become stale |
 | `KINITRO_SCHEDULER_CYCLE_TIMEOUT_SECONDS`        | `7200`  | Maximum time to wait for cycle completion    |
 | `KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY`          | `null`  | X25519 private key (hex) for endpoint decrypt |
 | `KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY_FILE`     | `null`  | Path to backend private key file              |

@@ -62,12 +62,19 @@ class SchedulerConfig(BaseSettings):
 
     # Task pool settings
     task_stale_threshold_seconds: int = Field(
-        default=300,
-        description="Time after which assigned tasks are considered stale",
+        default=900,
+        description="Time after which assigned tasks are considered stale (15 min for Basilica)",
     )
     cycle_timeout_seconds: int = Field(
         default=7200,
         description="Maximum time to wait for a cycle to complete",
+    )
+
+    # Environment filtering
+    env_families: list[str] | None = Field(
+        default=None,
+        description="Filter environments to specific families (e.g., ['metaworld']). "
+        "If None, all environments are used.",
     )
 
     # Logging

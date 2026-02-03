@@ -64,6 +64,10 @@ def scheduler(
     netuid: int = typer.Option(..., help="Subnet UID"),
     eval_interval: int = typer.Option(3600, help="Seconds between evaluation cycles"),
     episodes_per_env: int = typer.Option(50, help="Episodes per environment"),
+    env_families: str | None = typer.Option(
+        None,
+        help="Filter environments to specific families, comma-separated (e.g., metaworld,procthor)",
+    ),
     log_level: str = typer.Option("INFO", help="Logging level"),
 ):
     """
@@ -87,12 +91,18 @@ def scheduler(
 
     normalized_db_url = normalize_database_url(database_url)
 
+    # Parse comma-separated env_families into list
+    parsed_env_families = None
+    if env_families:
+        parsed_env_families = [f.strip() for f in env_families.split(",") if f.strip()]
+
     config = SchedulerConfig(
         database_url=normalized_db_url,
         network=network,
         netuid=netuid,
         eval_interval_seconds=eval_interval,
         episodes_per_env=episodes_per_env,
+        env_families=parsed_env_families,
         log_level=log_level,
     )
 

@@ -10,7 +10,7 @@ import structlog
 from kinitro.backend.storage import Storage
 from kinitro.chain.commitments import read_miner_commitments
 from kinitro.crypto import BackendKeypair
-from kinitro.environments import get_all_environment_ids
+from kinitro.environments import get_all_environment_ids, get_environments_by_family
 from kinitro.scheduler.config import SchedulerConfig
 from kinitro.scheduler.scoring import (
     aggregate_task_results,
@@ -37,7 +37,31 @@ class Scheduler:
     def __init__(self, config: SchedulerConfig, storage: Storage):
         self.config = config
         self.storage = storage
-        self.env_ids = get_all_environment_ids()
+        # Filter environments by family if configured
+        if self.config.env_families:
+            env_ids: list[str] = []
+            missing_families: list[str] = []
+            for family in self.config.env_families:
+                family_envs = get_environments_by_family(family)
+                if not family_envs:
+                    missing_families.append(family)
+                env_ids.extend(family_envs)
+            # Deduplicate while preserving order
+            seen: set[str] = set()
+            self.env_ids = [e for e in env_ids if not (e in seen or seen.add(e))]
+            if missing_families:
+                logger.warning(
+                    "unknown_environment_families",
+                    families=missing_families,
+                    hint="These families have no registered environments",
+                )
+            if not self.env_ids:
+                raise ValueError(
+                    f"Environment family filter produced zero environments. "
+                    f"Families requested: {self.config.env_families}"
+                )
+        else:
+            self.env_ids = get_all_environment_ids()
         self._running = False
         self._subtensor = None
         self._backend_keypair: BackendKeypair | None = None
@@ -94,7 +118,19 @@ class Scheduler:
             logger.warning("scheduler_already_running")
             return
 
+        # Clean up incomplete cycles from previous runs (cycle isolation)
+        async with self.storage.session() as session:
+            cycles_cancelled, tasks_cancelled = await self.storage.cancel_incomplete_cycles(session)
+            if cycles_cancelled > 0:
+                logger.info(
+                    "startup_cleanup_complete",
+                    cycles_cancelled=cycles_cancelled,
+                    tasks_cancelled=tasks_cancelled,
+                )
+
+        # Set running flag only after successful cleanup
         self._running = True
+
         logger.info(
             "scheduler_started",
             interval_seconds=self.config.eval_interval_seconds,
