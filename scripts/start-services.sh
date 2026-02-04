@@ -17,6 +17,11 @@ else
     exit 1
 fi
 
+if [[ -z "${WORKTREE_NAME:-}" ]]; then
+    echo "Error: WORKTREE_NAME not set in .env. Regenerate with ./scripts/worktree-env.sh"
+    exit 1
+fi
+
 LOG_DIR="/tmp/kinitro_${WORKTREE_NAME}"
 mkdir -p "$LOG_DIR"
 
@@ -53,7 +58,7 @@ start_postgres() {
 
     # Wait for postgres to be ready
     echo "Waiting for PostgreSQL to be ready..."
-    for i in {1..30}; do
+    for _ in {1..30}; do
         if PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -c '\q' 2>/dev/null; then
             echo "PostgreSQL is ready"
             return 0
@@ -90,21 +95,21 @@ start_scheduler() {
 }
 
 start_executor() {
-    local eval_images="${EVAL_IMAGES:-'{}'}"
+    local eval_images="${EVAL_IMAGES:-{}}"
     local env_families="${ENV_FAMILIES:-}"
 
     echo "Starting executor..."
-    local cmd="uv run kinitro executor --api-url $API_URL --eval-mode docker --batch-size 3 --poll-interval 5 --log-level INFO"
+    local cmd=(uv run kinitro executor --api-url "$API_URL" --eval-mode docker --batch-size 3 --poll-interval 5 --log-level INFO)
 
-    if [[ -n "$eval_images" && "$eval_images" != "'{}'" ]]; then
-        cmd="$cmd --eval-images $eval_images"
+    if [[ -n "$eval_images" && "$eval_images" != "{}" ]]; then
+        cmd+=(--eval-images "$eval_images")
     fi
 
     if [[ -n "$env_families" ]]; then
-        cmd="$cmd --env-families $env_families"
+        cmd+=(--env-families "$env_families")
     fi
 
-    nohup $cmd &> "$LOG_DIR/executor.log" &
+    nohup "${cmd[@]}" &> "$LOG_DIR/executor.log" &
     echo "Executor started (PID: $!)"
 }
 
@@ -150,10 +155,33 @@ case "$COMMAND" in
     start)
         start_postgres
         sleep 2
+
+        start_scheduler_flag=false
+        start_executor_flag=false
+
+        case "${1:-}" in
+            --api-only)
+                ;;
+            --scheduler)
+                start_scheduler_flag=true
+                ;;
+            --executor)
+                start_executor_flag=true
+                ;;
+            --all|"")
+                start_scheduler_flag=true
+                start_executor_flag=true
+                ;;
+        esac
+
         start_api
-        if [[ "${1:-}" == "--all" || -z "${1:-}" ]]; then
+        if $start_scheduler_flag || $start_executor_flag; then
             sleep 2
+        fi
+        if $start_scheduler_flag; then
             start_scheduler
+        fi
+        if $start_executor_flag; then
             start_executor
         fi
         echo ""

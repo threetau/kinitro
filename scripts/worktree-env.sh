@@ -18,7 +18,14 @@ get_port_offset() {
     # Use first 4 hex chars of md5 hash, convert to decimal, mod 1000
     # This gives us offsets 0-999
     local hash
-    hash=$(echo -n "$name" | md5sum | cut -c1-4)
+    if command -v md5sum &>/dev/null; then
+        hash=$(echo -n "$name" | md5sum | cut -c1-4)
+    elif command -v md5 &>/dev/null; then
+        hash=$(echo -n "$name" | md5 | cut -c1-4)
+    else
+        echo "Error: Neither md5sum nor md5 found" >&2
+        exit 1
+    fi
     echo $((16#$hash % 1000))
 }
 

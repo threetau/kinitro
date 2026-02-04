@@ -170,7 +170,7 @@ uv run kinitro env build metaworld --tag kinitro/metaworld:v1
 
 ### Troubleshooting
 - Port conflicts: Run `./scripts/worktree-env.sh` to regenerate ports, then `./scripts/start-services.sh stop`
-- Reset database: `PGPASSWORD=postgres psql -h localhost -p $POSTGRES_PORT -U postgres -c "DROP DATABASE $DB; CREATE DATABASE $DB;"`
+- Reset database: `PGPASSWORD=postgres psql -h localhost -p $POSTGRES_PORT -U postgres -c "DROP DATABASE $POSTGRES_DB; CREATE DATABASE $POSTGRES_DB;"`
 - Stop eval containers: `docker stop $(docker ps -q --filter "name=kinitro-eval")`
 
 ## Docs and References
