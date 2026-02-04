@@ -7,7 +7,7 @@ import structlog
 import typer
 
 from kinitro.api import APIConfig, run_server
-from kinitro.executor import ExecutorConfig, run_executor
+from kinitro.executor import ExecutorConfig, run_concurrent_executor, run_executor
 from kinitro.scheduler import SchedulerConfig, run_scheduler
 
 from .utils import normalize_database_url
@@ -131,6 +131,20 @@ def executor(
     ),
     eval_mode: str = typer.Option("docker", help="Evaluation mode: docker or basilica"),
     log_level: str = typer.Option("INFO", help="Logging level"),
+    concurrent: bool = typer.Option(
+        False,
+        "--concurrent",
+        help="Enable multi-process concurrent executor (one subprocess per env family)",
+    ),
+    max_concurrent: int = typer.Option(
+        20,
+        help="Max concurrent tasks per environment family (used with --concurrent)",
+    ),
+    env_families: str | None = typer.Option(
+        None,
+        help="Comma-separated environment families to run (e.g., 'metaworld,procthor'). "
+        "Defaults to families in --eval-images.",
+    ),
 ):
     """
     Run the executor service.
@@ -167,6 +181,11 @@ def executor(
             typer.echo(f"Error: Invalid JSON for --eval-images: {e}", err=True)
             raise typer.Exit(1)
 
+    # Parse env_families if provided
+    parsed_env_families: list[str] | None = None
+    if env_families:
+        parsed_env_families = [f.strip() for f in env_families.split(",")]
+
     # Build config kwargs
     config_kwargs: dict = {
         "api_url": api_url,
@@ -174,11 +193,15 @@ def executor(
         "poll_interval_seconds": poll_interval,
         "eval_mode": eval_mode,
         "log_level": log_level,
+        "use_concurrent_executor": concurrent,
+        "default_max_concurrent": max_concurrent,
     }
     if executor_id:
         config_kwargs["executor_id"] = executor_id
     if parsed_eval_images:
         config_kwargs["eval_images"] = parsed_eval_images
+    if parsed_env_families:
+        config_kwargs["env_families"] = parsed_env_families
 
     config = ExecutorConfig(**config_kwargs)
 
@@ -187,5 +210,12 @@ def executor(
     typer.echo(f"  API URL: {api_url}")
     typer.echo(f"  Batch size: {batch_size}")
     typer.echo(f"  Eval images: {config.eval_images}")
+    typer.echo(f"  Concurrent mode: {concurrent}")
+    if concurrent:
+        typer.echo(f"  Max concurrent per family: {max_concurrent}")
+        typer.echo(f"  Environment families: {config.get_env_families()}")
 
-    asyncio.run(run_executor(config))
+    if concurrent:
+        asyncio.run(run_concurrent_executor(config))
+    else:
+        asyncio.run(run_executor(config))

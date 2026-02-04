@@ -146,6 +146,39 @@ class ExecutorConfig(BaseSettings):
         description="Maximum allowed HuggingFace repo size in GB",
     )
 
+    # Concurrent executor settings
+    use_concurrent_executor: bool = Field(
+        default=False,
+        description="Enable multi-process concurrent executor",
+    )
+    max_concurrent_per_family: dict[str, int] = Field(
+        default_factory=lambda: {
+            "metaworld": 50,
+            "procthor": 20,
+        },
+        description="Max concurrent tasks per environment family",
+    )
+    default_max_concurrent: int = Field(
+        default=20,
+        ge=1,
+        le=500,
+        description="Default max concurrent tasks for unlisted families",
+    )
+    env_families: list[str] | None = Field(
+        default=None,
+        description="Environment families to run workers for (None = infer from eval_images)",
+    )
+
+    def get_env_families(self) -> list[str]:
+        """Get the list of environment families to run workers for."""
+        if self.env_families:
+            return self.env_families
+        return list(self.eval_images.keys())
+
+    def get_max_concurrent(self, family: str) -> int:
+        """Get max concurrent tasks for a family."""
+        return self.max_concurrent_per_family.get(family, self.default_max_concurrent)
+
     def get_image_for_env(self, env_id: str) -> str:
         """
         Get the Docker image for a given environment ID.
