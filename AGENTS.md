@@ -134,12 +134,27 @@ Keep it current when commands or conventions change.
 - Use clear asserts; prefer `np.testing` for array comparisons.
 - Keep unit tests fast; integration tests go in `tests/integration`.
 
+## End-to-End Testing
+- Full guide: `docs/e2e-testing-guide.md`
+- Tests API, scheduler, executor (Docker or Basilica mode), and miner deployment
+- Quick start (Docker mode, metaworld only):
+  ```bash
+  uv run kinitro db reset --database-url $DATABASE_URL --force
+  uv run kinitro api --database-url $DATABASE_URL &
+  uv run kinitro scheduler --database-url $DATABASE_URL \
+    --network $NETWORK --netuid $NETUID --episodes-per-env 3 --env-families metaworld &
+  uv run kinitro executor --api-url http://localhost:8000 --eval-mode docker \
+    --eval-images '{"metaworld":"shr1ftyy/kinitro-metaworld:v1"}' &
+  ```
+- Monitor: `tail -f /tmp/scheduler.log` and `tail -f /tmp/executor.log`
+
 ## Docs and References
 - Developer overview: `README.md`.
 - Backend operator guide: `docs/backend-guide.md`.
 - Miner guide: `docs/miner-guide.md`.
 - Validator guide: `docs/validator-guide.md`.
 - Scoring and incentives: `docs/scoring-and-incentives.md`.
+- E2E testing guide: `docs/e2e-testing-guide.md`.
 
 ## Change Hygiene for Agents
 - Do not modify files outside the task scope.
