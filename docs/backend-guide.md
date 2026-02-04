@@ -6,23 +6,25 @@ This guide explains how to run the evaluation backend for Kinitro. The backend i
 
 ## Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  EVALUATION BACKEND (this component)                            │
-│    - PostgreSQL database for storing results                    │
-│    - FastAPI server exposing weights API                        │
-│    - Scheduler running periodic evaluation cycles               │
-│    - affinetes containers for isolated simulation               │
-│    - Calls miner Basilica endpoints for policy actions          │
-│    - Computes epsilon-Pareto scores and weights                 │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ HTTP API
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  VALIDATORS (run by community)                                  │
-│    - Poll GET /v1/weights/latest                                │
-│    - Submit weights to chain                                    │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    EB["Evaluation Backend
+    (FastAPI + Scheduler)"]
+
+    DB[(PostgreSQL)]
+    SIM["Isolated Simulations
+    (affinetes)"]
+    MINER["Miner Basilica
+    Endpoints"]
+
+    VAL["Community Validators"]
+
+    EB --> DB
+    EB --> SIM
+    EB --> MINER
+
+    VAL -- "GET /v1/weights/latest" --> EB
+    EB -- "Weights" --> VAL
 ```
 
 ## Requirements
@@ -168,14 +170,17 @@ Additional Scheduler settings:
 
 ### Executor Service Configuration
 
-| CLI Flag          | Environment Variable                     | Default                 | Description                             |
-| ----------------- | ---------------------------------------- | ----------------------- | --------------------------------------- |
-| `--api-url`       | `KINITRO_EXECUTOR_API_URL`               | `http://localhost:8000` | URL of the Kinitro API service          |
-| `--batch-size`    | `KINITRO_EXECUTOR_BATCH_SIZE`            | `10`                    | Number of tasks to fetch at a time      |
-| `--poll-interval` | `KINITRO_EXECUTOR_POLL_INTERVAL_SECONDS` | `5`                     | Seconds between polling for tasks       |
-| `--eval-images`   | `KINITRO_EXECUTOR_EVAL_IMAGES`           | See below               | Env family to Docker image mapping      |
-| `--eval-mode`     | `KINITRO_EXECUTOR_EVAL_MODE`             | `docker`                | Evaluation mode: 'docker' or 'basilica' |
-| `--log-level`     | `KINITRO_EXECUTOR_LOG_LEVEL`             | `INFO`                  | Logging level                           |
+| CLI Flag           | Environment Variable                     | Default                 | Description                                         |
+| ------------------ | ---------------------------------------- | ----------------------- | --------------------------------------------------- |
+| `--api-url`        | `KINITRO_EXECUTOR_API_URL`               | `http://localhost:8000` | URL of the Kinitro API service                      |
+| `--batch-size`     | `KINITRO_EXECUTOR_BATCH_SIZE`            | `10`                    | Number of tasks to fetch at a time                  |
+| `--poll-interval`  | `KINITRO_EXECUTOR_POLL_INTERVAL_SECONDS` | `5`                     | Seconds between polling for tasks                   |
+| `--eval-images`    | `KINITRO_EXECUTOR_EVAL_IMAGES`           | See below               | Env family to Docker image mapping                  |
+| `--eval-mode`      | `KINITRO_EXECUTOR_EVAL_MODE`             | `docker`                | Evaluation mode: 'docker' or 'basilica'             |
+| `--log-level`      | `KINITRO_EXECUTOR_LOG_LEVEL`             | `INFO`                  | Logging level                                       |
+| `--concurrent`     | `KINITRO_EXECUTOR_USE_CONCURRENT_EXECUTOR` | `false`               | Enable multi-process concurrent executor            |
+| `--max-concurrent` | `KINITRO_EXECUTOR_DEFAULT_MAX_CONCURRENT` | `20`                   | Max concurrent tasks per environment family         |
+| `--env-families`   | `KINITRO_EXECUTOR_ENV_FAMILIES`          | `null`                  | Comma-separated families (defaults to eval_images)  |
 
 **Eval Images Configuration:**
 
@@ -234,6 +239,69 @@ When verification is enabled, the executor will:
 5. Log verification results (pass/fail with match score)
 
 Miners that fail verification may be serving different code than what they committed to HuggingFace.
+
+### Concurrent Executor Mode
+
+The executor supports a concurrent multi-process mode that significantly increases throughput by running multiple tasks in parallel within each environment family.
+
+**Architecture:**
+
+```mermaid
+flowchart TB
+    subgraph Main["ExecutorManager"]
+        direction TB
+        M1["Spawns one subprocess per environment family"]
+        M2["Health checking and auto-restart"]
+        M3["Metrics collection via IPC"]
+    end
+
+    Main --> W1
+    Main --> W2
+    Main --> W3
+
+    subgraph W1["FamilyWorker (metaworld)"]
+        W1N["N async workers"]
+    end
+
+    subgraph W2["FamilyWorker (procthor)"]
+        W2N["N async workers"]
+    end
+
+    subgraph W3["FamilyWorker (other)"]
+        W3N["N async workers"]
+    end
+```
+
+**Enable concurrent mode:**
+
+```bash
+uv run kinitro executor \
+  --api-url http://localhost:8000 \
+  --eval-images '{"metaworld":"kinitro/metaworld:v1"}' \
+  --concurrent \
+  --max-concurrent 50 \
+  --env-families metaworld
+```
+
+**Concurrent executor settings:**
+
+| Environment Variable                          | Default | Description                              |
+| --------------------------------------------- | ------- | ---------------------------------------- |
+| `KINITRO_EXECUTOR_USE_CONCURRENT_EXECUTOR`    | `false` | Enable multi-process concurrent executor |
+| `KINITRO_EXECUTOR_DEFAULT_MAX_CONCURRENT`     | `20`    | Default max concurrent tasks per family  |
+| `KINITRO_EXECUTOR_MAX_CONCURRENT_PER_FAMILY`  | JSON    | Per-family concurrency limits (see below)|
+| `KINITRO_EXECUTOR_ENV_FAMILIES`               | `null`  | Families to run (defaults to eval_images)|
+
+**Per-family concurrency configuration:**
+
+```bash
+export KINITRO_EXECUTOR_MAX_CONCURRENT_PER_FAMILY='{"metaworld": 50, "procthor": 20}'
+```
+
+The concurrent mode uses a producer-consumer pattern:
+- **Fetch loop (producer)**: Pulls tasks from API with backpressure
+- **Execution workers (consumers)**: N concurrent async workers per family
+- **Semaphore**: Limits concurrent task executions
 
 ## API Reference
 
