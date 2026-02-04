@@ -1,7 +1,15 @@
 """Worker process wrapper for concurrent executor."""
 
 import multiprocessing as mp
+import os
+import signal
 from typing import TYPE_CHECKING
+
+import structlog
+
+from kinitro.executor.family_worker import run_family_worker
+
+logger = structlog.get_logger()
 
 if TYPE_CHECKING:
     from kinitro.executor.config import ExecutorConfig
@@ -30,9 +38,6 @@ class WorkerProcess:
 
     def start(self) -> None:
         """Start the worker subprocess."""
-        # Import here to avoid circular imports and ensure fresh process
-        from kinitro.executor.family_worker import run_family_worker  # noqa: PLC0415
-
         self.process = mp.Process(
             target=run_family_worker,
             args=(
@@ -68,10 +73,19 @@ class WorkerProcess:
         return self.process is not None and self.process.is_alive()
 
     def stop(self) -> None:
-        """Signal the worker to stop gracefully."""
-        # Workers check for parent process and will exit when main process exits
-        # or we can terminate them
-        pass
+        """Signal the worker to stop gracefully via SIGINT.
+
+        The worker catches KeyboardInterrupt and performs cleanup (closing HTTP
+        sessions, removing Docker containers). If it doesn't exit within the
+        join timeout, the manager will call terminate() to force-kill it.
+        """
+        if self.process and self.process.is_alive() and self.process.pid:
+            logger.warning("sending_sigint_to_worker", family=self.family, pid=self.process.pid)
+            try:
+                os.kill(self.process.pid, signal.SIGINT)
+            except ProcessLookupError:
+                # Process exited between is_alive() check and os.kill() - that's fine
+                logger.info("worker_already_exited", family=self.family, pid=self.process.pid)
 
     def join(self, timeout: float | None = None) -> None:
         """Wait for the process to terminate."""

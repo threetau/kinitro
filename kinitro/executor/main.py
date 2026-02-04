@@ -11,9 +11,6 @@ from kinitro.executor.worker import Worker
 
 logger = structlog.get_logger()
 
-# Re-export run_concurrent_executor for convenience
-from kinitro.executor.manager import run_concurrent_executor  # noqa: E402, F401
-
 
 class Executor:
     """

@@ -14,6 +14,12 @@ from kinitro.executor.worker_process import WorkerProcess
 
 logger = structlog.get_logger()
 
+# Timeouts for worker process management (in seconds)
+GRACEFUL_SHUTDOWN_TIMEOUT = 10  # Time to wait for worker to exit after SIGINT
+FORCE_KILL_JOIN_TIMEOUT = 5  # Time to wait after SIGTERM before giving up
+HEALTH_CHECK_INTERVAL = 10  # Interval between health checks
+STATS_COLLECTION_INTERVAL = 30  # Interval between metrics aggregation
+
 
 @dataclass
 class WorkerMetrics:
@@ -112,10 +118,11 @@ class ExecutorManager:
 
         # Wait for workers to terminate
         for family, worker in self.worker_processes.items():
-            worker.join(timeout=10)
+            worker.join(timeout=GRACEFUL_SHUTDOWN_TIMEOUT)
             if worker.is_alive():
                 logger.warning("worker_force_kill", family=family, pid=worker.pid)
                 worker.terminate()
+                worker.join(timeout=FORCE_KILL_JOIN_TIMEOUT)
 
         self.worker_processes.clear()
         logger.info("executor_manager_stopped")
@@ -127,6 +134,8 @@ class ExecutorManager:
                 for family, worker in list(self.worker_processes.items()):
                     if not worker.is_alive():
                         old_pid = worker.pid
+                        # Join dead worker to reap zombie process
+                        worker.join(timeout=0)
                         logger.warning(
                             "worker_died_restarting",
                             family=family,
@@ -151,15 +160,21 @@ class ExecutorManager:
                             new_pid=new_worker.pid,
                         )
 
-                await asyncio.sleep(10)
+                await asyncio.sleep(HEALTH_CHECK_INTERVAL)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error("health_checker_error", error=str(e))
-                await asyncio.sleep(10)
+                await asyncio.sleep(HEALTH_CHECK_INTERVAL)
 
     async def _stats_collector(self) -> None:
-        """Collect metrics from workers via IPC queue."""
+        """Collect metrics from workers via IPC queue.
+
+        Uses a 30-second interval for logging aggregated metrics. This is intentionally
+        longer than the worker's 5-second reporting interval to batch updates and reduce
+        log noise. No exponential backoff is needed since this is non-critical observability
+        - failures just skip a reporting cycle and retry next interval.
+        """
         while self.running:
             try:
                 # Drain all available metrics from queue
@@ -192,12 +207,12 @@ class ExecutorManager:
                         workers=len(self.worker_processes),
                     )
 
-                await asyncio.sleep(30)
+                await asyncio.sleep(STATS_COLLECTION_INTERVAL)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error("stats_collector_error", error=str(e))
-                await asyncio.sleep(30)
+                await asyncio.sleep(STATS_COLLECTION_INTERVAL)
 
 
 async def run_concurrent_executor(config: ExecutorConfig) -> None:
