@@ -181,6 +181,11 @@ def executor(
             typer.echo(f"Error: Invalid JSON for --eval-images: {e}", err=True)
             raise typer.Exit(1)
 
+    # Validate max_concurrent when concurrent mode is enabled
+    if concurrent and max_concurrent <= 0:
+        typer.echo("Error: --max-concurrent must be a positive integer", err=True)
+        raise typer.Exit(1)
+
     # Parse env_families if provided
     parsed_env_families: list[str] | None = None
     if env_families:
