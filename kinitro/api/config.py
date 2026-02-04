@@ -28,7 +28,11 @@ class APIConfig(BaseSettings):
     # Authentication
     api_key: str | None = Field(
         default=None,
-        description="API key for executor authentication. If None, auth is disabled.",
+        description="API key for executor authentication (from KINITRO_API_API_KEY env var).",
+    )
+    auth_disabled: bool = Field(
+        default=False,
+        description="Disable API key authentication (use --no-auth flag).",
     )
 
     # Logging

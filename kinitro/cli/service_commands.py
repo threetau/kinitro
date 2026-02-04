@@ -20,9 +20,10 @@ def api(
         "postgresql://postgres:postgres@localhost:5432/kinitro",
         help="PostgreSQL connection URL",
     ),
-    api_key: str | None = typer.Option(
-        None,
-        help="API key for executor authentication. If not set, auth is disabled.",
+    no_auth: bool = typer.Option(
+        False,
+        "--no-auth",
+        help="Disable API key authentication for task endpoints.",
     ),
     log_level: str = typer.Option("INFO", help="Logging level"),
 ):
@@ -50,13 +51,18 @@ def api(
         host=host,
         port=port,
         database_url=normalized_db_url,
-        api_key=api_key,
+        auth_disabled=no_auth,
         log_level=log_level,
     )
 
     typer.echo(f"Starting API service on {host}:{port}")
     typer.echo(f"  Database: {database_url.split('@')[-1]}")
-    typer.echo(f"  Auth: {'enabled' if api_key else 'disabled'}")
+    if no_auth:
+        typer.echo("  Auth: disabled (--no-auth)")
+    elif config.api_key:
+        typer.echo("  Auth: enabled (KINITRO_API_API_KEY)")
+    else:
+        typer.echo("  Auth: enabled (WARNING: KINITRO_API_API_KEY not set)", err=True)
 
     run_server(config)
 
@@ -124,10 +130,6 @@ def executor(
     api_url: str = typer.Option(
         "http://localhost:8000",
         help="URL of the Kinitro API service",
-    ),
-    api_key: str | None = typer.Option(
-        None,
-        help="API key for authentication with the Kinitro API",
     ),
     executor_id: str | None = typer.Option(
         None,
@@ -204,7 +206,6 @@ def executor(
     # Build config kwargs
     config_kwargs: dict = {
         "api_url": api_url,
-        "api_key": api_key,
         "batch_size": batch_size,
         "poll_interval_seconds": poll_interval,
         "eval_mode": eval_mode,
@@ -224,7 +225,7 @@ def executor(
     typer.echo("Starting executor service")
     typer.echo(f"  Executor ID: {config.executor_id}")
     typer.echo(f"  API URL: {api_url}")
-    typer.echo(f"  Auth: {'enabled' if api_key else 'disabled'}")
+    typer.echo(f"  Auth: {'configured' if config.api_key else 'not configured'}")
     typer.echo(f"  Batch size: {batch_size}")
     typer.echo(f"  Eval images: {config.eval_images}")
     typer.echo(f"  Concurrent mode: {concurrent}")

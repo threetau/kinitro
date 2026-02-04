@@ -54,19 +54,27 @@ async def verify_api_key(
     """
     Verify the API key from the Authorization header.
 
-    If no API key is configured on the server, authentication is disabled.
-    If an API key is configured, the request must include a matching
-    Bearer token in the Authorization header.
+    Authentication is enabled by default. The request must include a matching
+    Bearer token in the Authorization header (from KINITRO_API_API_KEY env var).
+
+    Auth can be disabled by passing --no-auth to the API command.
 
     Uses secrets.compare_digest to prevent timing attacks.
     """
     config = get_config()
 
-    # If no API key configured, auth is disabled (backward compatible)
-    if config is None or config.api_key is None:
+    # If auth is explicitly disabled via --no-auth flag
+    if config is not None and config.auth_disabled:
         return
 
-    # API key is configured, so we require authentication
+    # Auth is enabled - API key must be configured
+    if config is None or config.api_key is None:
+        raise HTTPException(
+            status_code=500,
+            detail="API key not configured. Set KINITRO_API_API_KEY or use --no-auth.",
+        )
+
+    # Require authorization header
     if credentials is None:
         raise HTTPException(
             status_code=401,
