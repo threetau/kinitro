@@ -110,9 +110,6 @@ class FamilyWorker:
             "image": self.image,
             "mode": self.eval_mode,
             "mem_limit": self.mem_limit,
-            "env_vars": {
-                "MUJOCO_GL": os.environ.get("MUJOCO_GL", "egl"),
-            },
             "pull": True,
         }
 

@@ -1,7 +1,6 @@
 """Worker that executes evaluation tasks using affinetes."""
 
 import asyncio
-import os
 import subprocess
 from dataclasses import dataclass
 from typing import Any
@@ -111,9 +110,6 @@ class Worker:
                 "image": image,
                 "mode": self.config.eval_mode,
                 "mem_limit": self.config.eval_mem_limit,
-                "env_vars": {
-                    "MUJOCO_GL": os.environ.get("MUJOCO_GL", "egl"),
-                },
                 "pull": True,
             }
 
