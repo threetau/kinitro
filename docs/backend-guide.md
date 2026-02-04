@@ -133,12 +133,13 @@ Each service (API, Scheduler, Executor) has its own configuration with service-s
 
 ### API Service Configuration
 
-| CLI Flag         | Environment Variable       | Default                    | Description               |
-| ---------------- | -------------------------- | -------------------------- | ------------------------- |
-| `--host`         | `KINITRO_API_HOST`         | `0.0.0.0`                  | API server bind address   |
-| `--port`         | `KINITRO_API_PORT`         | `8000`                     | API server port           |
-| `--database-url` | `KINITRO_API_DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection URL |
-| `--log-level`    | `KINITRO_API_LOG_LEVEL`    | `INFO`                     | Logging level             |
+| CLI Flag         | Environment Variable       | Default                    | Description                                     |
+| ---------------- | -------------------------- | -------------------------- | ----------------------------------------------- |
+| `--host`         | `KINITRO_API_HOST`         | `0.0.0.0`                  | API server bind address                         |
+| `--port`         | `KINITRO_API_PORT`         | `8000`                     | API server port                                 |
+| `--database-url` | `KINITRO_API_DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection URL                       |
+| `--api-key`      | `KINITRO_API_API_KEY`      | `null`                     | API key for executor auth (null = auth disabled)|
+| `--log-level`    | `KINITRO_API_LOG_LEVEL`    | `INFO`                     | Logging level                                   |
 
 Additional API settings:
 
@@ -173,6 +174,7 @@ Additional Scheduler settings:
 | CLI Flag           | Environment Variable                     | Default                 | Description                                         |
 | ------------------ | ---------------------------------------- | ----------------------- | --------------------------------------------------- |
 | `--api-url`        | `KINITRO_EXECUTOR_API_URL`               | `http://localhost:8000` | URL of the Kinitro API service                      |
+| `--api-key`        | `KINITRO_EXECUTOR_API_KEY`               | `null`                  | API key for auth (must match API server key)        |
 | `--batch-size`     | `KINITRO_EXECUTOR_BATCH_SIZE`            | `10`                    | Number of tasks to fetch at a time                  |
 | `--poll-interval`  | `KINITRO_EXECUTOR_POLL_INTERVAL_SECONDS` | `5`                     | Seconds between polling for tasks                   |
 | `--eval-images`    | `KINITRO_EXECUTOR_EVAL_IMAGES`           | See below               | Env family to Docker image mapping                  |
@@ -549,6 +551,7 @@ services:
     command: >
       kinitro api
       --database-url postgresql://kinitro:${POSTGRES_PASSWORD}@postgres/kinitro
+      --api-key ${API_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -575,6 +578,7 @@ services:
     command: >
       kinitro executor
       --api-url http://api:8000
+      --api-key ${API_KEY}
     depends_on:
       api:
         condition: service_started
@@ -594,6 +598,7 @@ NETUID=123
 NETWORK=finney
 EVAL_INTERVAL=3600
 EPISODES_PER_ENV=50
+API_KEY=your-secure-api-key  # Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
 Run:
@@ -771,7 +776,7 @@ Monitor these conditions:
 
 1. **Database**: Use strong passwords, restrict network access, enable SSL
 2. **Backend API**:
-   - Consider adding authentication for sensitive endpoints
+   - Enable API key authentication for task endpoints (see below)
    - Use TLS (HTTPS) in production
    - Rate limit API endpoints
 3. **Docker**:
@@ -781,6 +786,42 @@ Monitor these conditions:
 4. **Network**:
    - Use firewall rules
    - Only expose port 8000 (or via reverse proxy)
+
+### API Key Authentication
+
+The API supports optional authentication for task endpoints (`/v1/tasks/fetch` and `/v1/tasks/submit`). When enabled, executors must provide a matching API key to access these endpoints.
+
+**Generate an API key:**
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+**Enable authentication:**
+
+```bash
+# API server with auth enabled
+uv run kinitro api \
+  --database-url postgresql://kinitro:password@localhost/kinitro \
+  --api-key "your-secure-api-key"
+
+# Executor with matching key
+uv run kinitro executor \
+  --api-url http://localhost:8000 \
+  --api-key "your-secure-api-key"
+```
+
+**Environment variables:**
+
+```bash
+export KINITRO_API_API_KEY="your-secure-api-key"
+export KINITRO_EXECUTOR_API_KEY="your-secure-api-key"
+```
+
+**Notes:**
+- If no API key is configured on the server, authentication is disabled (backward compatible)
+- When enabled, requests without a valid `Authorization: Bearer <key>` header receive 401 Unauthorized
+- The `/v1/tasks/stats`, `/health`, and weight/score endpoints remain unauthenticated
 
 ## Scaling
 

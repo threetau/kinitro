@@ -12,6 +12,7 @@ import aiohttp
 import structlog
 
 from kinitro.backend.models import Task, TaskResult
+from kinitro.environments import get_environments_by_family
 
 # Configure structlog for this subprocess
 structlog.configure(
@@ -57,6 +58,7 @@ class FamilyWorker:
         use_images: bool,
         poll_interval: int,
         stats_queue: mp.Queue,
+        api_key: str | None = None,
     ):
         self.family = family
         self.max_concurrent = max_concurrent
@@ -73,6 +75,7 @@ class FamilyWorker:
         self.use_images = use_images
         self.poll_interval = poll_interval
         self.stats_queue = stats_queue
+        self.api_key = api_key
 
         # Async primitives (initialized in run())
         self.task_queue: asyncio.Queue | None = None
@@ -91,6 +94,12 @@ class FamilyWorker:
             timeout = aiohttp.ClientTimeout(total=30)
             self._session = aiohttp.ClientSession(timeout=timeout)
         return self._session
+
+    def _get_auth_headers(self) -> dict[str, str]:
+        """Get authentication headers if API key is configured."""
+        if self.api_key:
+            return {"Authorization": f"Bearer {self.api_key}"}
+        return {}
 
     async def initialize(self) -> None:
         """Load the environment container once."""
@@ -180,25 +189,23 @@ class FamilyWorker:
                 logger.error("fetch_error", family=self.family, error=str(e))
                 await asyncio.sleep(5)
 
-    def _get_family_from_env_id(self, env_id: str) -> str:
-        """Extract family from env_id (e.g., 'metaworld' from 'metaworld/pick-place-v3')."""
-        return env_id.split("/")[0] if "/" in env_id else env_id
-
     async def _fetch_tasks_batch(self, batch_size: int) -> list[Task]:
         """Fetch a batch of tasks from the API, filtered to this family."""
         session = await self._get_session()
 
-        # Fetch more tasks than needed to account for filtering
-        # (other workers may have fetched some of our family's tasks)
+        # Get env_ids for this family and filter at the API level
+        env_ids = get_environments_by_family(self.family)
         payload = {
             "executor_id": self.executor_id,
-            "batch_size": batch_size * 2,  # Fetch extra to account for filtering
+            "batch_size": batch_size,
+            "env_ids": env_ids,
         }
 
         try:
             async with session.post(
                 f"{self.api_url}/v1/tasks/fetch",
                 json=payload,
+                headers=self._get_auth_headers(),
             ) as resp:
                 if resp.status != 200:
                     error = await resp.text()
@@ -211,22 +218,16 @@ class FamilyWorker:
                     return []
 
                 data = await resp.json()
-                all_tasks = [Task(**t) for t in data["tasks"]]
+                tasks = [Task(**t) for t in data["tasks"]]
 
-                # Filter to only tasks for this family
-                family_tasks = [
-                    t for t in all_tasks if self._get_family_from_env_id(t.env_id) == self.family
-                ]
-
-                if family_tasks:
+                if tasks:
                     logger.info(
                         "tasks_fetched",
                         family=self.family,
-                        count=len(family_tasks),
-                        total_fetched=len(all_tasks),
+                        count=len(tasks),
                         total_pending=data.get("total_pending", 0),
                     )
-                return family_tasks[:batch_size]  # Limit to requested batch size
+                return tasks
 
         except Exception as e:
             logger.error("fetch_tasks_exception", family=self.family, error=str(e))
@@ -336,6 +337,7 @@ class FamilyWorker:
             async with session.post(
                 f"{self.api_url}/v1/tasks/submit",
                 json=payload,
+                headers=self._get_auth_headers(),
             ) as resp:
                 if resp.status != 200:
                     error = await resp.text()
@@ -460,6 +462,7 @@ def run_family_worker(
     poll_interval: int,
     stats_queue: mp.Queue,
     log_level: str,
+    api_key: str | None = None,
 ) -> None:
     """Entry point for subprocess (called by multiprocessing)."""
     # Configure logging for subprocess
@@ -481,6 +484,7 @@ def run_family_worker(
         use_images=use_images,
         poll_interval=poll_interval,
         stats_queue=stats_queue,
+        api_key=api_key,
     )
 
     try:

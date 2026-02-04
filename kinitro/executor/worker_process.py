@@ -52,6 +52,7 @@ class WorkerProcess:
                 self.config.poll_interval_seconds,
                 self.stats_queue,
                 self.config.log_level,
+                self.config.api_key,
             ),
             name=f"Worker-{self.family}",
         )

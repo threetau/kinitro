@@ -25,5 +25,11 @@ class APIConfig(BaseSettings):
         description="Time after which assigned tasks are considered stale",
     )
 
+    # Authentication
+    api_key: str | None = Field(
+        default=None,
+        description="API key for executor authentication. If None, auth is disabled.",
+    )
+
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")

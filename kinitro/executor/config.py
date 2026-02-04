@@ -22,6 +22,10 @@ class ExecutorConfig(BaseSettings):
         default="http://localhost:8000",
         description="URL of the Kinitro API service",
     )
+    api_key: str | None = Field(
+        default=None,
+        description="API key for authentication with the Kinitro API",
+    )
 
     # Executor identity
     executor_id: str = Field(

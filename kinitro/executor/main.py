@@ -27,7 +27,7 @@ class Executor:
 
     def __init__(self, config: ExecutorConfig):
         self.config = config
-        self.api_client = APIClient(config.api_url, config.executor_id)
+        self.api_client = APIClient(config.api_url, config.executor_id, config.api_key)
         self.worker = Worker(config)
         self._running = False
         self._shutdown_event = asyncio.Event()

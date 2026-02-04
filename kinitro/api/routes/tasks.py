@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from kinitro.api.deps import get_session, get_storage
+from kinitro.api.deps import get_session, get_storage, verify_api_key
 from kinitro.backend.models import (
     Task,
     TaskFetchRequest,
@@ -22,6 +22,7 @@ async def fetch_tasks(
     request: TaskFetchRequest,
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
+    _auth: None = Depends(verify_api_key),
 ):
     """
     Fetch tasks from the task pool.
@@ -71,6 +72,7 @@ async def submit_tasks(
     request: TaskSubmitRequest,
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
+    _auth: None = Depends(verify_api_key),
 ):
     """
     Submit results for completed tasks.
