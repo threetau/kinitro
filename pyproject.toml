@@ -13,7 +13,7 @@ dependencies = [
     "affinetes @ git+https://github.com/AffineFoundation/affinetes.git",
     # Robotics simulation (core - MetaWorld only)
     "mujoco>=3.0.0",
-    "metaworld @ git+https://github.com/Farama-Foundation/Metaworld.git@master",
+    "metaworld @ git+https://github.com/Farama-Foundation/Metaworld.git@918cd0d3abb6c45f213d72730a06ef119d84218e",
     "gymnasium>=1.1",
     # Async/HTTP
     "httpx>=0.25.0",

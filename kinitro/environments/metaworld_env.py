@@ -406,6 +406,7 @@ class MetaWorldEnvironment(RoboticsEnvironment):
             data = env.unwrapped.data
             ee_site = self._get_site_id(self._ee_site_name)
             # Use MuJoCo 3.0+ mj_objectVelocity API for site velocity
+            # Empirically verified: vel[:3] is linear, vel[3:] is angular
             vel = np.zeros(6, dtype=np.float64)
             mujoco.mj_objectVelocity(model, data, mujoco.mjtObj.mjOBJ_SITE, ee_site, vel, 0)  # type: ignore[attr-defined]
             ee_lin_vel = vel[:3].astype(np.float32)
