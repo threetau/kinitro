@@ -111,10 +111,10 @@ start_executor() {
 stop_services() {
     echo "Stopping services for worktree: $WORKTREE_NAME..."
 
-    # Stop kinitro processes
-    pkill -f "kinitro.*$WORKTREE_NAME" 2>/dev/null || true
-    pkill -f "kinitro.*port.*$API_PORT" 2>/dev/null || true
-    pkill -f "kinitro.*$DATABASE_URL" 2>/dev/null || true
+    # Stop kinitro processes matching this worktree's ports/database
+    pkill -f "kinitro.*--port $API_PORT" 2>/dev/null || true
+    pkill -f "kinitro.*localhost:$POSTGRES_PORT" 2>/dev/null || true
+    pkill -f "kinitro.*api-url.*:$API_PORT" 2>/dev/null || true
 
     # Stop docker containers
     docker compose -f "$REPO_ROOT/docker-compose.yml" \
