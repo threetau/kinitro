@@ -25,5 +25,15 @@ class APIConfig(BaseSettings):
         description="Time after which assigned tasks are considered stale",
     )
 
+    # Authentication
+    api_key: str | None = Field(
+        default=None,
+        description="API key for executor authentication (from KINITRO_API_API_KEY env var).",
+    )
+    auth_disabled: bool = Field(
+        default=False,
+        description="Disable API key authentication (use --no-auth flag).",
+    )
+
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")

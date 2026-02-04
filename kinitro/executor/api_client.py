@@ -11,10 +11,17 @@ logger = structlog.get_logger()
 class APIClient:
     """Client for communicating with the Kinitro API service."""
 
-    def __init__(self, api_url: str, executor_id: str):
+    def __init__(self, api_url: str, executor_id: str, api_key: str | None = None):
         self.api_url = api_url.rstrip("/")
         self.executor_id = executor_id
+        self.api_key = api_key
         self._session: aiohttp.ClientSession | None = None
+
+    def _get_auth_headers(self) -> dict[str, str]:
+        """Get authentication headers if API key is configured."""
+        if self.api_key:
+            return {"Authorization": f"Bearer {self.api_key}"}
+        return {}
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create HTTP session."""
@@ -56,6 +63,7 @@ class APIClient:
             async with session.post(
                 f"{self.api_url}/v1/tasks/fetch",
                 json=payload,
+                headers=self._get_auth_headers(),
             ) as resp:
                 if resp.status != 200:
                     error = await resp.text()
@@ -102,6 +110,7 @@ class APIClient:
             async with session.post(
                 f"{self.api_url}/v1/tasks/submit",
                 json=payload,
+                headers=self._get_auth_headers(),
             ) as resp:
                 if resp.status != 200:
                     error = await resp.text()

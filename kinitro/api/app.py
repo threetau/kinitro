@@ -7,7 +7,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from kinitro.api.config import APIConfig
-from kinitro.api.deps import set_storage
+from kinitro.api.deps import set_config, set_storage
 from kinitro.api.routes import (
     health_router,
     miners_router,
@@ -45,8 +45,9 @@ def create_app(config: APIConfig | None = None) -> FastAPI:
         # Initialize database
         await storage.initialize()
 
-        # Set storage for routes
+        # Set storage and config for routes
         set_storage(storage)
+        set_config(config)
 
         yield
 

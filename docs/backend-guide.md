@@ -6,23 +6,25 @@ This guide explains how to run the evaluation backend for Kinitro. The backend i
 
 ## Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  EVALUATION BACKEND (this component)                            │
-│    - PostgreSQL database for storing results                    │
-│    - FastAPI server exposing weights API                        │
-│    - Scheduler running periodic evaluation cycles               │
-│    - affinetes containers for isolated simulation               │
-│    - Calls miner Basilica endpoints for policy actions          │
-│    - Computes epsilon-Pareto scores and weights                 │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ HTTP API
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  VALIDATORS (run by community)                                  │
-│    - Poll GET /v1/weights/latest                                │
-│    - Submit weights to chain                                    │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    EB["Evaluation Backend
+    (FastAPI + Scheduler)"]
+
+    DB[(PostgreSQL)]
+    SIM["Isolated Simulations
+    (affinetes)"]
+    MINER["Miner Basilica
+    Endpoints"]
+
+    VAL["Community Validators"]
+
+    EB --> DB
+    EB --> SIM
+    EB --> MINER
+
+    VAL -- "GET /v1/weights/latest" --> EB
+    EB -- "Weights" --> VAL
 ```
 
 ## Requirements
@@ -131,12 +133,15 @@ Each service (API, Scheduler, Executor) has its own configuration with service-s
 
 ### API Service Configuration
 
-| CLI Flag         | Environment Variable       | Default                    | Description               |
-| ---------------- | -------------------------- | -------------------------- | ------------------------- |
-| `--host`         | `KINITRO_API_HOST`         | `0.0.0.0`                  | API server bind address   |
-| `--port`         | `KINITRO_API_PORT`         | `8000`                     | API server port           |
-| `--database-url` | `KINITRO_API_DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection URL |
-| `--log-level`    | `KINITRO_API_LOG_LEVEL`    | `INFO`                     | Logging level             |
+| CLI Flag         | Environment Variable       | Default                    | Description                                     |
+| ---------------- | -------------------------- | -------------------------- | ----------------------------------------------- |
+| `--host`         | `KINITRO_API_HOST`         | `0.0.0.0`                  | API server bind address                         |
+| `--port`         | `KINITRO_API_PORT`         | `8000`                     | API server port                                 |
+| `--database-url` | `KINITRO_API_DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection URL                       |
+| `--no-auth`      | -                          | `false`                    | Disable API key authentication                  |
+| `--log-level`    | `KINITRO_API_LOG_LEVEL`    | `INFO`                     | Logging level                                   |
+
+**Authentication:** API key authentication is **enabled by default**. Set the `KINITRO_API_API_KEY` environment variable to configure the key. Use `--no-auth` to disable authentication.
 
 Additional API settings:
 
@@ -168,14 +173,19 @@ Additional Scheduler settings:
 
 ### Executor Service Configuration
 
-| CLI Flag          | Environment Variable                     | Default                 | Description                             |
-| ----------------- | ---------------------------------------- | ----------------------- | --------------------------------------- |
-| `--api-url`       | `KINITRO_EXECUTOR_API_URL`               | `http://localhost:8000` | URL of the Kinitro API service          |
-| `--batch-size`    | `KINITRO_EXECUTOR_BATCH_SIZE`            | `10`                    | Number of tasks to fetch at a time      |
-| `--poll-interval` | `KINITRO_EXECUTOR_POLL_INTERVAL_SECONDS` | `5`                     | Seconds between polling for tasks       |
-| `--eval-images`   | `KINITRO_EXECUTOR_EVAL_IMAGES`           | See below               | Env family to Docker image mapping      |
-| `--eval-mode`     | `KINITRO_EXECUTOR_EVAL_MODE`             | `docker`                | Evaluation mode: 'docker' or 'basilica' |
-| `--log-level`     | `KINITRO_EXECUTOR_LOG_LEVEL`             | `INFO`                  | Logging level                           |
+| CLI Flag           | Environment Variable                     | Default                 | Description                                         |
+| ------------------ | ---------------------------------------- | ----------------------- | --------------------------------------------------- |
+| `--api-url`        | `KINITRO_EXECUTOR_API_URL`               | `http://localhost:8000` | URL of the Kinitro API service                      |
+| `--batch-size`     | `KINITRO_EXECUTOR_BATCH_SIZE`            | `10`                    | Number of tasks to fetch at a time                  |
+| `--poll-interval`  | `KINITRO_EXECUTOR_POLL_INTERVAL_SECONDS` | `5`                     | Seconds between polling for tasks                   |
+| `--eval-images`    | `KINITRO_EXECUTOR_EVAL_IMAGES`           | See below               | Env family to Docker image mapping                  |
+| `--eval-mode`      | `KINITRO_EXECUTOR_EVAL_MODE`             | `docker`                | Evaluation mode: 'docker' or 'basilica'             |
+| `--log-level`      | `KINITRO_EXECUTOR_LOG_LEVEL`             | `INFO`                  | Logging level                                       |
+| `--concurrent`     | `KINITRO_EXECUTOR_USE_CONCURRENT_EXECUTOR` | `false`               | Enable multi-process concurrent executor            |
+| `--max-concurrent` | `KINITRO_EXECUTOR_DEFAULT_MAX_CONCURRENT` | `20`                   | Max concurrent tasks per environment family         |
+| `--env-families`   | `KINITRO_EXECUTOR_ENV_FAMILIES`          | `null`                  | Comma-separated families (defaults to eval_images)  |
+
+**Authentication:** Set `KINITRO_EXECUTOR_API_KEY` environment variable to authenticate with the API server.
 
 **Eval Images Configuration:**
 
@@ -234,6 +244,69 @@ When verification is enabled, the executor will:
 5. Log verification results (pass/fail with match score)
 
 Miners that fail verification may be serving different code than what they committed to HuggingFace.
+
+### Concurrent Executor Mode
+
+The executor supports a concurrent multi-process mode that significantly increases throughput by running multiple tasks in parallel within each environment family.
+
+**Architecture:**
+
+```mermaid
+flowchart TB
+    subgraph Main["ExecutorManager"]
+        direction TB
+        M1["Spawns one subprocess per environment family"]
+        M2["Health checking and auto-restart"]
+        M3["Metrics collection via IPC"]
+    end
+
+    Main --> W1
+    Main --> W2
+    Main --> W3
+
+    subgraph W1["FamilyWorker (metaworld)"]
+        W1N["N async workers"]
+    end
+
+    subgraph W2["FamilyWorker (procthor)"]
+        W2N["N async workers"]
+    end
+
+    subgraph W3["FamilyWorker (other)"]
+        W3N["N async workers"]
+    end
+```
+
+**Enable concurrent mode:**
+
+```bash
+uv run kinitro executor \
+  --api-url http://localhost:8000 \
+  --eval-images '{"metaworld":"kinitro/metaworld:v1"}' \
+  --concurrent \
+  --max-concurrent 50 \
+  --env-families metaworld
+```
+
+**Concurrent executor settings:**
+
+| Environment Variable                          | Default | Description                              |
+| --------------------------------------------- | ------- | ---------------------------------------- |
+| `KINITRO_EXECUTOR_USE_CONCURRENT_EXECUTOR`    | `false` | Enable multi-process concurrent executor |
+| `KINITRO_EXECUTOR_DEFAULT_MAX_CONCURRENT`     | `20`    | Default max concurrent tasks per family  |
+| `KINITRO_EXECUTOR_MAX_CONCURRENT_PER_FAMILY`  | JSON    | Per-family concurrency limits (see below)|
+| `KINITRO_EXECUTOR_ENV_FAMILIES`               | `null`  | Families to run (defaults to eval_images)|
+
+**Per-family concurrency configuration:**
+
+```bash
+export KINITRO_EXECUTOR_MAX_CONCURRENT_PER_FAMILY='{"metaworld": 50, "procthor": 20}'
+```
+
+The concurrent mode uses a producer-consumer pattern:
+- **Fetch loop (producer)**: Pulls tasks from API with backpressure
+- **Execution workers (consumers)**: N concurrent async workers per family
+- **Semaphore**: Limits concurrent task executions
 
 ## API Reference
 
@@ -481,6 +554,8 @@ services:
     command: >
       kinitro api
       --database-url postgresql://kinitro:${POSTGRES_PASSWORD}@postgres/kinitro
+    environment:
+      KINITRO_API_API_KEY: ${API_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -507,6 +582,8 @@ services:
     command: >
       kinitro executor
       --api-url http://api:8000
+    environment:
+      KINITRO_EXECUTOR_API_KEY: ${API_KEY}
     depends_on:
       api:
         condition: service_started
@@ -526,6 +603,7 @@ NETUID=123
 NETWORK=finney
 EVAL_INTERVAL=3600
 EPISODES_PER_ENV=50
+API_KEY=your-secure-api-key  # Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
 Run:
@@ -703,7 +781,7 @@ Monitor these conditions:
 
 1. **Database**: Use strong passwords, restrict network access, enable SSL
 2. **Backend API**:
-   - Consider adding authentication for sensitive endpoints
+   - Enable API key authentication for task endpoints (see below)
    - Use TLS (HTTPS) in production
    - Rate limit API endpoints
 3. **Docker**:
@@ -713,6 +791,37 @@ Monitor these conditions:
 4. **Network**:
    - Use firewall rules
    - Only expose port 8000 (or via reverse proxy)
+
+### API Key Authentication
+
+API key authentication is **enabled by default** for task endpoints (`/v1/tasks/fetch` and `/v1/tasks/submit`). Executors must provide a matching API key to access these endpoints.
+
+**Setup:**
+
+```bash
+# 1. Generate an API key
+export API_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+
+# 2. Set the same key for both API and executor
+export KINITRO_API_API_KEY="$API_KEY"
+export KINITRO_EXECUTOR_API_KEY="$API_KEY"
+
+# 3. Start services (auth is automatic via env vars)
+uv run kinitro api --database-url postgresql://kinitro:password@localhost/kinitro
+uv run kinitro executor --api-url http://localhost:8000
+```
+
+**Disable authentication (development only):**
+
+```bash
+uv run kinitro api --database-url postgresql://... --no-auth
+```
+
+**Notes:**
+- Authentication is configured via environment variables only (no CLI flags for keys)
+- Requests without a valid `Authorization: Bearer <key>` header receive 401 Unauthorized
+- The `/v1/tasks/stats`, `/health`, and weight/score endpoints remain unauthenticated
+- Use `--no-auth` only for local development; always enable auth in production
 
 ## Scaling
 

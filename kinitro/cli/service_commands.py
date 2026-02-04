@@ -7,7 +7,7 @@ import structlog
 import typer
 
 from kinitro.api import APIConfig, run_server
-from kinitro.executor import ExecutorConfig, run_executor
+from kinitro.executor import ExecutorConfig, run_concurrent_executor, run_executor
 from kinitro.scheduler import SchedulerConfig, run_scheduler
 
 from .utils import normalize_database_url
@@ -19,6 +19,11 @@ def api(
     database_url: str = typer.Option(
         "postgresql://postgres:postgres@localhost:5432/kinitro",
         help="PostgreSQL connection URL",
+    ),
+    no_auth: bool = typer.Option(
+        False,
+        "--no-auth",
+        help="Disable API key authentication for task endpoints.",
     ),
     log_level: str = typer.Option("INFO", help="Logging level"),
 ):
@@ -46,11 +51,18 @@ def api(
         host=host,
         port=port,
         database_url=normalized_db_url,
+        auth_disabled=no_auth,
         log_level=log_level,
     )
 
     typer.echo(f"Starting API service on {host}:{port}")
     typer.echo(f"  Database: {database_url.split('@')[-1]}")
+    if no_auth:
+        typer.echo("  Auth: disabled (--no-auth)")
+    elif config.api_key:
+        typer.echo("  Auth: enabled (KINITRO_API_API_KEY)")
+    else:
+        typer.echo("  Auth: enabled (WARNING: KINITRO_API_API_KEY not set)", err=True)
 
     run_server(config)
 
@@ -131,6 +143,20 @@ def executor(
     ),
     eval_mode: str = typer.Option("docker", help="Evaluation mode: docker or basilica"),
     log_level: str = typer.Option("INFO", help="Logging level"),
+    concurrent: bool = typer.Option(
+        False,
+        "--concurrent",
+        help="Enable multi-process concurrent executor (one subprocess per env family)",
+    ),
+    max_concurrent: int = typer.Option(
+        20,
+        help="Max concurrent tasks per environment family (used with --concurrent)",
+    ),
+    env_families: str | None = typer.Option(
+        None,
+        help="Comma-separated environment families to run (e.g., 'metaworld,procthor'). "
+        "Defaults to families in --eval-images.",
+    ),
 ):
     """
     Run the executor service.
@@ -167,6 +193,30 @@ def executor(
             typer.echo(f"Error: Invalid JSON for --eval-images: {e}", err=True)
             raise typer.Exit(1)
 
+    # Validate max_concurrent when concurrent mode is enabled
+    if concurrent and max_concurrent <= 0:
+        typer.echo("Error: --max-concurrent must be a positive integer", err=True)
+        raise typer.Exit(1)
+
+    # Parse env_families if provided
+    parsed_env_families: list[str] | None = None
+    if env_families:
+        parsed_env_families = [f.strip() for f in env_families.split(",") if f.strip()]
+
+    # Validate env_families against eval_images in concurrent mode
+    if concurrent and parsed_env_families:
+        available_families = set(
+            parsed_eval_images.keys() if parsed_eval_images else {"metaworld", "procthor"}
+        )
+        invalid_families = [f for f in parsed_env_families if f not in available_families]
+        if invalid_families:
+            typer.echo(
+                f"Error: --env-families contains families without configured images: {invalid_families}. "
+                f"Available families: {sorted(available_families)}",
+                err=True,
+            )
+            raise typer.Exit(1)
+
     # Build config kwargs
     config_kwargs: dict = {
         "api_url": api_url,
@@ -174,18 +224,30 @@ def executor(
         "poll_interval_seconds": poll_interval,
         "eval_mode": eval_mode,
         "log_level": log_level,
+        "use_concurrent_executor": concurrent,
+        "default_max_concurrent": max_concurrent,
     }
     if executor_id:
         config_kwargs["executor_id"] = executor_id
     if parsed_eval_images:
         config_kwargs["eval_images"] = parsed_eval_images
+    if parsed_env_families:
+        config_kwargs["env_families"] = parsed_env_families
 
     config = ExecutorConfig(**config_kwargs)
 
     typer.echo("Starting executor service")
     typer.echo(f"  Executor ID: {config.executor_id}")
     typer.echo(f"  API URL: {api_url}")
+    typer.echo(f"  Auth: {'configured' if config.api_key else 'not configured'}")
     typer.echo(f"  Batch size: {batch_size}")
     typer.echo(f"  Eval images: {config.eval_images}")
+    typer.echo(f"  Concurrent mode: {concurrent}")
+    if concurrent:
+        typer.echo(f"  Max concurrent per family: {max_concurrent}")
+        typer.echo(f"  Environment families: {config.get_env_families()}")
 
-    asyncio.run(run_executor(config))
+    if concurrent:
+        asyncio.run(run_concurrent_executor(config))
+    else:
+        asyncio.run(run_executor(config))

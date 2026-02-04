@@ -22,6 +22,10 @@ class ExecutorConfig(BaseSettings):
         default="http://localhost:8000",
         description="URL of the Kinitro API service",
     )
+    api_key: str | None = Field(
+        default=None,
+        description="API key for authentication with the Kinitro API",
+    )
 
     # Executor identity
     executor_id: str = Field(
@@ -145,6 +149,51 @@ class ExecutorConfig(BaseSettings):
         le=50.0,
         description="Maximum allowed HuggingFace repo size in GB",
     )
+
+    # Concurrent executor settings
+    use_concurrent_executor: bool = Field(
+        default=False,
+        description="Enable multi-process concurrent executor",
+    )
+    max_concurrent_per_family: dict[str, int] = Field(
+        default_factory=lambda: {
+            "metaworld": 50,
+            "procthor": 20,
+        },
+        description="Max concurrent tasks per environment family",
+    )
+
+    @field_validator("max_concurrent_per_family")
+    @classmethod
+    def validate_max_concurrent_per_family(cls, v: dict[str, int]) -> dict[str, int]:
+        """Validate that all per-family concurrency values are positive."""
+        for family, value in v.items():
+            if value <= 0:
+                raise ValueError(
+                    f"max_concurrent_per_family['{family}'] must be positive, got {value}"
+                )
+        return v
+
+    default_max_concurrent: int = Field(
+        default=20,
+        ge=1,
+        le=500,
+        description="Default max concurrent tasks for unlisted families",
+    )
+    env_families: list[str] | None = Field(
+        default=None,
+        description="Environment families to run workers for (None = infer from eval_images)",
+    )
+
+    def get_env_families(self) -> list[str]:
+        """Get the list of environment families to run workers for."""
+        if self.env_families:
+            return self.env_families
+        return list(self.eval_images.keys())
+
+    def get_max_concurrent(self, family: str) -> int:
+        """Get max concurrent tasks for a family."""
+        return self.max_concurrent_per_family.get(family, self.default_max_concurrent)
 
     def get_image_for_env(self, env_id: str) -> str:
         """
