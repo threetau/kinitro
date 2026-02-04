@@ -162,6 +162,18 @@ class ExecutorConfig(BaseSettings):
         },
         description="Max concurrent tasks per environment family",
     )
+
+    @field_validator("max_concurrent_per_family")
+    @classmethod
+    def validate_max_concurrent_per_family(cls, v: dict[str, int]) -> dict[str, int]:
+        """Validate that all per-family concurrency values are positive."""
+        for family, value in v.items():
+            if value <= 0:
+                raise ValueError(
+                    f"max_concurrent_per_family['{family}'] must be positive, got {value}"
+                )
+        return v
+
     default_max_concurrent: int = Field(
         default=20,
         ge=1,

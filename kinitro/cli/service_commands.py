@@ -203,6 +203,20 @@ def executor(
     if env_families:
         parsed_env_families = [f.strip() for f in env_families.split(",") if f.strip()]
 
+    # Validate env_families against eval_images in concurrent mode
+    if concurrent and parsed_env_families:
+        available_families = set(
+            parsed_eval_images.keys() if parsed_eval_images else {"metaworld", "procthor"}
+        )
+        invalid_families = [f for f in parsed_env_families if f not in available_families]
+        if invalid_families:
+            typer.echo(
+                f"Error: --env-families contains families without configured images: {invalid_families}. "
+                f"Available families: {sorted(available_families)}",
+                err=True,
+            )
+            raise typer.Exit(1)
+
     # Build config kwargs
     config_kwargs: dict = {
         "api_url": api_url,
