@@ -6,10 +6,16 @@ import json
 from typing import Any
 
 import structlog
-from procthor.generation import HouseGenerator as PTHouseGenerator
-from procthor.generation.room_specs import PROCTHOR10K_ROOM_SPEC_SAMPLER
 
-from kinitro.environments.procthor.task_types import SceneObject
+# Apply patches BEFORE importing procthor to fix known bugs
+from kinitro.environments.procthor.patches import apply_patches
+
+apply_patches()
+
+from procthor.generation import HouseGenerator as PTHouseGenerator  # noqa: E402
+from procthor.generation.room_specs import PROCTHOR10K_ROOM_SPEC_SAMPLER  # noqa: E402
+
+from kinitro.environments.procthor.task_types import SceneObject  # noqa: E402
 
 logger = structlog.get_logger()
 
