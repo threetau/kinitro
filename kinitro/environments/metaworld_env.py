@@ -62,7 +62,7 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         v_max: float = 0.05,
         w_max: float = 1.0,
         action_repeat: int = 1,
-        ee_site_name: str = "end_effector",
+        ee_site_name: str = "endEffector",
         action_format: str = "auto",
         warn_on_orientation_mismatch: bool = True,
     ):
@@ -305,16 +305,57 @@ class MetaWorldEnvironment(RoboticsEnvironment):
 
         return images
 
+    def _get_site_id(self, site_name: str) -> int:
+        """Get MuJoCo site ID by name using the MuJoCo 3.0+ named access API."""
+        env = cast(Any, self._env)
+        return int(env.unwrapped.model.site(site_name).id)
+
+    def _rotation_matrix_to_quaternion(self, xmat: np.ndarray) -> np.ndarray:
+        """Convert 3x3 rotation matrix (stored as 9 elements) to quaternion in XYZW order."""
+        # Reshape from flat 9 elements to 3x3 matrix (row-major as stored by MuJoCo)
+        rot = xmat.reshape(3, 3)
+
+        # Shepperd's method for robust rotation matrix to quaternion conversion
+        trace = np.trace(rot)
+
+        if trace > 0:
+            s = 0.5 / np.sqrt(trace + 1.0)
+            w = 0.25 / s
+            x = (rot[2, 1] - rot[1, 2]) * s
+            y = (rot[0, 2] - rot[2, 0]) * s
+            z = (rot[1, 0] - rot[0, 1]) * s
+        elif rot[0, 0] > rot[1, 1] and rot[0, 0] > rot[2, 2]:
+            s = 2.0 * np.sqrt(1.0 + rot[0, 0] - rot[1, 1] - rot[2, 2])
+            w = (rot[2, 1] - rot[1, 2]) / s
+            x = 0.25 * s
+            y = (rot[0, 1] + rot[1, 0]) / s
+            z = (rot[0, 2] + rot[2, 0]) / s
+        elif rot[1, 1] > rot[2, 2]:
+            s = 2.0 * np.sqrt(1.0 + rot[1, 1] - rot[0, 0] - rot[2, 2])
+            w = (rot[0, 2] - rot[2, 0]) / s
+            x = (rot[0, 1] + rot[1, 0]) / s
+            y = 0.25 * s
+            z = (rot[1, 2] + rot[2, 1]) / s
+        else:
+            s = 2.0 * np.sqrt(1.0 + rot[2, 2] - rot[0, 0] - rot[1, 1])
+            w = (rot[1, 0] - rot[0, 1]) / s
+            x = (rot[0, 2] + rot[2, 0]) / s
+            y = (rot[1, 2] + rot[2, 1]) / s
+            z = 0.25 * s
+
+        # Return in XYZW order
+        return np.array([x, y, z, w], dtype=np.float32)
+
     def _get_ee_quaternion(self) -> np.ndarray:
         """Return end-effector quaternion in XYZW order."""
         self._ensure_env()
         try:
             env = cast(Any, self._env)
             data = env.unwrapped.data
-            ee_site = env.unwrapped.model.site_name2id(self._ee_site_name)
-            quat_wxyz = data.site_xquat[ee_site]
-            quat_xyzw = np.array([quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]])
-            return normalize_quaternion(quat_xyzw.astype(np.float32))
+            # Use MuJoCo 3.0+ named access API to get site rotation matrix
+            xmat = data.site(self._ee_site_name).xmat
+            quat_xyzw = self._rotation_matrix_to_quaternion(xmat)
+            return normalize_quaternion(quat_xyzw)
         except Exception as e:
             logger.warning(
                 "metaworld_ee_quaternion_failed",
@@ -361,10 +402,14 @@ class MetaWorldEnvironment(RoboticsEnvironment):
 
         try:
             env = cast(Any, self._env)
+            model = env.unwrapped.model
             data = env.unwrapped.data
-            ee_site = env.unwrapped.model.site_name2id(self._ee_site_name)
-            ee_lin_vel = np.array(data.site_xvelp[ee_site], dtype=np.float32)
-            ee_ang_vel = np.array(data.site_xvelr[ee_site], dtype=np.float32)
+            ee_site = self._get_site_id(self._ee_site_name)
+            # Use MuJoCo 3.0+ mj_objectVelocity API for site velocity
+            vel = np.zeros(6, dtype=np.float64)
+            mujoco.mj_objectVelocity(model, data, mujoco.mjtObj.mjOBJ_SITE, ee_site, vel, 0)  # type: ignore[attr-defined]
+            ee_lin_vel = vel[:3].astype(np.float32)
+            ee_ang_vel = vel[3:].astype(np.float32)
         except Exception as e:
             logger.debug("metaworld_velocity_lookup_failed", env_id=self._env_id, error=str(e))
 
