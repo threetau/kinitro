@@ -5,6 +5,7 @@ import multiprocessing as mp
 import signal
 from dataclasses import dataclass, field
 from datetime import datetime
+from queue import Empty
 
 import structlog
 
@@ -174,8 +175,8 @@ class ExecutorManager:
                                 tasks_failed=metrics.get("tasks_failed", 0),
                                 last_update=datetime.now(),
                             )
-                    except Exception:
-                        break  # Queue empty
+                    except Empty:
+                        break
 
                 # Log aggregated metrics
                 total_succeeded = sum(m.tasks_succeeded for m in self._metrics.values())
@@ -209,7 +210,7 @@ async def run_concurrent_executor(config: ExecutorConfig) -> None:
     manager = ExecutorManager(config)
 
     # Setup signal handlers
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def signal_handler():
         logger.info("shutdown_signal_received")

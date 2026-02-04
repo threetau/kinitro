@@ -184,7 +184,7 @@ def executor(
     # Parse env_families if provided
     parsed_env_families: list[str] | None = None
     if env_families:
-        parsed_env_families = [f.strip() for f in env_families.split(",")]
+        parsed_env_families = [f.strip() for f in env_families.split(",") if f.strip()]
 
     # Build config kwargs
     config_kwargs: dict = {
