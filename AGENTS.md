@@ -135,18 +135,43 @@ Keep it current when commands or conventions change.
 - Keep unit tests fast; integration tests go in `tests/integration`.
 
 ## End-to-End Testing
-- Full guide: `docs/e2e-testing-guide.md`
-- Tests API, scheduler, executor (Docker or Basilica mode), and miner deployment
-- Quick start (Docker mode, metaworld only):
-  ```bash
-  uv run kinitro db reset --database-url $DATABASE_URL --force
-  uv run kinitro api --database-url $DATABASE_URL &
-  uv run kinitro scheduler --database-url $DATABASE_URL \
-    --network $NETWORK --netuid $NETUID --episodes-per-env 3 --env-families metaworld &
-  uv run kinitro executor --api-url http://localhost:8000 --eval-mode docker \
-    --eval-images '{"metaworld":"shr1ftyy/kinitro-metaworld:v1"}' &
-  ```
-- Monitor: `tail -f /tmp/scheduler.log` and `tail -f /tmp/executor.log`
+
+### Multi-Worktree Development
+When working with multiple git worktrees, use the helper scripts to avoid port/database collisions:
+```bash
+./scripts/worktree-env.sh     # Generate isolated .env and docker-compose.override.yml
+./scripts/start-services.sh   # Start services (also: stop, status, logs)
+```
+The scripts calculate deterministic port offsets from the worktree name (e.g., `fix/my-feature` → PostgreSQL 5789, API 8357, database `kinitro_fix_my_feature`).
+
+### Quick Start
+```bash
+# 1. Start database
+docker compose up -d postgres
+
+# 2. Start services (in separate terminals or background)
+uv run kinitro api --database-url $DATABASE_URL --port 8000 --no-auth &
+uv run kinitro scheduler --database-url $DATABASE_URL \
+  --network $NETWORK --netuid $NETUID --env-families metaworld &
+uv run kinitro executor --api-url http://localhost:8000 --eval-mode docker \
+  --eval-images '{"metaworld":"kinitro/metaworld:v1"}' &
+```
+
+### Building Environment Images
+```bash
+uv run kinitro env build procthor --tag kinitro/procthor:v1
+uv run kinitro env build metaworld --tag kinitro/metaworld:v1
+```
+
+### Logs
+- Service logs: `/tmp/kinitro_<worktree>/api.log`, `scheduler.log`, `executor.log`
+- Container logs: `docker logs <container_name>` or `docker logs -f <name>`
+- List eval containers: `docker ps --filter "name=kinitro-eval"`
+
+### Troubleshooting
+- Port conflicts: Run `./scripts/worktree-env.sh` to regenerate ports, then `./scripts/start-services.sh stop`
+- Reset database: `PGPASSWORD=postgres psql -h localhost -p $POSTGRES_PORT -U postgres -c "DROP DATABASE $DB; CREATE DATABASE $DB;"`
+- Stop eval containers: `docker stop $(docker ps -q --filter "name=kinitro-eval")`
 
 ## Docs and References
 - Developer overview: `README.md`.
@@ -154,7 +179,6 @@ Keep it current when commands or conventions change.
 - Miner guide: `docs/miner-guide.md`.
 - Validator guide: `docs/validator-guide.md`.
 - Scoring and incentives: `docs/scoring-and-incentives.md`.
-- E2E testing guide: `docs/e2e-testing-guide.md`.
 
 ## Change Hygiene for Agents
 - Do not modify files outside the task scope.
