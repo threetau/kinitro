@@ -119,7 +119,7 @@ start_mock_miner() {
     local miner_port="${MOCK_MINER_PORT:-8001}"
 
     echo "Starting mock miner on port $miner_port..."
-    nohup uv run kinitro mock-miner \
+    nohup uv run kinitro miner mock \
         --host 0.0.0.0 \
         --port "$miner_port" \
         --random-actions \
