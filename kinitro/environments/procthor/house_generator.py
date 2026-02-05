@@ -46,7 +46,9 @@ class HouseGenerator:
         self._use_cache = use_cache
         self._house_cache: dict[int, dict[str, Any]] = {}
 
-    def generate_house(self, seed: int, controller: Any = None) -> dict[str, Any]:
+    def generate_house(
+        self, seed: int, controller: Any = None, max_retries: int = 10
+    ) -> dict[str, Any]:
         """
         Generate a procedural house from a seed using ProcTHOR.
 
@@ -54,6 +56,7 @@ class HouseGenerator:
             seed: Random seed for reproducible generation
             controller: Optional AI2-THOR controller to use for generation.
                        If not provided, ProcTHOR will create its own.
+            max_retries: Number of times to retry with modified seed on KeyError
 
         Returns:
             House specification dictionary compatible with AI2-THOR
@@ -61,48 +64,81 @@ class HouseGenerator:
         if self._use_cache and seed in self._house_cache:
             return self._house_cache[seed]
 
-        # Generate house using procthor
-        try:
-            # ProcTHOR requires a 'split' parameter and a room_spec_sampler
-            # Use 'train' split and the default PROCTHOR10K room specs
-            # Pass controller if provided to avoid creating a new one
-            generator = PTHouseGenerator(
-                split="train",
-                seed=seed,
-                room_spec_sampler=PROCTHOR10K_ROOM_SPEC_SAMPLER,
-                controller=controller,
-            )
-            result = generator.sample()
-            # sample() returns (House, Dict) tuple
-            house = result[0] if isinstance(result, tuple) else result
-            # House object has .data attribute which is the dict we need
-            # (newer procthor versions don't have to_dict, but have .data)
-            house_data = getattr(house, "data", None)
-            if isinstance(house_data, dict):
-                house_dict: dict[str, Any] = house_data
-            else:
-                to_dict = getattr(house, "to_dict", None)
-                if callable(to_dict):
-                    house_dict = to_dict()
+        last_error: Exception | None = None
+        current_seed = seed
+
+        for attempt in range(max_retries + 1):
+            try:
+                # ProcTHOR requires a 'split' parameter and a room_spec_sampler
+                # Use 'train' split and the default PROCTHOR10K room specs
+                # Pass controller if provided to avoid creating a new one
+                generator = PTHouseGenerator(
+                    split="train",
+                    seed=current_seed,
+                    room_spec_sampler=PROCTHOR10K_ROOM_SPEC_SAMPLER,
+                    controller=controller,
+                )
+                result = generator.sample()
+                # sample() returns (House, Dict) tuple
+                house = result[0] if isinstance(result, tuple) else result
+                # House object has .data attribute which is the dict we need
+                # (newer procthor versions don't have to_dict, but have .data)
+                house_data = getattr(house, "data", None)
+                if isinstance(house_data, dict):
+                    house_dict: dict[str, Any] = house_data
                 else:
-                    to_json = getattr(house, "to_json", None)
-                    if not callable(to_json):
-                        raise RuntimeError(
-                            "ProcTHOR house object has no supported serialization method"
-                        )
-                    house_dict = json.loads(to_json())
-        except Exception as e:
-            logger.warning(
-                "procthor_generation_failed",
-                seed=seed,
-                error=str(e),
-            )
-            raise RuntimeError(f"ProcTHOR house generation failed: {e}") from e
+                    to_dict = getattr(house, "to_dict", None)
+                    if callable(to_dict):
+                        house_dict = to_dict()
+                    else:
+                        to_json = getattr(house, "to_json", None)
+                        if not callable(to_json):
+                            raise RuntimeError(
+                                "ProcTHOR house object has no supported serialization method"
+                            )
+                        house_dict = json.loads(to_json())
 
-        if self._use_cache:
-            self._house_cache[seed] = house_dict
+                if self._use_cache:
+                    self._house_cache[seed] = house_dict
 
-        return house_dict
+                return house_dict
+
+            except KeyError as e:
+                # KeyError is a known procthor bug with object ID inconsistencies
+                # Retry with a modified seed
+                last_error = e
+                if attempt < max_retries:
+                    # Modify seed deterministically to get a different house
+                    current_seed = seed + (attempt + 1) * 7919 * 1009  # ~8M jump per retry
+                    logger.warning(
+                        "procthor_keyerror_retry",
+                        original_seed=seed,
+                        new_seed=current_seed,
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        error=str(e),
+                        hint="Known procthor bug with object ID inconsistencies",
+                    )
+                else:
+                    logger.warning(
+                        "procthor_generation_failed_keyerror",
+                        seed=seed,
+                        error=str(e),
+                        attempts=max_retries + 1,
+                    )
+            except Exception as e:
+                # Other errors - don't retry
+                logger.warning(
+                    "procthor_generation_failed",
+                    seed=seed,
+                    error=str(e),
+                )
+                raise RuntimeError(f"ProcTHOR house generation failed: {e}") from e
+
+        # All retries exhausted
+        raise RuntimeError(
+            f"ProcTHOR house generation failed after {max_retries + 1} attempts: {last_error}"
+        ) from last_error
 
     def get_scene_name(self, house: dict[str, Any]) -> dict[str, Any]:
         """
