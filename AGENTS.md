@@ -137,14 +137,11 @@ Keep it current when commands or conventions change.
 
 ## End-to-End Testing
 
-For multi-worktree development, E2E testing, and troubleshooting, see `docs/e2e-testing.md`.
+For detailed testing docs and troubleshooting, see `docs/e2e-testing.md`.
 
 ### Quick Reference
 ```bash
-# Setup worktree-isolated environment (once per worktree)
-./scripts/worktree-env.sh
-
-# Start all services with mock miner
+# Start all services with mock miner (uses default ports)
 ./scripts/services.sh start --mock-miner
 
 # Run test scripts
@@ -156,6 +153,12 @@ For multi-worktree development, E2E testing, and troubleshooting, see `docs/e2e-
 ./scripts/services.sh status  # Check running services
 ./scripts/services.sh logs    # Tail service logs
 ./scripts/services.sh stop    # Stop all services
+```
+
+For multi-worktree development (avoids port collisions between parallel checkouts):
+```bash
+./scripts/worktree-env.sh           # Generate isolated ports/database (once per worktree)
+./scripts/services.sh start --all   # Uses worktree-specific ports
 ```
 
 ### API Endpoints

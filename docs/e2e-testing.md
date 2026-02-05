@@ -5,27 +5,28 @@ This guide covers E2E testing procedures for the kinitro evaluation pipeline.
 ## Quick Start
 
 ```bash
-# 1. Generate worktree-isolated environment
-./scripts/worktree-env.sh
-
-# 2. Run full E2E test
+# Run full E2E test (uses default ports if no .env exists)
 ./scripts/test-e2e.sh
 
-# Or run individual component tests:
+# Or start services and run component tests individually:
+./scripts/services.sh start --mock-miner
 ./scripts/test-api.sh
 ./scripts/test-mock-miner.sh
+./scripts/services.sh stop
 ```
 
 ## Multi-Worktree Development
 
-When working with multiple git worktrees, use the helper scripts to avoid port/database collisions:
+When working with multiple git worktrees, generate isolated ports and databases to avoid collisions:
 
 ```bash
-./scripts/worktree-env.sh     # Generate isolated .env and docker-compose.override.yml
-./scripts/services.sh         # Manage services (start, stop, status, logs)
+./scripts/worktree-env.sh     # Generate isolated .env and docker-compose.override.yml (once per worktree)
+./scripts/services.sh start   # Uses worktree-specific ports from .env
 ```
 
 The scripts calculate deterministic port offsets from the worktree name (e.g., `fix/my-feature` → PostgreSQL 5789, API 8357, database `kinitro_fix_my_feature`).
+
+Without `worktree-env.sh`, all scripts use default ports (API=8000, PostgreSQL=5432, database=`kinitro`).
 
 ## Building Environment Images
 

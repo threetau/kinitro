@@ -7,18 +7,24 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Load environment
+# Load environment if it exists
 if [[ -f "$REPO_ROOT/.env" ]]; then
     set -a
     source "$REPO_ROOT/.env"
     set +a
 else
-    echo "Error: .env not found. Run ./scripts/worktree-env.sh first."
-    exit 1
+    echo "Note: No .env found. Using default ports (API=8000, PostgreSQL=5432)."
+    echo "      For multi-worktree isolation, run ./scripts/worktree-env.sh first."
 fi
 
+# Derive defaults for anything not set by .env
+WORKTREE_NAME="${WORKTREE_NAME:-$(basename "$REPO_ROOT")}"
+POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+POSTGRES_USER="${POSTGRES_USER:-postgres}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-postgres}"
 API_PORT="${API_PORT:-8000}"
-API_URL="http://localhost:$API_PORT"
+API_URL="${API_URL:-http://localhost:$API_PORT}"
+DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:$POSTGRES_PORT/kinitro}"
 MINER_PORT="${MOCK_MINER_PORT:-8001}"
 
 usage() {
