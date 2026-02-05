@@ -12,6 +12,7 @@ from kinitro.rl_interface import (
     ActionKeys,
     Observation,
     ProprioKeys,
+    encode_image,
     normalize_quaternion,
 )
 
@@ -395,8 +396,11 @@ class MetaWorldEnvironment(RoboticsEnvironment):
                 env_id=self._env_id,
             )
 
+        # Encode camera images for serialization
+        encoded_views = {name: encode_image(img) for name, img in camera_views.items()}
+
         return Observation(
-            rgb=camera_views,  # type: ignore[arg-type]  # Pydantic validator converts numpy arrays
+            rgb=encoded_views,
             proprio={
                 ProprioKeys.EE_POS: ee_pos.tolist(),
                 ProprioKeys.EE_QUAT: ee_quat.tolist(),

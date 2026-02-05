@@ -20,7 +20,7 @@ import base64
 from typing import Any
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 # =============================================================================
 # Conventional Key Names
@@ -100,7 +100,7 @@ class ActionKeys:
 # =============================================================================
 
 
-def _encode_image(img: np.ndarray) -> dict[str, Any]:
+def encode_image(img: np.ndarray) -> dict[str, Any]:
     """Encode image as base64 with metadata for efficient serialization."""
     return {
         "data": base64.b64encode(img.tobytes()).decode("ascii"),
@@ -109,7 +109,7 @@ def _encode_image(img: np.ndarray) -> dict[str, Any]:
     }
 
 
-def _decode_image(encoded: dict[str, Any] | list) -> np.ndarray:
+def decode_image(encoded: dict[str, Any] | list) -> np.ndarray:
     """Decode image from base64 or nested list format."""
     if isinstance(encoded, list):
         # Legacy nested list format
@@ -141,7 +141,7 @@ class Observation(BaseModel):
     Examples:
         # Single-arm manipulator
         obs = Observation(
-            rgb={"wrist": img},
+            rgb={"wrist": encode_image(img)},
             proprio={
                 "ee_pos": [0.4, 0.0, 0.2],
                 "ee_quat": [0, 0, 0, 1],
@@ -151,7 +151,7 @@ class Observation(BaseModel):
 
         # Navigation agent
         obs = Observation(
-            rgb={"ego": img},
+            rgb={"ego": encode_image(img)},
             proprio={
                 "base_pos": [1.2, 0.0, 3.4],
                 "base_heading": [1.57],
@@ -169,52 +169,22 @@ class Observation(BaseModel):
     cam_extrinsics: dict[str, list[list[float]]] = Field(default_factory=dict)
     extra: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("rgb", "depth", mode="before")
-    @classmethod
-    def _coerce_images(cls, value: Any) -> dict[str, Any]:
-        if value is None:
-            return {}
-        if isinstance(value, dict):
-            result = {}
-            for k, v in value.items():
-                if isinstance(v, np.ndarray):
-                    result[k] = _encode_image(v)
-                else:
-                    result[k] = v
-            return result
-        return value
-
-    @field_validator("proprio", mode="before")
-    @classmethod
-    def _coerce_proprio(cls, value: Any) -> dict[str, list[float]]:
-        if value is None:
-            return {}
-        result = {}
-        for k, v in value.items():
-            if isinstance(v, np.ndarray):
-                result[k] = v.tolist()
-            elif isinstance(v, (int, float)):
-                result[k] = [float(v)]
-            else:
-                result[k] = list(v)
-        return result
-
     def get_image(self, camera: str) -> np.ndarray | None:
         """Get decoded RGB image for a camera."""
         if camera not in self.rgb:
             return None
-        return _decode_image(self.rgb[camera])
+        return decode_image(self.rgb[camera])
 
     def get_depth(self, camera: str) -> np.ndarray | None:
         """Get decoded depth image for a camera."""
         if camera not in self.depth:
             return None
-        return _decode_image(self.depth[camera])
+        return decode_image(self.depth[camera])
 
     @property
     def images(self) -> dict[str, np.ndarray]:
         """Get all RGB images as numpy arrays."""
-        return {name: _decode_image(data) for name, data in self.rgb.items()}
+        return {name: decode_image(data) for name, data in self.rgb.items()}
 
     def get_proprio(self, key: str) -> np.ndarray | None:
         """Get a proprioceptive channel as numpy array."""
@@ -278,21 +248,6 @@ class Action(BaseModel):
     continuous: dict[str, list[float]] = Field(default_factory=dict)
     discrete: dict[str, int] = Field(default_factory=dict)
     extra: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("continuous", mode="before")
-    @classmethod
-    def _coerce_continuous(cls, value: Any) -> dict[str, list[float]]:
-        if value is None:
-            return {}
-        result = {}
-        for k, v in value.items():
-            if isinstance(v, np.ndarray):
-                result[k] = v.tolist()
-            elif isinstance(v, (int, float)):
-                result[k] = [float(v)]
-            else:
-                result[k] = list(v)
-        return result
 
     def get_continuous(self, key: str) -> np.ndarray | None:
         """Get a continuous channel as numpy array."""

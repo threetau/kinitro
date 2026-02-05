@@ -19,7 +19,7 @@ from kinitro.environments.procthor.house_generator import (
 )
 from kinitro.environments.procthor.task_generator import TaskGenerator
 from kinitro.environments.procthor.task_types import SceneObject, TaskSpec, TaskType
-from kinitro.rl_interface import Action, ActionKeys, Observation, ProprioKeys
+from kinitro.rl_interface import Action, ActionKeys, Observation, ProprioKeys, encode_image
 
 logger = structlog.get_logger()
 
@@ -905,15 +905,15 @@ class ProcTHOREnvironment(RoboticsEnvironment):
         # Gripper state (0 = empty, 1 = holding)
         gripper_01 = 1.0 if self._holding_object else 0.0
 
-        # RGB image - pass numpy array directly (will be base64 encoded)
+        # RGB image - encode numpy array to base64
         rgb = {}
         if event.frame is not None:
-            rgb["ego"] = event.frame
+            rgb["ego"] = encode_image(event.frame)
 
-        # Depth (optional) - pass numpy array directly
+        # Depth (optional) - encode numpy array to base64
         depth = {}
         if self._use_depth and hasattr(event, "depth_frame") and event.depth_frame is not None:
-            depth["ego"] = event.depth_frame
+            depth["ego"] = encode_image(event.depth_frame)
 
         # Compute camera matrices
         cam_intrinsics = {"ego": self._compute_camera_intrinsics()}
