@@ -12,7 +12,6 @@ from kinitro.rl_interface import (
     ActionKeys,
     Observation,
     ProprioKeys,
-    coerce_action,
     normalize_quaternion,
 )
 
@@ -515,7 +514,7 @@ class MetaWorldEnvironment(RoboticsEnvironment):
 
     def step(
         self,
-        action: Action | dict[str, Any] | np.ndarray,
+        action: Action,
     ) -> tuple[Observation, float, bool, dict[str, Any]]:
         """
         Execute action in environment.
@@ -525,10 +524,9 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         """
         self._ensure_env()
 
-        action_obj = coerce_action(action)
         # Get twist (ee_twist channel) and gripper values
-        twist_arr = action_obj.get_continuous(ActionKeys.EE_TWIST)
-        gripper_arr = action_obj.get_continuous(ActionKeys.GRIPPER)
+        twist_arr = action.get_continuous(ActionKeys.EE_TWIST)
+        gripper_arr = action.get_continuous(ActionKeys.GRIPPER)
         twist = np.clip(twist_arr if twist_arr is not None else np.zeros(6), -1.0, 1.0)
         gripper = float(np.clip(gripper_arr[0] if gripper_arr is not None else 0.0, 0.0, 1.0))
 

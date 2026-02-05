@@ -336,26 +336,6 @@ class Action(BaseModel):
 # =============================================================================
 
 
-def coerce_action(action: Any, schema: dict[str, int] | None = None) -> Action:
-    """
-    Coerce various formats to Action.
-
-    Args:
-        action: Action in any supported format (Action, dict, or array)
-        schema: For array inputs, mapping of channel names to sizes
-    """
-    if isinstance(action, Action):
-        return action
-    if isinstance(action, dict):
-        return Action.model_validate(action)
-    if isinstance(action, np.ndarray) or hasattr(action, "__iter__"):
-        if schema is None:
-            # Default schema for backward compatibility with 7-element actions
-            schema = {ActionKeys.EE_TWIST: 6, ActionKeys.GRIPPER: 1}
-        return Action.from_array(np.asarray(action), schema)
-    raise TypeError(f"Cannot coerce {type(action)} to Action")
-
-
 def normalize_quaternion(quat: np.ndarray) -> np.ndarray:
     """Normalize a quaternion to unit length."""
     norm = np.linalg.norm(quat)

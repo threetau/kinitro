@@ -18,7 +18,7 @@ from kinitro.environments.registry import (
     get_environments_by_family,
     get_family_metadata,
 )
-from kinitro.rl_interface import Observation, coerce_action
+from kinitro.rl_interface import Action, ActionKeys, Observation
 
 # Available environment families for build command
 AVAILABLE_ENV_FAMILIES = ["metaworld", "procthor"]
@@ -308,9 +308,12 @@ def test_env(
             steps = 0
             for step_idx in range(max_steps):
                 # Random action
-                low, high = env.action_bounds
-                action_array = np.random.uniform(low, high)
-                action = coerce_action(action_array)
+                action = Action(
+                    continuous={
+                        ActionKeys.EE_TWIST: np.random.uniform(-1, 1, size=6).tolist(),
+                        ActionKeys.GRIPPER: [float(np.random.uniform(0, 1))],
+                    }
+                )
                 obs, reward, done, info = env.step(action)
                 ep_reward += reward
                 steps += 1
@@ -318,7 +321,7 @@ def test_env(
                 # Record trajectory data
                 if recording:
                     observations.append(obs.to_payload(include_images=save_images))
-                    actions.append(action_array)
+                    actions.append(action.model_dump(mode="python"))
                     rewards.append(reward)
                     dones.append(done)
 

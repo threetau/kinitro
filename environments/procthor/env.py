@@ -39,7 +39,7 @@ import structlog
 # Import from kinitro package (installed in container via PYTHONPATH)
 from kinitro.environments import get_environment
 from kinitro.environments.registry import get_all_environment_ids
-from kinitro.rl_interface import Action, ActionKeys, coerce_action
+from kinitro.rl_interface import Action, ActionKeys
 
 logger = structlog.get_logger()
 
@@ -293,18 +293,35 @@ class Actor:
                     payload=payload,
                     timeout=action_timeout,
                 )
-                action = response.get("action")
-                if action is None:
+                action_data = response.get("action")
+                if action_data is None:
                     # Missing action - use zeros
                     action = Action(
                         continuous={
                             ActionKeys.EE_TWIST: [0.0] * 6,
                             ActionKeys.GRIPPER: [0.0],
                         }
-                    ).model_dump(mode="python")
-                elif not isinstance(action, dict) or "continuous" not in action:
-                    # Coerce array or old format to new Action format
-                    action = coerce_action(action).model_dump(mode="python")
+                    )
+                elif isinstance(action_data, dict) and "continuous" in action_data:
+                    # Valid Action format - validate it
+                    action = Action.model_validate(action_data)
+                else:
+                    # Array or old format - construct from array
+                    arr = np.asarray(action_data).flatten()
+                    if len(arr) >= 7:
+                        action = Action(
+                            continuous={
+                                ActionKeys.EE_TWIST: arr[:6].tolist(),
+                                ActionKeys.GRIPPER: [float(arr[6])],
+                            }
+                        )
+                    else:
+                        action = Action(
+                            continuous={
+                                ActionKeys.EE_TWIST: [0.0] * 6,
+                                ActionKeys.GRIPPER: [0.0],
+                            }
+                        )
             except httpx.TimeoutException:
                 return self._build_error_result(
                     env_id=env_id,

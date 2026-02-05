@@ -122,7 +122,7 @@ Create your environment class in `kinitro/environments/myrobot/environment.py` i
 
 ```python
 from kinitro.environments.base import RoboticsEnvironment, TaskConfig
-from kinitro.rl_interface import Observation, Action, ProprioKeys, ActionKeys, coerce_action
+from kinitro.rl_interface import Observation, Action, ProprioKeys, ActionKeys
 
 class MyRobotEnvironment(RoboticsEnvironment):
     """Your environment implementation."""
@@ -480,17 +480,14 @@ def _build_observation(self) -> Observation:
 Accept `Action` and convert to your simulator's format:
 
 ```python
-from kinitro.rl_interface import Action, ActionKeys, coerce_action
+from kinitro.rl_interface import Action, ActionKeys
 
-def step(self, action: Action | dict | np.ndarray) -> tuple:
+def step(self, action: Action) -> tuple:
     """Execute action in environment."""
 
-    # Coerce to Action (handles dict, array, or Action)
-    action_obj = coerce_action(action)
-
     # Extract components using ActionKeys
-    twist = action_obj.get_continuous(ActionKeys.EE_TWIST)  # [vx, vy, vz, wx, wy, wz]
-    gripper = action_obj.get_continuous(ActionKeys.GRIPPER)  # [0.0-1.0]
+    twist = action.get_continuous(ActionKeys.EE_TWIST)  # [vx, vy, vz, wx, wy, wz]
+    gripper = action.get_continuous(ActionKeys.GRIPPER)  # [0.0-1.0]
 
     # Map to your simulator's action format
     # Example: convert normalized twist to velocity commands
@@ -539,7 +536,7 @@ import numpy as np
 
 from kinitro.environments import get_environment
 from kinitro.environments.registry import get_all_environment_ids
-from kinitro.rl_interface import Action, ActionKeys, coerce_action
+from kinitro.rl_interface import Action, ActionKeys
 
 
 class Actor:
@@ -896,7 +893,7 @@ class TaskGenerator:
 
 import numpy as np
 from kinitro.environments.base import RoboticsEnvironment, TaskConfig
-from kinitro.rl_interface import Observation, Action, ProprioKeys, ActionKeys, coerce_action
+from kinitro.rl_interface import Observation, Action, ProprioKeys, ActionKeys
 from .task_types import TaskType, TaskSpec, SceneObject
 from .task_generator import TaskGenerator
 
@@ -1048,10 +1045,9 @@ class RoboManipEnvironment(RoboticsEnvironment):
 
         return self._build_observation()
 
-    def step(self, action: Action | dict | np.ndarray) -> tuple:
+    def step(self, action: Action) -> tuple:
         """Execute action and return results."""
         self._episode_steps += 1
-        action_obj = coerce_action(action)
 
         # Record state before action (for dense rewards)
         prev_distance = self._distance_to_goal()

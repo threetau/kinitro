@@ -19,7 +19,7 @@ from kinitro.environments.procthor.house_generator import (
 )
 from kinitro.environments.procthor.task_generator import TaskGenerator
 from kinitro.environments.procthor.task_types import SceneObject, TaskSpec, TaskType
-from kinitro.rl_interface import Action, ActionKeys, Observation, ProprioKeys, coerce_action
+from kinitro.rl_interface import Action, ActionKeys, Observation, ProprioKeys
 
 logger = structlog.get_logger()
 
@@ -558,17 +558,14 @@ class ProcTHOREnvironment(RoboticsEnvironment):
                     standing=True,
                 )
 
-    def step(
-        self, action: Action | dict[str, Any] | np.ndarray
-    ) -> tuple[Observation, float, bool, dict[str, Any]]:
+    def step(self, action: Action) -> tuple[Observation, float, bool, dict[str, Any]]:
         """Execute action in environment."""
         self._ensure_controller()
         self._episode_steps += 1
 
-        action_obj = coerce_action(action)
         # Get twist (ee_twist channel) and gripper values
-        twist_arr = action_obj.get_continuous(ActionKeys.EE_TWIST)
-        gripper_arr = action_obj.get_continuous(ActionKeys.GRIPPER)
+        twist_arr = action.get_continuous(ActionKeys.EE_TWIST)
+        gripper_arr = action.get_continuous(ActionKeys.GRIPPER)
         twist = np.clip(twist_arr if twist_arr is not None else np.zeros(6), -1.0, 1.0)
         gripper = float(np.clip(gripper_arr[0] if gripper_arr is not None else 0.0, 0.0, 1.0))
 
