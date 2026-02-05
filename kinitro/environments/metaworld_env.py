@@ -397,7 +397,7 @@ class MetaWorldEnvironment(RoboticsEnvironment):
             )
 
         return Observation(
-            rgb=camera_views,  # Will be auto-encoded if numpy arrays
+            rgb=camera_views,  # type: ignore[arg-type]  # Pydantic validator converts numpy arrays
             proprio={
                 ProprioKeys.EE_POS: ee_pos.tolist(),
                 ProprioKeys.EE_QUAT: ee_quat.tolist(),

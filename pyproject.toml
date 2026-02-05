@@ -113,7 +113,8 @@ markers = [
 python-version = "3.12"
 
 [tool.ty.src]
-exclude = [".git", ".pyenv", ".ruff_cache", ".venv", ".vscode"]
+# Exclude miner templates (they import from local rl_interface.py which is copied at deploy time)
+exclude = [".git", ".pyenv", ".ruff_cache", ".venv", ".vscode", "kinitro/miner/template"]
 
 [dependency-groups]
 dev = [
