@@ -5,11 +5,11 @@ This is where you implement your robotics policy.
 The RobotPolicy class is imported by the server and called during evaluation.
 
 Your policy receives:
-- Canonical observation: ee_pos_m, ee_quat_xyzw, ee_lin_vel_mps, ee_ang_vel_rps, gripper_01
-- Camera images (optional): RGB images from multiple viewpoints
+- Observation with proprio dict: ee_pos, ee_quat, ee_vel_lin, ee_vel_ang, gripper
+- Camera images (optional): RGB images from multiple viewpoints in rgb dict
 
 Your policy returns:
-- Canonical action: twist_ee_norm (6 values) + gripper_01
+- Action with continuous dict: ee_twist (6 values), gripper (1 value)
 """
 
 import uuid
@@ -17,7 +17,7 @@ import uuid
 import numpy as np
 
 # Import from local rl_interface (self-contained for Basilica deployment)
-from rl_interface import CanonicalAction, CanonicalObservation
+from rl_interface import Action, ActionKeys, Observation
 
 
 class RobotPolicy:
@@ -26,7 +26,7 @@ class RobotPolicy:
 
     Implement the following methods:
     - reset(): Called at the start of each episode
-    - act(): Called every timestep to get action (CanonicalObservation in, CanonicalAction out)
+    - act(): Called every timestep to get action (Observation in, Action out)
     """
 
     def __init__(self):
@@ -46,15 +46,15 @@ class RobotPolicy:
         self._episode_id = uuid.uuid4().hex
         return self._episode_id
 
-    async def act(self, observation: CanonicalObservation):
+    async def act(self, observation: Observation):
         """
         Get action for current observation.
 
         Args:
-            observation: Canonical observation with proprioception and optional images
+            observation: Observation with proprio dict and optional images
 
         Returns:
-            CanonicalAction
+            Action
         """
         # TODO: Replace with your policy inference
         # Example:
@@ -65,9 +65,14 @@ class RobotPolicy:
         # The validator may verify that your deployed model matches HuggingFace.
 
         # Default: random action (seed is already set by server if provided)
-        twist = np.random.uniform(-1, 1, size=6)
-        gripper = float(np.random.uniform(0, 1))
-        return CanonicalAction(twist_ee_norm=twist.tolist(), gripper_01=gripper)
+        twist = np.random.uniform(-1, 1, size=6).tolist()
+        gripper = [float(np.random.uniform(0, 1))]
+        return Action(
+            continuous={
+                ActionKeys.EE_TWIST: twist,
+                ActionKeys.GRIPPER: gripper,
+            }
+        )
 
     async def cleanup(self):
         """Called on shutdown. Override to release resources."""

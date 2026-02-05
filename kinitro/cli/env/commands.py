@@ -18,7 +18,7 @@ from kinitro.environments.registry import (
     get_environments_by_family,
     get_family_metadata,
 )
-from kinitro.rl_interface import CanonicalObservation, coerce_action
+from kinitro.rl_interface import Observation, coerce_action
 
 # Available environment families for build command
 AVAILABLE_ENV_FAMILIES = ["metaworld", "procthor"]
@@ -29,7 +29,7 @@ class CameraCapable(Protocol):
     num_cameras: int
     image_shape: tuple[int, ...]
 
-    def get_observation(self) -> CanonicalObservation: ...
+    def get_observation(self) -> Observation: ...
 
 
 def build_env(

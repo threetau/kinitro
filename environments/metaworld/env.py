@@ -38,7 +38,7 @@ import structlog
 # Import from kinitro package (installed in container via PYTHONPATH)
 from kinitro.environments import get_environment
 from kinitro.environments.registry import get_all_environment_ids
-from kinitro.rl_interface import CanonicalAction
+from kinitro.rl_interface import Action, ActionKeys, coerce_action
 
 logger = structlog.get_logger()
 
@@ -257,9 +257,15 @@ class Actor:
                 action = response.get("action")
                 if action is None:
                     # Missing action - use zeros
-                    action = CanonicalAction.from_array([]).model_dump(mode="python")
-                elif not isinstance(action, dict) or "twist_ee_norm" not in action:
-                    action = CanonicalAction.from_array(action).model_dump(mode="python")
+                    action = Action(
+                        continuous={
+                            ActionKeys.EE_TWIST: [0.0] * 6,
+                            ActionKeys.GRIPPER: [0.0],
+                        }
+                    ).model_dump(mode="python")
+                elif not isinstance(action, dict) or "continuous" not in action:
+                    # Coerce array or old format to new Action format
+                    action = coerce_action(action).model_dump(mode="python")
             except httpx.TimeoutException:
                 return self._build_error_result(
                     env_id=env_id,

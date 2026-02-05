@@ -29,7 +29,7 @@ import numpy as np
 import structlog
 from huggingface_hub import HfApi, snapshot_download
 
-from kinitro.rl_interface import CanonicalAction, CanonicalObservation
+from kinitro.rl_interface import Action, Observation, ProprioKeys
 
 logger = structlog.get_logger()
 
@@ -138,15 +138,17 @@ class PolicyVerifier:
             test_seed = int(hashlib.sha256(seed_str).hexdigest()[:8], 16) % (2**31)
             rng = np.random.default_rng(test_seed)
 
-            # Generate CanonicalObservation objects for testing
+            # Generate Observation objects for testing
             test_observations = []
             for _ in range(self.num_samples):
-                obs = CanonicalObservation(
-                    ee_pos_m=rng.uniform(-1, 1, size=3).tolist(),
-                    ee_quat_xyzw=[0.0, 0.0, 0.0, 1.0],  # Identity quaternion
-                    ee_lin_vel_mps=rng.uniform(-0.5, 0.5, size=3).tolist(),
-                    ee_ang_vel_rps=rng.uniform(-0.5, 0.5, size=3).tolist(),
-                    gripper_01=float(rng.uniform(0, 1)),
+                obs = Observation(
+                    proprio={
+                        ProprioKeys.EE_POS: rng.uniform(-1, 1, size=3).tolist(),
+                        ProprioKeys.EE_QUAT: [0.0, 0.0, 0.0, 1.0],  # Identity quaternion
+                        ProprioKeys.EE_VEL_LIN: rng.uniform(-0.5, 0.5, size=3).tolist(),
+                        ProprioKeys.EE_VEL_ANG: rng.uniform(-0.5, 0.5, size=3).tolist(),
+                        ProprioKeys.GRIPPER: [float(rng.uniform(0, 1))],
+                    },
                     rgb={},  # No images for verification (simpler comparison)
                 )
                 test_observations.append(obs)
@@ -324,7 +326,7 @@ class PolicyVerifier:
         np.random.seed(seed)
 
     async def _get_local_action(
-        self, policy: Any, canonical_obs: CanonicalObservation, seed: int
+        self, policy: Any, obs: Observation, seed: int
     ) -> np.ndarray | None:
         """Get action from local policy."""
         try:
@@ -332,17 +334,19 @@ class PolicyVerifier:
 
             # Try async first, fall back to sync
             if asyncio.iscoroutinefunction(policy.act):
-                action = await policy.act(canonical_obs)
+                action = await policy.act(obs)
             else:
-                action = policy.act(canonical_obs)
+                action = policy.act(obs)
 
             # Handle different action return types
             # Note: Check by method/attribute rather than isinstance() because
-            # the miner's bundled rl_interface.py has its own CanonicalAction class
+            # the miner's bundled rl_interface.py has its own Action class
             if hasattr(action, "to_array"):
                 return action.to_array()
+            if hasattr(action, "continuous_array"):
+                return action.continuous_array()
             if isinstance(action, dict):
-                return CanonicalAction.model_validate(action).to_array()
+                return Action.model_validate(action).continuous_array()
             if hasattr(action, "numpy"):
                 action = action.numpy()
             return np.array(action, dtype=np.float32)
@@ -351,13 +355,13 @@ class PolicyVerifier:
             return None
 
     async def _get_remote_action(
-        self, endpoint: str, canonical_obs: CanonicalObservation, seed: int
+        self, endpoint: str, obs: Observation, seed: int
     ) -> np.ndarray | None:
         """Get action from remote miner endpoint."""
         try:
             url = f"{endpoint.rstrip('/')}/act"
-            # Use the same format as the evaluator: {"obs": CanonicalObservation}
-            payload = {"obs": canonical_obs.model_dump(mode="python")}
+            # Use the same format as the evaluator: {"obs": Observation}
+            payload = {"obs": obs.model_dump(mode="python")}
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(url, json=payload)
@@ -365,7 +369,7 @@ class PolicyVerifier:
                 data = response.json()
                 action_data = data.get("action", {})
                 if isinstance(action_data, dict):
-                    return CanonicalAction.model_validate(action_data).to_array()
+                    return Action.model_validate(action_data).continuous_array()
                 return np.array(action_data, dtype=np.float32)
 
         except Exception as e:

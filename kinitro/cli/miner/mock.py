@@ -8,7 +8,7 @@ import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from kinitro.rl_interface import CanonicalAction, CanonicalObservation
+from kinitro.rl_interface import Action, ActionKeys, Observation
 
 
 def mock(
@@ -47,10 +47,10 @@ def mock(
         episode_id: str | None = None
 
     class ActRequest(BaseModel):
-        obs: CanonicalObservation
+        obs: Observation
 
     class ActResponse(BaseModel):
-        action: CanonicalAction
+        action: Action
 
     class HealthResponse(BaseModel):
         status: str
@@ -78,12 +78,17 @@ def mock(
     async def act(request: ActRequest):
         """Generate an action given an observation."""
         if random_actions:
-            twist = np.random.randn(6).astype(np.float32) * 0.1
-            gripper = np.random.rand() > 0.5
+            twist = (np.random.randn(6).astype(np.float32) * 0.1).tolist()
+            gripper = [1.0 if np.random.rand() > 0.5 else 0.0]
         else:
-            twist = np.zeros(6, dtype=np.float32)
-            gripper = False
-        action = CanonicalAction(twist_ee_norm=twist.tolist(), gripper_01=gripper)
+            twist = [0.0] * 6
+            gripper = [0.0]
+        action = Action(
+            continuous={
+                ActionKeys.EE_TWIST: twist,
+                ActionKeys.GRIPPER: gripper,
+            }
+        )
         return ActResponse(action=action)
 
     typer.echo(f"Starting mock miner server on {host}:{port}")

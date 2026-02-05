@@ -117,7 +117,7 @@ Return a dictionary with:
 Edit `policy.py` to implement your policy. Here's a minimal example:
 
 ```python
-from kinitro.rl_interface import CanonicalAction, CanonicalObservation
+from kinitro.rl_interface import Action, ActionKeys, Observation
 
 class RobotPolicy:
     def __init__(self):
@@ -126,24 +126,27 @@ class RobotPolicy:
         self.model = torch.load("model.pt", map_location="cpu")
         self.model.eval()
         self._model_loaded = True
-    
+
     def is_loaded(self) -> bool:
         return self._model_loaded
-    
+
     async def reset(self, task_config: dict) -> str:
         """Called at start of each episode."""
         # Reset any episode-specific state
         # task_config contains: env_id, task_name, seed
         return uuid.uuid4().hex
-    
-    async def act(self, observation: CanonicalObservation) -> CanonicalAction:
+
+    async def act(self, observation: Observation) -> Action:
         """Return action for current observation."""
         with torch.no_grad():
             obs_tensor = torch.FloatTensor(observation.proprio_array()).unsqueeze(0)
             action = self.model(obs_tensor)
             twist = action.squeeze(0)[:6].cpu().numpy().tolist()
-        return CanonicalAction(twist_ee_norm=twist, gripper_01=0.0)
-    
+        return Action(continuous={
+            ActionKeys.EE_TWIST: twist,
+            ActionKeys.GRIPPER: [0.0],
+        })
+
     async def cleanup(self):
         """Called on shutdown."""
         self.model = None

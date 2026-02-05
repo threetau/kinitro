@@ -30,7 +30,7 @@ Keep it current when commands or conventions change.
 - `kinitro/cli/` CLI entry point and command groups.
 - `kinitro/config.py` runtime settings and configuration.
 - `kinitro/crypto.py` cryptography helpers.
-- `kinitro/rl_interface.py` RL interface utilities (CanonicalObservation, CanonicalAction).
+- `kinitro/rl_interface.py` RL interface utilities (Observation, Action, ProprioKeys, ActionKeys).
 
 ## Setup / Install
 - Recommended: `uv sync`
@@ -179,6 +179,7 @@ uv run kinitro env build metaworld --tag kinitro/metaworld:v1
 - Miner guide: `docs/miner-guide.md`.
 - Validator guide: `docs/validator-guide.md`.
 - Scoring and incentives: `docs/scoring-and-incentives.md`.
+- **Adding new environments**: `environments/README.md` - Complete guide for integrating new robotics environments.
 
 ## Change Hygiene for Agents
 - Do not modify files outside the task scope.

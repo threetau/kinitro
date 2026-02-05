@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from kinitro.rl_interface import CanonicalAction, CanonicalObservation
+from kinitro.rl_interface import Action, Observation
 
 
 @dataclass
@@ -121,7 +121,7 @@ class RoboticsEnvironment(ABC):
         pass
 
     @abstractmethod
-    def reset(self, task_config: TaskConfig) -> CanonicalObservation:
+    def reset(self, task_config: TaskConfig) -> Observation:
         """
         Reset environment with the given task configuration.
 
@@ -129,22 +129,20 @@ class RoboticsEnvironment(ABC):
             task_config: Procedurally generated task specification
 
         Returns:
-            Initial canonical observation
+            Initial observation
         """
         pass
 
     @abstractmethod
-    def step(
-        self, action: CanonicalAction
-    ) -> tuple[CanonicalObservation, float, bool, dict[str, Any]]:
+    def step(self, action: Action) -> tuple[Observation, float, bool, dict[str, Any]]:
         """
         Execute action in environment.
 
         Args:
-            action: Canonical action
+            action: Action to execute
 
         Returns:
-            Tuple of (canonical observation, reward, done, info)
+            Tuple of (observation, reward, done, info)
         """
         pass
 

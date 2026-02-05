@@ -19,7 +19,7 @@ from kinitro.environments.procthor.house_generator import (
 )
 from kinitro.environments.procthor.task_generator import TaskGenerator
 from kinitro.environments.procthor.task_types import SceneObject, TaskSpec, TaskType
-from kinitro.rl_interface import CanonicalAction, CanonicalObservation, coerce_action
+from kinitro.rl_interface import Action, ActionKeys, Observation, ProprioKeys, coerce_action
 
 logger = structlog.get_logger()
 
@@ -34,7 +34,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
     - Supports navigation + manipulation actions
     - Validates task feasibility before returning tasks
 
-    Actions are mapped from CanonicalAction (twist + gripper) to AI2-THOR:
+    Actions are mapped from Action (continuous channels) to AI2-THOR:
     - Linear velocity (twist[0:3]) -> MoveAgent, MoveArm
     - Angular velocity (twist[3:6]) -> RotateAgent, LookUp/Down
     - Gripper (0-1) -> PickupObject, ReleaseObject
@@ -300,7 +300,7 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             },
         )
 
-    def reset(self, task_config: TaskConfig) -> CanonicalObservation:
+    def reset(self, task_config: TaskConfig) -> Observation:
         """Reset environment with the given task configuration."""
         self._ensure_controller()
 
@@ -559,15 +559,18 @@ class ProcTHOREnvironment(RoboticsEnvironment):
                 )
 
     def step(
-        self, action: CanonicalAction | dict[str, Any] | np.ndarray
-    ) -> tuple[CanonicalObservation, float, bool, dict[str, Any]]:
+        self, action: Action | dict[str, Any] | np.ndarray
+    ) -> tuple[Observation, float, bool, dict[str, Any]]:
         """Execute action in environment."""
         self._ensure_controller()
         self._episode_steps += 1
 
-        canonical_action = coerce_action(action)
-        twist = np.clip(np.array(canonical_action.twist_ee_norm, dtype=np.float32), -1.0, 1.0)
-        gripper = float(np.clip(canonical_action.gripper_01, 0.0, 1.0))
+        action_obj = coerce_action(action)
+        # Get twist (ee_twist channel) and gripper values
+        twist_arr = action_obj.get_continuous(ActionKeys.EE_TWIST)
+        gripper_arr = action_obj.get_continuous(ActionKeys.GRIPPER)
+        twist = np.clip(twist_arr if twist_arr is not None else np.zeros(6), -1.0, 1.0)
+        gripper = float(np.clip(gripper_arr[0] if gripper_arr is not None else 0.0, 0.0, 1.0))
 
         # Execute action based on twist and gripper
         event, action_name = self._execute_action(twist, gripper)
@@ -870,8 +873,8 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             [0.0, 0.0, 0.0, 1.0],
         ]
 
-    def _build_observation(self, event: Any) -> CanonicalObservation:
-        """Build canonical observation from AI2-THOR event."""
+    def _build_observation(self, event: Any) -> Observation:
+        """Build observation from AI2-THOR event."""
         agent = event.metadata.get("agent", {})
         position = agent.get("position", {})
         rotation = agent.get("rotation", {})
@@ -888,7 +891,6 @@ class ProcTHOREnvironment(RoboticsEnvironment):
 
         # Agent rotation (yaw only) to quaternion
         yaw_deg = float(rotation.get("y", 0.0))
-        quat = self._yaw_to_quaternion(yaw_deg)
 
         # Estimate velocities (AI2-THOR default timestep is 0.02s)
         dt = 0.02
@@ -912,24 +914,30 @@ class ProcTHOREnvironment(RoboticsEnvironment):
             rgb["ego"] = event.frame
 
         # Depth (optional) - pass numpy array directly
-        depth = None
+        depth = {}
         if self._use_depth and hasattr(event, "depth_frame") and event.depth_frame is not None:
-            depth = event.depth_frame
+            depth["ego"] = event.depth_frame
 
         # Compute camera matrices
-        cam_intrinsics = self._compute_camera_intrinsics()
-        cam_extrinsics = self._compute_camera_extrinsics(event)
+        cam_intrinsics = {"ego": self._compute_camera_intrinsics()}
+        cam_extrinsics = {"ego": self._compute_camera_extrinsics(event)}
 
-        return CanonicalObservation(
-            ee_pos_m=pos.tolist(),
-            ee_quat_xyzw=quat.tolist(),
-            ee_lin_vel_mps=lin_vel.tolist(),
-            ee_ang_vel_rps=ang_vel.tolist(),
-            gripper_01=gripper_01,
+        return Observation(
             rgb=rgb,
             depth=depth,
-            cam_intrinsics_K=cam_intrinsics,
-            cam_extrinsics_T_world_cam=cam_extrinsics,
+            proprio={
+                ProprioKeys.BASE_POS: pos.tolist(),
+                ProprioKeys.BASE_HEADING: [np.deg2rad(yaw_deg)],
+                ProprioKeys.BASE_VEL: lin_vel.tolist() + ang_vel.tolist(),
+                ProprioKeys.GRIPPER: [gripper_01],
+            },
+            cam_intrinsics=cam_intrinsics,
+            cam_extrinsics=cam_extrinsics,
+            extra={
+                "task_prompt": self._current_task.task_prompt if self._current_task else "",
+                "task_type": self._current_task.task_type.value if self._current_task else "",
+                "holding_object": self._holding_object,
+            },
         )
 
     def _yaw_to_quaternion(self, yaw_deg: float) -> np.ndarray:
