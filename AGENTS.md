@@ -140,7 +140,7 @@ Keep it current when commands or conventions change.
 When working with multiple git worktrees, use the helper scripts to avoid port/database collisions:
 ```bash
 ./scripts/worktree-env.sh     # Generate isolated .env and docker-compose.override.yml
-./scripts/start-services.sh   # Start services (also: stop, status, logs)
+./scripts/services.sh         # Manage services (start, stop, status, logs)
 ```
 The scripts calculate deterministic port offsets from the worktree name (e.g., `fix/my-feature` → PostgreSQL 5789, API 8357, database `kinitro_fix_my_feature`).
 
@@ -169,7 +169,7 @@ uv run kinitro env build metaworld --tag kinitro/metaworld:v1
 - List eval containers: `docker ps --filter "name=kinitro-eval"`
 
 ### Troubleshooting
-- Port conflicts: Run `./scripts/worktree-env.sh` to regenerate ports, then `./scripts/start-services.sh stop`
+- Port conflicts: Run `./scripts/worktree-env.sh` to regenerate ports, then `./scripts/services.sh stop`
 - Reset database: `PGPASSWORD=postgres psql -h localhost -p $POSTGRES_PORT -U postgres -c "DROP DATABASE $POSTGRES_DB; CREATE DATABASE $POSTGRES_DB;"`
 - Stop eval containers: `docker stop $(docker ps -q --filter "name=kinitro-eval")`
 
