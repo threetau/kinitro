@@ -136,7 +136,7 @@ stop_services() {
     pkill -f "kinitro.*localhost:$POSTGRES_PORT" 2>/dev/null || true
     pkill -f "kinitro.*api-url.*:$API_PORT" 2>/dev/null || true
     local miner_port="${MOCK_MINER_PORT:-8001}"
-    pkill -f "kinitro mock-miner.*--port $miner_port" 2>/dev/null || true
+    pkill -f "kinitro miner mock.*--port $miner_port" 2>/dev/null || true
 
     # Stop docker containers
     docker compose -f "$REPO_ROOT/docker-compose.yml" \
@@ -153,7 +153,7 @@ show_status() {
     docker ps --filter "name=kinitro.*$WORKTREE_NAME" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || echo "  None running"
     echo ""
     echo "Kinitro processes:"
-    ps aux | grep -E "kinitro.*(api|scheduler|executor|mock-miner)" | grep -v grep | grep -E "($WORKTREE_NAME|$API_PORT|$DATABASE_URL|mock-miner)" || echo "  None running"
+    ps aux | grep -E "kinitro.*(api|scheduler|executor|miner mock)" | grep -v grep | grep -E "($WORKTREE_NAME|$API_PORT|$DATABASE_URL|miner mock)" || echo "  None running"
     echo ""
     echo "Log files:"
     ls -la "$LOG_DIR"/*.log 2>/dev/null || echo "  No log files"

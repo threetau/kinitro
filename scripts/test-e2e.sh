@@ -135,17 +135,30 @@ TASK_STATS=$(curl -s "$API_URL/v1/tasks/stats" 2>/dev/null || echo "{}")
 echo "Task stats: $TASK_STATS"
 
 echo ""
-echo "Checking for completed evaluations..."
-SCORES_RESPONSE=$(curl -s -w "\n%{http_code}" "$API_URL/v1/scores/latest" 2>/dev/null || echo -e "{}\n000")
-SCORES_BODY=$(echo "$SCORES_RESPONSE" | sed '$d')
-SCORES_CODE=$(echo "$SCORES_RESPONSE" | tail -n1)
+echo "Polling for completed evaluations (timeout: ${TIMEOUT}s)..."
+SCORES_CODE="000"
+POLL_INTERVAL=5
+START_TIME=$SECONDS
 
-if [[ "$SCORES_CODE" == "200" ]]; then
-    echo "Found completed evaluations:"
-    echo "$SCORES_BODY" | head -c 500
-    echo ""
-else
-    echo "No completed evaluations yet (HTTP $SCORES_CODE)."
+while (( SECONDS - START_TIME < TIMEOUT )); do
+    SCORES_RESPONSE=$(curl -s -w "\n%{http_code}" "$API_URL/v1/scores/latest" 2>/dev/null || echo -e "{}\n000")
+    SCORES_BODY=$(echo "$SCORES_RESPONSE" | sed '$d')
+    SCORES_CODE=$(echo "$SCORES_RESPONSE" | tail -n1)
+
+    if [[ "$SCORES_CODE" == "200" ]]; then
+        echo "Found completed evaluations:"
+        echo "$SCORES_BODY" | head -c 500
+        echo ""
+        break
+    fi
+
+    ELAPSED=$((SECONDS - START_TIME))
+    echo "  No evaluations yet (${ELAPSED}s/${TIMEOUT}s)..."
+    sleep $POLL_INTERVAL
+done
+
+if [[ "$SCORES_CODE" != "200" ]]; then
+    echo "No completed evaluations after ${TIMEOUT}s (HTTP $SCORES_CODE)."
     echo "Note: Full evaluation cycle requires:"
     echo "  - Registered miners with committed policies"
     echo "  - Built environment images (kinitro env build)"

@@ -62,7 +62,9 @@ test_endpoint() {
     fi
 }
 
-# Core endpoints
+# Run all tests (disable exit-on-error so we get the full summary)
+set +e
+
 test_endpoint "health" "/health"
 test_endpoint "miners list" "/v1/miners"
 test_endpoint "environments list" "/v1/environments"
@@ -73,6 +75,8 @@ test_endpoint "latest weights" "/v1/weights/latest" "200|404"
 
 # Task pool stats
 test_endpoint "task stats" "/v1/tasks/stats"
+
+set -e
 
 echo ""
 echo "=== Results ==="

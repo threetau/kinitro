@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Test mock miner endpoints
-# Run this after starting the mock miner with: uv run kinitro mock-miner --port 8001
+# Run this after starting the mock miner with: uv run kinitro miner mock --port 8001
 
 set -euo pipefail
 
@@ -40,7 +40,7 @@ test_endpoint() {
     local response
     response=$(curl "${args[@]}" 2>/dev/null) || {
         echo "FAILED (connection error)"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
         return 1
     }
 
@@ -62,10 +62,11 @@ test_endpoint() {
     fi
 }
 
-# Test health endpoint
+# Run all tests (disable exit-on-error so we get the full summary)
+set +e
+
 test_endpoint "health" "GET" "/health"
 
-# Test reset endpoint
 test_endpoint "reset" "POST" "/reset" '{
   "task_config": {
     "env_id": "metaworld/pick-place-v3",
@@ -73,7 +74,6 @@ test_endpoint "reset" "POST" "/reset" '{
   }
 }'
 
-# Test act endpoint with proprioceptive observation
 test_endpoint "act" "POST" "/act" '{
   "obs": {
     "proprio": {
@@ -87,6 +87,8 @@ test_endpoint "act" "POST" "/act" '{
   }
 }'
 
+set -e
+
 echo ""
 echo "=== Results ==="
 echo "Passed: $PASSED"
@@ -95,7 +97,7 @@ echo ""
 
 if [[ $FAILED -gt 0 ]]; then
     echo "Some tests failed. Is the mock miner running?"
-    echo "  Start it with: uv run kinitro mock-miner --port $MINER_PORT"
+    echo "  Start it with: uv run kinitro miner mock --port $MINER_PORT"
     exit 1
 else
     echo "All tests passed!"
