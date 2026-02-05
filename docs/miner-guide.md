@@ -86,13 +86,13 @@ Your policy receives the **canonical observation** to encourage true generalizat
 
 ### Proprioceptive Observations
 
-A dictionary with:
+A dictionary under the `proprio` key with:
 
-- `ee_pos_m`: End-effector XYZ position (meters)
-- `ee_quat_xyzw`: End-effector quaternion (XYZW)
-- `ee_lin_vel_mps`: End-effector linear velocity (m/s)
-- `ee_ang_vel_rps`: End-effector angular velocity (rad/s)
-- `gripper_01`: Gripper state in [0, 1]
+- `ee_pos`: End-effector XYZ position (meters)
+- `ee_quat`: End-effector quaternion (XYZW)
+- `ee_vel_lin`: End-effector linear velocity (m/s)
+- `ee_vel_ang`: End-effector angular velocity (rad/s)
+- `gripper`: Gripper state in [0, 1]
 
 ### Camera Images (Optional)
 
@@ -105,12 +105,12 @@ A dictionary of RGB images (nested lists):
 
 ### Action Space
 
-Return a dictionary with:
+Return an `Action` object with a `continuous` dict containing:
 
-- `twist_ee_norm`: 6D twist (vx, vy, vz, wx, wy, wz) in [-1, 1]
-- `gripper_01`: Gripper action in [0, 1]
+- `ee_twist`: 6D twist (vx, vy, vz, wx, wy, wz) in [-1, 1]
+- `gripper`: Gripper action as a list, e.g. [1.0], in [0, 1]
 
-`twist_ee_norm` values should be in range `[-1, 1]`; `gripper_01` should be in `[0, 1]`.
+`ee_twist` values should be in range `[-1, 1]`; `gripper` should be in `[0, 1]`.
 
 ## Step 3: Implement Your Policy
 
@@ -140,8 +140,8 @@ class RobotPolicy:
         """Return action for current observation."""
         with torch.no_grad():
             obs_tensor = torch.FloatTensor(observation.proprio_array()).unsqueeze(0)
-            action = self.model(obs_tensor)
-            twist = action.squeeze(0)[:6].cpu().numpy().tolist()
+            output = self.model(obs_tensor)
+            twist = output.squeeze(0)[:6].cpu().numpy().tolist()
         return Action(continuous={
             ActionKeys.EE_TWIST: twist,
             ActionKeys.GRIPPER: [0.0],
@@ -183,7 +183,7 @@ curl -X POST http://localhost:8001/reset \
 # Get action
 curl -X POST http://localhost:8001/act \
   -H "Content-Type: application/json" \
-  -d '{"obs": {"ee_pos_m": [0.0, 0.5, 0.2], "ee_quat_xyzw": [0.0, 0.0, 0.0, 1.0], "ee_lin_vel_mps": [0.0, 0.0, 0.0], "ee_ang_vel_rps": [0.0, 0.0, 0.0], "gripper_01": 1.0, "rgb": {}}}'
+  -d '{"obs": {"proprio": {"ee_pos": [0.0, 0.5, 0.2], "ee_quat": [0.0, 0.0, 0.0, 1.0], "ee_vel_lin": [0.0, 0.0, 0.0], "ee_vel_ang": [0.0, 0.0, 0.0], "gripper": [1.0]}, "rgb": {}}}'
 ```
 
 The `server.py` file provides the endpoints (`/health`, `/reset`, `/act`) that validators will call. This lets you test your policy logic locally before deploying to Basilica.
@@ -473,11 +473,13 @@ Get action for current observation.
 ```json
 {
   "obs": {
-    "ee_pos_m": [0.0, 0.5, 0.2],
-    "ee_quat_xyzw": [0.0, 0.0, 0.0, 1.0],
-    "ee_lin_vel_mps": [0.0, 0.0, 0.0],
-    "ee_ang_vel_rps": [0.0, 0.0, 0.0],
-    "gripper_01": 1.0,
+    "proprio": {
+      "ee_pos": [0.0, 0.5, 0.2],
+      "ee_quat": [0.0, 0.0, 0.0, 1.0],
+      "ee_vel_lin": [0.0, 0.0, 0.0],
+      "ee_vel_ang": [0.0, 0.0, 0.0],
+      "gripper": [1.0]
+    },
     "rgb": {
       "corner": [[[0, 0, 0], ...], ...],
       "corner2": [[[0, 0, 0], ...], ...]
@@ -493,8 +495,10 @@ The `obs` field contains canonical observations. The `rgb` field is optional and
 ```json
 {
   "action": {
-    "twist_ee_norm": [0.1, -0.2, 0.05, 0.0, 0.0, 0.0],
-    "gripper_01": 1.0
+    "continuous": {
+      "ee_twist": [0.1, -0.2, 0.05, 0.0, 0.0, 0.0],
+      "gripper": [1.0]
+    }
   }
 }
 ```
@@ -571,7 +575,7 @@ curl -X POST http://localhost:8001/reset \
   -d '{"task_config": {"task_name": "pick-place-v3", "seed": 42}}'
 curl -X POST http://localhost:8001/act \
   -H "Content-Type: application/json" \
-  -d '{"obs": {"ee_pos_m": [0.0, 0.0, 0.0], "ee_quat_xyzw": [0.0, 0.0, 0.0, 1.0], "ee_lin_vel_mps": [0.0, 0.0, 0.0], "ee_ang_vel_rps": [0.0, 0.0, 0.0], "gripper_01": 1.0, "rgb": {}}}'
+  -d '{"obs": {"proprio": {"ee_pos": [0.0, 0.0, 0.0], "ee_quat": [0.0, 0.0, 0.0, 1.0], "ee_vel_lin": [0.0, 0.0, 0.0], "ee_vel_ang": [0.0, 0.0, 0.0], "gripper": [1.0]}, "rgb": {}}}'
 ```
 
 #### Remote Testing (After Deployment)
@@ -592,7 +596,7 @@ curl -X POST "${ENDPOINT}/reset" \
 # Act
 curl -X POST "${ENDPOINT}/act" \
   -H "Content-Type: application/json" \
-  -d '{"obs": {"ee_pos_m": [0.0, 0.0, 0.0], "ee_quat_xyzw": [0.0, 0.0, 0.0, 1.0], "ee_lin_vel_mps": [0.0, 0.0, 0.0], "ee_ang_vel_rps": [0.0, 0.0, 0.0], "gripper_01": 1.0, "rgb": {}}}'
+  -d '{"obs": {"proprio": {"ee_pos": [0.0, 0.0, 0.0], "ee_quat": [0.0, 0.0, 0.0, 1.0], "ee_vel_lin": [0.0, 0.0, 0.0], "ee_vel_ang": [0.0, 0.0, 0.0], "gripper": [1.0]}, "rgb": {}}}'
 ```
 
 ## Example Training Setup
