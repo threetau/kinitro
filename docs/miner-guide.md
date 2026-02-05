@@ -92,7 +92,7 @@ A dictionary under the `proprio` key with:
 - `ee_quat`: End-effector quaternion (XYZW)
 - `ee_vel_lin`: End-effector linear velocity (m/s)
 - `ee_vel_ang`: End-effector angular velocity (rad/s)
-- `gripper`: Gripper state in [0, 1]
+- `gripper`: Gripper state as a list, e.g. [1.0], in [0, 1]
 
 ### Camera Images (Optional)
 
