@@ -45,6 +45,18 @@ def _make_procthor_env(task: str) -> EnvFactory:
     return factory
 
 
+def _make_maniskill3_env(task: str) -> EnvFactory:
+    """Create factory for ManiSkill3 manipulation environment."""
+
+    def factory() -> RoboticsEnvironment:
+        # Lazy import to allow containers with partial dependencies
+        from kinitro.environments.maniskill3_env import ManiSkill3Environment  # noqa: PLC0415
+
+        return ManiSkill3Environment(task)
+
+    return factory
+
+
 # ===========================================================================
 # ENVIRONMENT REGISTRY
 # ===========================================================================
@@ -69,6 +81,18 @@ ENVIRONMENTS: dict[str, EnvFactory] = {
     # Scene-grounded tasks in procedurally generated houses
     # =========================================================================
     "procthor/v0": _make_procthor_env("procthor-v0"),
+    # =========================================================================
+    # MANISKILL3 (GPU-accelerated manipulation)
+    # Dexterous manipulation tasks with SAPIEN physics
+    # =========================================================================
+    "maniskill3/pick-cube-v1": _make_maniskill3_env("pick-cube-v1"),
+    "maniskill3/stack-cube-v1": _make_maniskill3_env("stack-cube-v1"),
+    "maniskill3/peg-insertion-v1": _make_maniskill3_env("peg-insertion-v1"),
+    "maniskill3/push-cube-v1": _make_maniskill3_env("push-cube-v1"),
+    "maniskill3/pull-cube-v1": _make_maniskill3_env("pull-cube-v1"),
+    "maniskill3/lift-cube-v1": _make_maniskill3_env("lift-cube-v1"),
+    "maniskill3/turn-faucet-v1": _make_maniskill3_env("turn-faucet-v1"),
+    "maniskill3/open-cabinet-door-v1": _make_maniskill3_env("open-cabinet-door-v1"),
 }
 
 

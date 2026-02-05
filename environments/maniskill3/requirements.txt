@@ -1,0 +1,32 @@
+# Requirements for ManiSkill3 evaluation environment
+# These are installed in the Docker container
+
+# HTTP client for calling miner endpoints
+httpx>=0.25.0
+
+# ManiSkill3 simulation framework
+# Includes SAPIEN physics engine
+mani-skill>=3.0.0b0
+
+# Gymnasium interface
+gymnasium>=1.0.0
+
+# Image processing for camera rendering
+Pillow>=10.0.0
+opencv-python>=4.8.0
+
+# Numerics
+numpy>=1.24.0
+
+# Logging
+structlog>=23.0.0
+
+# Data validation (for rl_interface)
+pydantic>=2.0.0
+
+# Required by gymnasium
+packaging>=21.0
+
+# PyTorch (optional, for GPU acceleration)
+# Uncomment if GPU support is needed:
+# torch>=2.0.0

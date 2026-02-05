@@ -21,7 +21,7 @@ from kinitro.environments.registry import (
 from kinitro.rl_interface import CanonicalObservation, coerce_action
 
 # Available environment families for build command
-AVAILABLE_ENV_FAMILIES = ["metaworld", "procthor"]
+AVAILABLE_ENV_FAMILIES = ["metaworld", "procthor", "maniskill3"]
 
 
 @runtime_checkable
