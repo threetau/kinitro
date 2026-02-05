@@ -188,7 +188,7 @@ curl -X POST http://localhost:8001/reset \
   -d '{"task_config": {"env_id": "metaworld/pick-place-v3", "seed": 42}}'
 curl -X POST http://localhost:8001/act \
   -H "Content-Type: application/json" \
-  -d '{"obs": {"ee_pos_m": [0.0, 0.5, 0.2], "ee_quat_xyzw": [0.0, 0.0, 0.0, 1.0], "ee_lin_vel_mps": [0.0, 0.0, 0.0], "ee_ang_vel_rps": [0.0, 0.0, 0.0], "gripper_01": 1.0, "rgb": {}}}'
+  -d '{"obs": {"proprio": {"ee_pos": [0.0, 0.5, 0.2], "ee_quat": [0.0, 0.0, 0.0, 1.0], "ee_vel_lin": [0.0, 0.0, 0.0], "ee_vel_ang": [0.0, 0.0, 0.0], "gripper": [1.0]}, "rgb": {}}}'
 ```
 
 ### Scoring Mechanism Testing

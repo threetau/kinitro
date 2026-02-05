@@ -135,7 +135,8 @@ stop_services() {
     pkill -f "kinitro.*--port $API_PORT" 2>/dev/null || true
     pkill -f "kinitro.*localhost:$POSTGRES_PORT" 2>/dev/null || true
     pkill -f "kinitro.*api-url.*:$API_PORT" 2>/dev/null || true
-    pkill -f "kinitro mock-miner" 2>/dev/null || true
+    local miner_port="${MOCK_MINER_PORT:-8001}"
+    pkill -f "kinitro mock-miner.*--port $miner_port" 2>/dev/null || true
 
     # Stop docker containers
     docker compose -f "$REPO_ROOT/docker-compose.yml" \
