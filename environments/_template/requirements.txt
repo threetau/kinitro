@@ -1,0 +1,24 @@
+# Requirements for your evaluation environment
+# These are installed in the Docker container
+
+# HTTP client for calling miner endpoints
+httpx>=0.25.0
+
+# Numerics
+numpy>=1.24.0
+
+# Image processing for camera rendering
+Pillow>=10.0.0
+opencv-python>=4.8.0
+
+# Logging
+structlog>=23.0.0
+
+# Data validation (for rl_interface)
+pydantic>=2.0.0
+
+# TODO: Add your simulator-specific dependencies below
+# Example for MuJoCo:
+#   mujoco>=3.0.0
+# Example for PyBullet:
+#   pybullet>=3.2.0
