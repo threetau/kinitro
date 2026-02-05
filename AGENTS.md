@@ -36,6 +36,7 @@ Keep it current when commands or conventions change.
 - Recommended: `uv sync`
 - Editable install: `pip install -e .`
 - Dev extras (if using pip): `pip install -e ".[dev]"`
+- Basilica CLI (for miner deployments): `curl -sSL https://basilica.ai/install.sh | bash`
 
 ## Common Commands
 ### Lint
@@ -146,15 +147,26 @@ The scripts calculate deterministic port offsets from the worktree name (e.g., `
 
 ### Quick Start
 ```bash
-# 1. Start database
+# 1. Generate environment (once per worktree)
+./scripts/worktree-env.sh
+
+# 2. Start database
 docker compose up -d postgres
 
-# 2. Start services (in separate terminals or background)
+# 3. Initialize database
+uv run kinitro db init --database-url $DATABASE_URL
+
+# 4. Start services (in separate terminals or background)
 uv run kinitro api --database-url $DATABASE_URL --port 8000 --no-auth &
 uv run kinitro scheduler --database-url $DATABASE_URL \
   --network $NETWORK --netuid $NETUID --env-families metaworld &
 uv run kinitro executor --api-url http://localhost:8000 --eval-mode docker \
   --eval-images '{"metaworld":"kinitro/metaworld:v1"}' &
+```
+
+Or use the helper script:
+```bash
+./scripts/services.sh start --all
 ```
 
 ### Building Environment Images
@@ -163,8 +175,140 @@ uv run kinitro env build procthor --tag kinitro/procthor:v1
 uv run kinitro env build metaworld --tag kinitro/metaworld:v1
 ```
 
+### Mock Miner Testing
+Test the evaluation pipeline without a real trained policy:
+```bash
+# Start mock miner (returns random actions)
+uv run kinitro mock-miner --port 8001
+
+# In another terminal, test the mock miner endpoints:
+curl http://localhost:8001/health
+curl -X POST http://localhost:8001/reset \
+  -H "Content-Type: application/json" \
+  -d '{"task_config": {"env_id": "metaworld/pick-place-v3", "seed": 42}}'
+curl -X POST http://localhost:8001/act \
+  -H "Content-Type: application/json" \
+  -d '{"obs": {"ee_pos_m": [0.0, 0.5, 0.2], "ee_quat_xyzw": [0.0, 0.0, 0.0, 1.0], "ee_lin_vel_mps": [0.0, 0.0, 0.0], "ee_ang_vel_rps": [0.0, 0.0, 0.0], "gripper_01": 1.0, "rgb": {}}}'
+```
+
+### Scoring Mechanism Testing
+Test the Pareto scoring without running full evaluations:
+```bash
+# Test scoring with simulated data
+uv run kinitro test-scoring --n-miners 5 --n-envs 3 --episodes-per-env 50
+```
+This demonstrates first-commit advantage (earlier miners win ties under Pareto dominance).
+
+### Miner Deployment Lifecycle Testing
+Test the full miner workflow locally:
+
+```bash
+# 1. Initialize a new policy from template
+uv run kinitro miner init ./test-policy
+cd test-policy
+
+# 2. Start the local policy server
+uvicorn server:app --host 0.0.0.0 --port 8001
+
+# 3. Test endpoints locally (in another terminal)
+curl http://localhost:8001/health
+curl -X POST http://localhost:8001/reset \
+  -H "Content-Type: application/json" \
+  -d '{"task_config": {"env_id": "metaworld/pick-place-v3", "seed": 42}}'
+
+# 4. For local testing only - commit to local chain
+uv run kinitro miner commit \
+  --repo test-user/test-policy \
+  --revision $(git rev-parse HEAD) \
+  --endpoint http://localhost:8001 \
+  --netuid 2 \
+  --network local \
+  --wallet-name test-wallet \
+  --hotkey-name hotkey0
+
+# 5. Verify commitment
+uv run kinitro miner show-commitment \
+  --netuid 2 \
+  --network local \
+  --wallet-name test-wallet \
+  --hotkey-name hotkey0
+```
+
+### Basilica Deployment Testing
+Deploy a miner to Basilica for realistic E2E testing:
+
+```bash
+# 1. Initialize policy template
+uv run kinitro miner init ./test-policy
+
+# 2. Deploy to Basilica (uploads to HuggingFace, deploys, commits on-chain)
+# Note: Use your HuggingFace username as the repo namespace
+uv run kinitro miner deploy \
+  --repo <hf-username>/test-policy \
+  --path ./test-policy \
+  --network $NETWORK \
+  --netuid $NETUID \
+  --wallet-name alice \
+  --hotkey-name hotkey0
+
+# 3. Verify deployment is healthy
+curl https://<deployment-id>.deployments.basilica.ai/health
+
+# 4. List your deployments
+basilica deploy ls
+
+# 5. Delete deployment when done (--yes for non-interactive)
+basilica deploy delete <deployment-id> --yes
+```
+
+### Full E2E Flow: Services → Miner → Evaluation → Scoring
+Complete end-to-end test with all components:
+
+```bash
+# Option A: Start everything including mock miner (simplest)
+./scripts/services.sh start --mock-miner
+
+# Option B: Start services and miner separately
+# Terminal 1: Start backend services
+./scripts/services.sh start --all
+
+# Terminal 2: Start mock miner
+uv run kinitro mock-miner --port 8001
+
+# Monitor evaluation logs
+tail -f /tmp/kinitro_*/executor.log
+
+# After evaluations complete, check scores via API:
+curl http://localhost:$API_PORT/v1/scores/latest
+curl http://localhost:$API_PORT/v1/weights/latest
+```
+
+### API Endpoints for Testing
+Note: The API prefix is `/v1/` (not `/api/v1/`).
+```bash
+# Health check
+curl http://localhost:$API_PORT/health
+
+# List miners and their scores
+curl http://localhost:$API_PORT/v1/miners
+
+# List available environments
+curl http://localhost:$API_PORT/v1/environments
+
+# Get scores for a cycle
+curl http://localhost:$API_PORT/v1/scores/latest
+curl http://localhost:$API_PORT/v1/scores/<CYCLE_ID>
+
+# Get computed weights
+curl http://localhost:$API_PORT/v1/weights/latest
+curl http://localhost:$API_PORT/v1/weights/<BLOCK_NUMBER>
+
+# Task pool stats
+curl http://localhost:$API_PORT/v1/tasks/stats
+```
+
 ### Logs
-- Service logs: `/tmp/kinitro_<worktree>/api.log`, `scheduler.log`, `executor.log`
+- Service logs: `/tmp/kinitro_<worktree>/api.log`, `scheduler.log`, `executor.log`, `mock-miner.log`
 - Container logs: `docker logs <container_name>` or `docker logs -f <name>`
 - List eval containers: `docker ps --filter "name=kinitro-eval"`
 
@@ -172,6 +316,43 @@ uv run kinitro env build metaworld --tag kinitro/metaworld:v1
 - Port conflicts: Run `./scripts/worktree-env.sh` to regenerate ports, then `./scripts/services.sh stop`
 - Reset database: `PGPASSWORD=postgres psql -h localhost -p $POSTGRES_PORT -U postgres -c "DROP DATABASE $POSTGRES_DB; CREATE DATABASE $POSTGRES_DB;"`
 - Stop eval containers: `docker stop $(docker ps -q --filter "name=kinitro-eval")`
+- Check miner commitment: `uv run kinitro miner show-commitment --netuid ... --wallet-name ...`
+- Verify miner endpoint: `curl <MINER_ENDPOINT>/health`
+
+### Cleanup Commands
+```bash
+# Stop all kinitro processes
+pkill -f "kinitro" || true
+
+# Stop and remove evaluation containers
+docker stop $(docker ps -q --filter "name=kinitro-eval") 2>/dev/null || true
+docker rm $(docker ps -aq --filter "name=kinitro-eval") 2>/dev/null || true
+
+# Stop postgres and remove volumes (full reset)
+docker compose down -v
+
+# Delete Basilica deployment
+basilica deploy delete <deployment-id> --yes
+```
+
+### Database Schema Reference
+The backend uses these PostgreSQL tables:
+- `evaluation_cycles` - Cycle metadata (id, block_number, status, n_miners, n_environments, duration_seconds)
+- `miner_scores` - Per-miner per-environment scores (uid, hotkey, env_id, success_rate, mean_reward, episodes_completed)
+- `computed_weights` - Final weights per cycle (cycle_id, block_number, weights_json, weights_u16_json)
+- `task_pool` - Individual evaluation tasks (task_uuid, cycle_id, miner_uid, env_id, seed, status, result)
+
+Query examples:
+```bash
+source .env
+PGPASSWORD=postgres psql -h localhost -p $POSTGRES_PORT -U postgres -d $POSTGRES_DB
+
+# In psql:
+SELECT id, block_number, status, n_miners FROM evaluation_cycles;
+SELECT uid, env_id, success_rate FROM miner_scores WHERE cycle_id = 1;
+SELECT weights_json FROM computed_weights ORDER BY id DESC LIMIT 1;
+SELECT status, COUNT(*) FROM task_pool GROUP BY status;
+```
 
 ## Docs and References
 - Developer overview: `README.md`.

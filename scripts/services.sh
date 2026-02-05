@@ -39,14 +39,16 @@ Options:
   --api-only      Only manage API service
   --scheduler     Include scheduler service
   --executor      Include executor service
+  --mock-miner    Include mock miner (for E2E testing)
   --all           Manage all services (default for start/stop)
 
 Examples:
-  $0                    # Start all services
-  $0 start --api-only   # Start only API
-  $0 stop               # Stop all services
-  $0 logs               # Tail all logs
-  $0 status             # Show running processes
+  $0                         # Start all services
+  $0 start --api-only        # Start only API
+  $0 start --mock-miner      # Start services with mock miner for E2E testing
+  $0 stop                    # Stop all services
+  $0 logs                    # Tail all logs
+  $0 status                  # Show running processes
 EOF
 }
 
@@ -113,6 +115,19 @@ start_executor() {
     echo "Executor started (PID: $!)"
 }
 
+start_mock_miner() {
+    local miner_port="${MOCK_MINER_PORT:-8001}"
+
+    echo "Starting mock miner on port $miner_port..."
+    nohup uv run kinitro mock-miner \
+        --host 0.0.0.0 \
+        --port "$miner_port" \
+        --random-actions \
+        &> "$LOG_DIR/mock-miner.log" &
+    echo "Mock miner started (PID: $!)"
+    echo "  Health: http://localhost:$miner_port/health"
+}
+
 stop_services() {
     echo "Stopping services for worktree: $WORKTREE_NAME..."
 
@@ -120,6 +135,7 @@ stop_services() {
     pkill -f "kinitro.*--port $API_PORT" 2>/dev/null || true
     pkill -f "kinitro.*localhost:$POSTGRES_PORT" 2>/dev/null || true
     pkill -f "kinitro.*api-url.*:$API_PORT" 2>/dev/null || true
+    pkill -f "kinitro mock-miner" 2>/dev/null || true
 
     # Stop docker containers
     docker compose -f "$REPO_ROOT/docker-compose.yml" \
@@ -136,7 +152,7 @@ show_status() {
     docker ps --filter "name=kinitro.*$WORKTREE_NAME" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || echo "  None running"
     echo ""
     echo "Kinitro processes:"
-    ps aux | grep -E "kinitro.*(api|scheduler|executor)" | grep -v grep | grep -E "($WORKTREE_NAME|$API_PORT|$DATABASE_URL)" || echo "  None running"
+    ps aux | grep -E "kinitro.*(api|scheduler|executor|mock-miner)" | grep -v grep | grep -E "($WORKTREE_NAME|$API_PORT|$DATABASE_URL|mock-miner)" || echo "  None running"
     echo ""
     echo "Log files:"
     ls -la "$LOG_DIR"/*.log 2>/dev/null || echo "  No log files"
@@ -158,6 +174,7 @@ case "$COMMAND" in
 
         start_scheduler_flag=false
         start_executor_flag=false
+        start_mock_miner_flag=false
 
         case "${1:-}" in
             --api-only)
@@ -168,6 +185,11 @@ case "$COMMAND" in
             --executor)
                 start_executor_flag=true
                 ;;
+            --mock-miner)
+                start_scheduler_flag=true
+                start_executor_flag=true
+                start_mock_miner_flag=true
+                ;;
             --all|"")
                 start_scheduler_flag=true
                 start_executor_flag=true
@@ -175,7 +197,7 @@ case "$COMMAND" in
         esac
 
         start_api
-        if $start_scheduler_flag || $start_executor_flag; then
+        if $start_scheduler_flag || $start_executor_flag || $start_mock_miner_flag; then
             sleep 2
         fi
         if $start_scheduler_flag; then
@@ -183,6 +205,9 @@ case "$COMMAND" in
         fi
         if $start_executor_flag; then
             start_executor
+        fi
+        if $start_mock_miner_flag; then
+            start_mock_miner
         fi
         echo ""
         echo "Services started. Logs in: $LOG_DIR"
