@@ -39,7 +39,7 @@ import structlog
 # Import from kinitro package (installed in container via PYTHONPATH)
 from kinitro.environments import get_environment
 from kinitro.environments.registry import get_all_environment_ids
-from kinitro.rl_interface import Action, ActionKeys
+from kinitro.rl_interface import Action
 
 logger = structlog.get_logger()
 
@@ -295,33 +295,15 @@ class Actor:
                 )
                 action_data = response.get("action")
                 if action_data is None:
-                    # Missing action - use zeros
-                    action = Action(
-                        continuous={
-                            ActionKeys.EE_TWIST: [0.0] * 6,
-                            ActionKeys.GRIPPER: [0.0],
-                        }
+                    return self._build_error_result(
+                        env_id=env_id,
+                        task_id=task_id,
+                        seed=seed,
+                        start_time=start_time,
+                        error=f"Miner returned no action at step {t}",
+                        extra={"timesteps_completed": t},
                     )
-                elif isinstance(action_data, dict) and "continuous" in action_data:
-                    # Valid Action format - validate it
-                    action = Action.model_validate(action_data)
-                else:
-                    # Array or old format - construct from array
-                    arr = np.asarray(action_data).flatten()
-                    if len(arr) >= 7:
-                        action = Action(
-                            continuous={
-                                ActionKeys.EE_TWIST: arr[:6].tolist(),
-                                ActionKeys.GRIPPER: [float(arr[6])],
-                            }
-                        )
-                    else:
-                        action = Action(
-                            continuous={
-                                ActionKeys.EE_TWIST: [0.0] * 6,
-                                ActionKeys.GRIPPER: [0.0],
-                            }
-                        )
+                action = Action.model_validate(action_data)
             except httpx.TimeoutException:
                 return self._build_error_result(
                     env_id=env_id,

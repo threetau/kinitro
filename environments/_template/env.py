@@ -20,12 +20,11 @@ import time
 import traceback
 
 import httpx
-import numpy as np
 import structlog
 
 from kinitro.environments import get_environment
 from kinitro.environments.registry import get_all_environment_ids
-from kinitro.rl_interface import Action, ActionKeys
+from kinitro.rl_interface import Action
 
 logger = structlog.get_logger()
 
@@ -162,25 +161,17 @@ class Actor:
                     timeout=action_timeout,
                 )
 
-                # TODO: Parse action from response - adjust for your action space
+                # Parse and validate action from miner response
                 action_data = response.get("action")
                 if action_data is None:
-                    action = Action(
-                        continuous={
-                            ActionKeys.EE_TWIST: [0.0] * 6,
-                            ActionKeys.GRIPPER: [0.0],
-                        }
+                    return self._build_error_result(
+                        env_id=env_id,
+                        task_id=task_id,
+                        seed=seed,
+                        start_time=start_time,
+                        error=f"Miner returned no action at step {t}",
                     )
-                elif isinstance(action_data, dict) and "continuous" in action_data:
-                    action = Action.model_validate(action_data)
-                else:
-                    arr = np.asarray(action_data).flatten()
-                    action = Action(
-                        continuous={
-                            ActionKeys.EE_TWIST: arr[:6].tolist() if len(arr) >= 6 else [0.0] * 6,
-                            ActionKeys.GRIPPER: [float(arr[6])] if len(arr) >= 7 else [0.0],
-                        }
-                    )
+                action = Action.model_validate(action_data)
 
                 # Step environment
                 obs, reward, done, info = env.step(action)
