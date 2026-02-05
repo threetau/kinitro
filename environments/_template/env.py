@@ -223,7 +223,7 @@ class Actor:
             "extra": {"task_id": task_id, "seed": seed, "env_id": env_id},
         }
 
-    async def cleanup(self):
+    async def cleanup(self) -> None:
         """Cleanup resources."""
         for env in self._env_cache.values():
             try:

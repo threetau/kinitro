@@ -1,6 +1,6 @@
 # Kinitro Evaluation Environments
 
-This directory contains the affinetes-compatible evaluation environments for the Kinitro robotics subnet. Each environment family has its own directory with a Dockerfile, Actor class (`env.py`), and dependencies (`requirements.txt`).
+This directory contains the Affinetes-compatible evaluation environments for the Kinitro robotics subnet. Each environment family has its own directory with a Dockerfile, Actor class (`env.py`), and dependencies (`requirements.txt`).
 
 ## Directory Structure
 
@@ -98,7 +98,7 @@ cp -r environments/_template environments/myenv
 
 ### Key Concepts
 
-- **Actor.evaluate()**: Main entry point called by affinetes
+- **Actor.evaluate()**: Main entry point called by Affinetes
 - **TaskConfig**: Procedural task parameters (seed, positions, physics)
 - **Observation**: Proprio dict + camera images (see `kinitro/rl_interface.py`)
 - **Action**: Continuous/discrete channels (see `kinitro/rl_interface.py`)
