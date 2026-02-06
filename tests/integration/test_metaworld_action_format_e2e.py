@@ -10,7 +10,7 @@ from structlog.testing import capture_logs
 
 from kinitro.environments.base import TaskConfig
 from kinitro.environments.metaworld_env import MetaWorldEnvironment
-from kinitro.rl_interface import CanonicalAction
+from kinitro.rl_interface import Action, ActionKeys
 
 
 def _ensure_cpu_rendering() -> None:
@@ -50,9 +50,11 @@ class TestMetaWorldActionFormatE2E:
 
             assert env.action_shape == (4,)
 
-            action = CanonicalAction(
-                twist_ee_norm=[0.2, -0.1, 0.05, 0.4, -0.2, 0.1],
-                gripper_01=1.0,
+            action = Action(
+                continuous={
+                    ActionKeys.EE_TWIST: [0.2, -0.1, 0.05, 0.4, -0.2, 0.1],
+                    ActionKeys.GRIPPER: [1.0],
+                }
             )
 
             env_inner = cast(Any, env._env)
@@ -76,8 +78,8 @@ class TestMetaWorldActionFormatE2E:
 
             assert isinstance(obs.rgb, dict)
             if obs.rgb:
-                for image in obs.rgb.values():
-                    arr = np.array(image)
+                # Use obs.images to get decoded numpy arrays
+                for camera_name, arr in obs.images.items():
                     assert arr.shape == (84, 84, 3)
                     assert arr.dtype.kind in {"i", "u"}
                     assert arr.min() >= 0
@@ -113,9 +115,11 @@ class TestMetaWorldActionFormatE2E:
             task_config = self._task_config(seed=321)
             _ = env.reset(task_config)
 
-            action = CanonicalAction(
-                twist_ee_norm=[0.0, 0.0, 0.0, 0.3, 0.2, 0.1],
-                gripper_01=0.0,
+            action = Action(
+                continuous={
+                    ActionKeys.EE_TWIST: [0.0, 0.0, 0.0, 0.3, 0.2, 0.1],
+                    ActionKeys.GRIPPER: [0.0],
+                }
             )
 
             with capture_logs() as logs:

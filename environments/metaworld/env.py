@@ -38,7 +38,7 @@ import structlog
 # Import from kinitro package (installed in container via PYTHONPATH)
 from kinitro.environments import get_environment
 from kinitro.environments.registry import get_all_environment_ids
-from kinitro.rl_interface import CanonicalAction
+from kinitro.rl_interface import Action
 
 logger = structlog.get_logger()
 
@@ -254,12 +254,17 @@ class Actor:
                     payload=payload,
                     timeout=action_timeout,
                 )
-                action = response.get("action")
-                if action is None:
-                    # Missing action - use zeros
-                    action = CanonicalAction.from_array([]).model_dump(mode="python")
-                elif not isinstance(action, dict) or "twist_ee_norm" not in action:
-                    action = CanonicalAction.from_array(action).model_dump(mode="python")
+                action_data = response.get("action")
+                if action_data is None:
+                    return self._build_error_result(
+                        env_id=env_id,
+                        task_id=task_id,
+                        seed=seed,
+                        start_time=start_time,
+                        error=f"Miner returned no action at step {t}",
+                        extra={"timesteps_completed": t},
+                    )
+                action = Action.model_validate(action_data)
             except httpx.TimeoutException:
                 return self._build_error_result(
                     env_id=env_id,

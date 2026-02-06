@@ -9,16 +9,16 @@ Your policy must implement the RobotActor class with:
 - act(observation): Called each timestep to get action
 - cleanup(): Called when evaluation is complete
 
-Canonical interface:
-- act() receives a dict matching CanonicalObservation
-- act() returns a dict matching CanonicalAction
+Interface:
+- act() receives a dict matching Observation
+- act() returns a dict matching Action
 
 The policy will be run inside a container and queried by validators
-across multiple MetaWorld robotics environments.
+across multiple robotics environments.
 
-IMPORTANT: Observations follow the canonical interface:
-- Proprioceptive: ee_pos_m, ee_quat_xyzw, ee_lin_vel_mps, ee_ang_vel_rps, gripper_01
-- Visual: RGB camera images from corner cameras (nested lists)
+IMPORTANT: Observations follow the extensible interface:
+- Proprioceptive: proprio dict with keys like ee_pos, ee_quat, gripper, etc.
+- Visual: rgb dict with camera images
 - Object positions are NOT exposed - you must learn from visual input!
 """
 
@@ -28,7 +28,7 @@ from typing import Any
 import numpy as np
 
 # Import from local rl_interface (self-contained for Basilica deployment)
-from rl_interface import CanonicalAction
+from rl_interface import Action, ActionKeys
 
 
 def decode_image_array(array_data: list) -> np.ndarray:
@@ -45,18 +45,22 @@ class RobotActor:
     called for each timestep.
 
     Observation format (dict):
-        - ee_pos_m: [x, y, z]
-        - ee_quat_xyzw: [qx, qy, qz, qw]
-        - ee_lin_vel_mps: [vx, vy, vz]
-        - ee_ang_vel_rps: [wx, wy, wz]
-        - gripper_01: float in [0, 1]
-        - rgb: dict[str, list] - Camera views as nested lists
+        - proprio: dict with keys like:
+            - "ee_pos": [x, y, z]
+            - "ee_quat": [qx, qy, qz, qw]
+            - "ee_vel_lin": [vx, vy, vz]
+            - "ee_vel_ang": [wx, wy, wz]
+            - "gripper": [state] in [0, 1]
+        - rgb: dict[str, data] - Camera views
             - "corner": First corner camera view (84x84 RGB)
             - "corner2": Second corner camera view (84x84 RGB)
+        - extra: dict with task-specific info like task_prompt
 
     Action format (dict):
-        - twist_ee_norm: [vx, vy, vz, wx, wy, wz] in [-1, 1]
-        - gripper_01: float in [0, 1]
+        - continuous: dict with keys like:
+            - "ee_twist": [vx, vy, vz, wx, wy, wz] in [-1, 1]
+            - "gripper": [cmd] in [0, 1]
+        - discrete: dict for discrete actions (optional)
     """
 
     def __init__(self):
@@ -108,17 +112,19 @@ class RobotActor:
         This is called every timestep. You have ~100ms to respond.
 
         Args:
-            observation: Dict containing canonical observation fields
+            observation: Dict containing observation fields (proprio, rgb, extra)
 
         Returns:
-            action: Dict containing twist_ee_norm and gripper_01 (CanonicalAction)
+            action: Dict containing continuous and/or discrete actions
         """
-        ee_pos = np.array(observation["ee_pos_m"], dtype=np.float32)
-        ee_quat = np.array(observation["ee_quat_xyzw"], dtype=np.float32)
-        ee_lin_vel = np.array(observation["ee_lin_vel_mps"], dtype=np.float32)
-        ee_ang_vel = np.array(observation["ee_ang_vel_rps"], dtype=np.float32)
-        gripper_state = float(observation["gripper_01"])
-        _proprio = np.concatenate([ee_pos, ee_quat, ee_lin_vel, ee_ang_vel, [gripper_state]])
+        # Extract proprioceptive data from new format
+        proprio = observation.get("proprio", {})
+        ee_pos = np.array(proprio.get("ee_pos", [0, 0, 0]), dtype=np.float32)
+        ee_quat = np.array(proprio.get("ee_quat", [0, 0, 0, 1]), dtype=np.float32)
+        ee_vel_lin = np.array(proprio.get("ee_vel_lin", [0, 0, 0]), dtype=np.float32)
+        ee_vel_ang = np.array(proprio.get("ee_vel_ang", [0, 0, 0]), dtype=np.float32)
+        gripper_state = proprio.get("gripper", [0.0])[0]
+        _proprio_arr = np.concatenate([ee_pos, ee_quat, ee_vel_lin, ee_vel_ang, [gripper_state]])
 
         camera_images = observation.get("rgb", {})
         images = {}
@@ -132,14 +138,17 @@ class RobotActor:
         # REPLACE THIS WITH YOUR POLICY
         # =====================================================
 
-        twist = np.random.uniform(-1, 1, size=6)
-        gripper = float(np.random.uniform(0, 1))
+        twist = np.random.uniform(-1, 1, size=6).tolist()
+        gripper = [float(np.random.uniform(0, 1))]
 
         # =====================================================
 
-        return CanonicalAction(twist_ee_norm=twist.tolist(), gripper_01=gripper).model_dump(
-            mode="python"
-        )
+        return Action(
+            continuous={
+                ActionKeys.EE_TWIST: twist,
+                ActionKeys.GRIPPER: gripper,
+            }
+        ).model_dump(mode="python")
 
     async def cleanup(self) -> None:
         """

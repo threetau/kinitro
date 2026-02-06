@@ -8,9 +8,11 @@ import structlog
 from kinitro.environments.base import RoboticsEnvironment, TaskConfig
 from kinitro.environments.procedural import ProceduralTaskGenerator
 from kinitro.rl_interface import (
-    CanonicalAction,
-    CanonicalObservation,
-    coerce_action,
+    Action,
+    ActionKeys,
+    Observation,
+    ProprioKeys,
+    encode_image,
     normalize_quaternion,
 )
 
@@ -352,7 +354,7 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         axis = omega / (np.linalg.norm(omega) + 1e-8)
         return self._quat_from_axis_angle(axis.astype(np.float32), angle)
 
-    def _build_observation(self, full_obs: np.ndarray) -> CanonicalObservation:
+    def _build_observation(self, full_obs: np.ndarray) -> Observation:
         ee_pos, gripper_state = self._extract_proprioceptive_obs(full_obs)
         ee_quat = self._get_ee_quaternion()
 
@@ -394,24 +396,26 @@ class MetaWorldEnvironment(RoboticsEnvironment):
                 env_id=self._env_id,
             )
 
-        return CanonicalObservation(
-            ee_pos_m=ee_pos.tolist(),
-            ee_quat_xyzw=ee_quat.tolist(),
-            ee_lin_vel_mps=ee_lin_vel.tolist(),
-            ee_ang_vel_rps=ee_ang_vel.tolist(),
-            gripper_01=gripper_norm,
-            rgb={name: img.tolist() for name, img in camera_views.items()},
-            depth=None,
-            cam_intrinsics_K=None,
-            cam_extrinsics_T_world_cam=None,
+        # Encode camera images for serialization
+        encoded_views = {name: encode_image(img) for name, img in camera_views.items()}
+
+        return Observation(
+            rgb=encoded_views,
+            proprio={
+                ProprioKeys.EE_POS: ee_pos.tolist(),
+                ProprioKeys.EE_QUAT: ee_quat.tolist(),
+                ProprioKeys.EE_VEL_LIN: ee_lin_vel.tolist(),
+                ProprioKeys.EE_VEL_ANG: ee_ang_vel.tolist(),
+                ProprioKeys.GRIPPER: [gripper_norm],
+            },
         )
 
-    def get_observation(self) -> CanonicalObservation:
+    def get_observation(self) -> Observation:
         """
-        Get canonical observation with proprioceptive and visual data.
+        Get observation with proprioceptive and visual data.
 
         Returns:
-            CanonicalObservation with end-effector state and camera views
+            Observation with end-effector state and camera views
         """
         self._ensure_env()
         env = cast(Any, self._env)
@@ -444,12 +448,12 @@ class MetaWorldEnvironment(RoboticsEnvironment):
             },
         )
 
-    def reset(self, task_config: TaskConfig) -> CanonicalObservation:
+    def reset(self, task_config: TaskConfig) -> Observation:
         """
         Reset environment with task configuration.
 
         Returns:
-            Canonical observation
+            Observation
         """
         self._ensure_env()
         env = cast(Any, self._env)
@@ -514,19 +518,21 @@ class MetaWorldEnvironment(RoboticsEnvironment):
 
     def step(
         self,
-        action: CanonicalAction | dict[str, Any] | np.ndarray,
-    ) -> tuple[CanonicalObservation, float, bool, dict[str, Any]]:
+        action: Action,
+    ) -> tuple[Observation, float, bool, dict[str, Any]]:
         """
         Execute action in environment.
 
         Returns:
-            Tuple of (canonical observation, reward, done, info)
+            Tuple of (observation, reward, done, info)
         """
         self._ensure_env()
 
-        canonical_action = coerce_action(action)
-        twist = np.clip(np.array(canonical_action.twist_ee_norm, dtype=np.float32), -1.0, 1.0)
-        gripper = float(np.clip(canonical_action.gripper_01, 0.0, 1.0))
+        # Get twist (ee_twist channel) and gripper values
+        twist_arr = action.get_continuous(ActionKeys.EE_TWIST)
+        gripper_arr = action.get_continuous(ActionKeys.GRIPPER)
+        twist = np.clip(twist_arr if twist_arr is not None else np.zeros(6), -1.0, 1.0)
+        gripper = float(np.clip(gripper_arr[0] if gripper_arr is not None else 0.0, 0.0, 1.0))
 
         if self._resolved_action_format is None:
             self._resolve_action_format()

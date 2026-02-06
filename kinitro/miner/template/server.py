@@ -41,7 +41,7 @@ from policy import RobotPolicy
 from pydantic import BaseModel
 
 # Import from local rl_interface (self-contained for Basilica deployment)
-from rl_interface import CanonicalAction, CanonicalObservation
+from rl_interface import Action, ActionKeys, Observation
 
 # =============================================================================
 # Structured Logging
@@ -188,13 +188,13 @@ class ResetResponse(BaseModel):
 class ActRequest(BaseModel):
     """Request body for /act endpoint."""
 
-    obs: CanonicalObservation
+    obs: Observation
 
 
 class ActResponse(BaseModel):
     """Response body for /act endpoint."""
 
-    action: CanonicalAction
+    action: Action
 
 
 class HealthResponse(BaseModel):
@@ -314,13 +314,15 @@ async def act(request: ActRequest):
                 has_images=bool(obs.rgb),
             )
 
-        if isinstance(action, CanonicalAction):
-            canonical_action = action
+        if isinstance(action, Action):
+            action_obj = action
         elif isinstance(action, dict):
-            canonical_action = CanonicalAction.model_validate(action)
+            action_obj = Action.model_validate(action)
         else:
-            canonical_action = CanonicalAction.from_array(action)
-        return ActResponse(action=canonical_action)
+            # Default schema for backward compatibility
+            schema = {ActionKeys.EE_TWIST: 6, ActionKeys.GRIPPER: 1}
+            action_obj = Action.from_array(action, schema)
+        return ActResponse(action=action_obj)
     except Exception as e:
         _state["error_count"] += 1
         logger.error(

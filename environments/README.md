@@ -1,6 +1,6 @@
 # Kinitro Evaluation Environments
 
-This directory contains the affinetes-compatible evaluation environments for the Kinitro robotics subnet. Each environment family has its own directory with a Dockerfile, Actor class (`env.py`), and dependencies (`requirements.txt`).
+This directory contains the Affinetes-compatible evaluation environments for the Kinitro robotics subnet. Each environment family has its own directory with a Dockerfile, Actor class (`env.py`), and dependencies (`requirements.txt`).
 
 ## Directory Structure
 
@@ -77,18 +77,38 @@ KINITRO_BACKEND_EVAL_IMAGE_METAWORLD=kinitro/metaworld:v1
 KINITRO_BACKEND_EVAL_IMAGE_PROCTHOR=kinitro/procthor:v1
 ```
 
-## Adding New Environment Families
+---
 
-To add a new environment family:
+## Adding New Environments
 
-1. Create a new directory under `environments/` (e.g., `environments/myenv/`)
-2. Add required files:
-   - `Dockerfile` - Container build instructions
-   - `env.py` - Actor class with `evaluate()` method
-   - `requirements.txt` - Python dependencies
-   - `metadata.json` - Family display info: `{"name": "MYENV", "description": "My Environment"}`
-3. Register environments in `kinitro/environments/registry.py`:
-   - Add entries to `ENVIRONMENTS` dict with your environment IDs
-4. Build with `kinitro env build myenv --tag kinitro/myenv:v1`
+Copy the `_template/` directory and customize:
 
-The CLI and list commands will automatically discover the new family from `metadata.json`.
+```bash
+cp -r environments/_template environments/myenv
+```
+
+### Required Files
+
+| File | Purpose |
+|------|---------|
+| `metadata.json` | Display name and description |
+| `requirements.txt` | Python dependencies |
+| `Dockerfile` | Container build spec |
+| `env.py` | Actor class with `evaluate()` method |
+
+### Key Concepts
+
+- **Actor.evaluate()**: Main entry point called by Affinetes
+- **TaskConfig**: Procedural task parameters (seed, positions, physics)
+- **Observation**: Proprio dict + camera images (see `kinitro/rl_interface.py`)
+- **Action**: Continuous/discrete channels (see `kinitro/rl_interface.py`)
+
+### Implementation Steps
+
+1. Add your simulator to `requirements.txt`
+2. Update Dockerfile system deps if needed
+3. Implement `env.py` Actor class (follow template TODOs)
+4. Register environment in `kinitro/environments/registry.py`
+5. Build and test: `kinitro env build myenv --tag myenv:v1`
+
+For reference implementations, see `metaworld/` and `procthor/`.

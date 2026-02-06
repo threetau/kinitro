@@ -30,12 +30,13 @@ Keep it current when commands or conventions change.
 - `kinitro/cli/` CLI entry point and command groups.
 - `kinitro/config.py` runtime settings and configuration.
 - `kinitro/crypto.py` cryptography helpers.
-- `kinitro/rl_interface.py` RL interface utilities (CanonicalObservation, CanonicalAction).
+- `kinitro/rl_interface.py` RL interface utilities (Observation, Action, ProprioKeys, ActionKeys).
 
 ## Setup / Install
 - Recommended: `uv sync`
 - Editable install: `pip install -e .`
 - Dev extras (if using pip): `pip install -e ".[dev]"`
+- Basilica CLI (for miner deployments): `curl -sSL https://basilica.ai/install.sh | bash`
 
 ## Common Commands
 ### Lint
@@ -136,42 +137,38 @@ Keep it current when commands or conventions change.
 
 ## End-to-End Testing
 
-### Multi-Worktree Development
-When working with multiple git worktrees, use the helper scripts to avoid port/database collisions:
-```bash
-./scripts/worktree-env.sh     # Generate isolated .env and docker-compose.override.yml
-./scripts/services.sh         # Manage services (start, stop, status, logs)
-```
-The scripts calculate deterministic port offsets from the worktree name (e.g., `fix/my-feature` → PostgreSQL 5789, API 8357, database `kinitro_fix_my_feature`).
+For detailed testing docs and troubleshooting, see `docs/e2e-testing.md`.
 
-### Quick Start
+### Quick Reference
 ```bash
-# 1. Start database
-docker compose up -d postgres
+# Start all services with mock miner (uses default ports)
+./scripts/services.sh start --mock-miner
 
-# 2. Start services (in separate terminals or background)
-uv run kinitro api --database-url $DATABASE_URL --port 8000 --no-auth &
-uv run kinitro scheduler --database-url $DATABASE_URL \
-  --network $NETWORK --netuid $NETUID --env-families metaworld &
-uv run kinitro executor --api-url http://localhost:8000 --eval-mode docker \
-  --eval-images '{"metaworld":"kinitro/metaworld:v1"}' &
+# Run test scripts
+./scripts/test-e2e.sh         # Full E2E pipeline test
+./scripts/test-api.sh         # Test API endpoints
+./scripts/test-mock-miner.sh  # Test mock miner endpoints
+
+# Service management
+./scripts/services.sh status  # Check running services
+./scripts/services.sh logs    # Tail service logs
+./scripts/services.sh stop    # Stop all services
 ```
 
-### Building Environment Images
+For multi-worktree development (avoids port collisions between parallel checkouts):
 ```bash
-uv run kinitro env build procthor --tag kinitro/procthor:v1
-uv run kinitro env build metaworld --tag kinitro/metaworld:v1
+./scripts/worktree-env.sh           # Generate isolated ports/database (once per worktree)
+./scripts/services.sh start --all   # Uses worktree-specific ports
 ```
 
-### Logs
-- Service logs: `/tmp/kinitro_<worktree>/api.log`, `scheduler.log`, `executor.log`
-- Container logs: `docker logs <container_name>` or `docker logs -f <name>`
-- List eval containers: `docker ps --filter "name=kinitro-eval"`
-
-### Troubleshooting
-- Port conflicts: Run `./scripts/worktree-env.sh` to regenerate ports, then `./scripts/services.sh stop`
-- Reset database: `PGPASSWORD=postgres psql -h localhost -p $POSTGRES_PORT -U postgres -c "DROP DATABASE $POSTGRES_DB; CREATE DATABASE $POSTGRES_DB;"`
-- Stop eval containers: `docker stop $(docker ps -q --filter "name=kinitro-eval")`
+### API Endpoints
+Note: The API prefix is `/v1/` (not `/api/v1/`).
+- Health: `GET /health`
+- Miners: `GET /v1/miners`
+- Environments: `GET /v1/environments`
+- Scores: `GET /v1/scores/latest`
+- Weights: `GET /v1/weights/latest`
+- Task stats: `GET /v1/tasks/stats`
 
 ## Docs and References
 - Developer overview: `README.md`.
@@ -179,6 +176,7 @@ uv run kinitro env build metaworld --tag kinitro/metaworld:v1
 - Miner guide: `docs/miner-guide.md`.
 - Validator guide: `docs/validator-guide.md`.
 - Scoring and incentives: `docs/scoring-and-incentives.md`.
+- **Adding new environments**: `environments/README.md` - Complete guide for integrating new robotics environments.
 
 ## Change Hygiene for Agents
 - Do not modify files outside the task scope.

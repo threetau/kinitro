@@ -1,24 +1,106 @@
+"""
+Extensible RL interface for robotics environments.
+
+This module provides the canonical observation and action interfaces
+that work across different robot embodiments (manipulators, mobile robots,
+navigation agents, etc.).
+
+Key classes:
+- Observation: Extensible observation with proprio dict, camera images, and extras
+- Action: Extensible action with continuous and discrete channels
+
+Conventional keys:
+- ProprioKeys: Standard proprioceptive channel names
+- ActionKeys: Standard action channel names
+"""
+
 from __future__ import annotations
 
 import base64
-from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
+from pydantic import BaseModel, ConfigDict, Field
+
+# =============================================================================
+# Conventional Key Names
+# =============================================================================
 
 
-def _to_list(value):
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, (list, tuple)):
-        return list(value)
-    if isinstance(value, Sequence):
-        return list(value)
-    return value
+class ProprioKeys:
+    """
+    Conventional proprioceptive channel names.
+
+    These are suggestions - environments can use any keys they want.
+    Using these conventions improves interoperability between environments.
+    """
+
+    # End-effector state (single arm)
+    EE_POS = "ee_pos"  # [x, y, z] meters
+    EE_QUAT = "ee_quat"  # [x, y, z, w] quaternion
+    EE_VEL_LIN = "ee_vel_lin"  # [vx, vy, vz] m/s
+    EE_VEL_ANG = "ee_vel_ang"  # [wx, wy, wz] rad/s
+
+    # Gripper
+    GRIPPER = "gripper"  # [state] 0=open, 1=closed
+    # or [f1, f2, ...] for multi-finger
+
+    # Joint state
+    JOINT_POS = "joint_pos"  # [j1, j2, ..., jN] radians
+    JOINT_VEL = "joint_vel"  # [j1, j2, ..., jN] rad/s
+    JOINT_TORQUE = "joint_torque"  # [t1, t2, ..., tN] Nm
+
+    # Mobile base
+    BASE_POS = "base_pos"  # [x, y, z] meters
+    BASE_QUAT = "base_quat"  # [x, y, z, w] quaternion
+    BASE_HEADING = "base_heading"  # [theta] radians (2D heading)
+    BASE_VEL = "base_vel"  # [vx, vy, vtheta] or [vx, vy, vz, wx, wy, wz]
+
+    # Dual arm (prefix with left_/right_)
+    LEFT_EE_POS = "left_ee_pos"
+    LEFT_EE_QUAT = "left_ee_quat"
+    LEFT_GRIPPER = "left_gripper"
+    RIGHT_EE_POS = "right_ee_pos"
+    RIGHT_EE_QUAT = "right_ee_quat"
+    RIGHT_GRIPPER = "right_gripper"
+
+    # Sensing
+    FORCE = "force"  # [fx, fy, fz] Newtons
+    TORQUE = "torque"  # [tx, ty, tz] Nm
+    IMU_ACC = "imu_acc"  # [ax, ay, az] m/s^2
+    IMU_GYRO = "imu_gyro"  # [wx, wy, wz] rad/s
 
 
-def _encode_image(img: np.ndarray) -> dict[str, Any]:
+class ActionKeys:
+    """Conventional action channel names."""
+
+    # Cartesian control
+    EE_TWIST = "ee_twist"  # [vx, vy, vz, wx, wy, wz] normalized
+    EE_POS_TARGET = "ee_pos_target"  # [x, y, z] position target
+
+    # Gripper
+    GRIPPER = "gripper"  # [cmd] 0=open, 1=closed
+
+    # Joint control
+    JOINT_VEL = "joint_vel"  # [j1, j2, ..., jN] normalized
+    JOINT_POS_TARGET = "joint_pos_target"  # [j1, ..., jN] position targets
+
+    # Mobile base
+    BASE_VEL = "base_vel"  # [vx, vy, vtheta] normalized
+
+    # Dual arm
+    LEFT_TWIST = "left_twist"
+    LEFT_GRIPPER = "left_gripper"
+    RIGHT_TWIST = "right_twist"
+    RIGHT_GRIPPER = "right_gripper"
+
+
+# =============================================================================
+# Image Encoding/Decoding
+# =============================================================================
+
+
+def encode_image(img: np.ndarray) -> dict[str, Any]:
     """Encode image as base64 with metadata for efficient serialization."""
     return {
         "data": base64.b64encode(img.tobytes()).decode("ascii"),
@@ -27,7 +109,7 @@ def _encode_image(img: np.ndarray) -> dict[str, Any]:
     }
 
 
-def _decode_image(encoded: dict[str, Any] | list) -> np.ndarray:
+def decode_image(encoded: dict[str, Any] | list) -> np.ndarray:
     """Decode image from base64 or nested list format."""
     if isinstance(encoded, list):
         # Legacy nested list format
@@ -39,176 +121,188 @@ def _decode_image(encoded: dict[str, Any] | list) -> np.ndarray:
     return np.frombuffer(data, dtype=dtype).reshape(shape)
 
 
-class CanonicalObservation(BaseModel):
+# =============================================================================
+# Observation Class
+# =============================================================================
+
+
+class Observation(BaseModel):
+    """
+    Extensible observation for any robot embodiment.
+
+    Structure:
+    - `rgb`: Camera images (keyed by camera name)
+    - `depth`: Depth images (keyed by camera name)
+    - `proprio`: Proprioceptive channels (keyed by channel name)
+    - `cam_intrinsics`: Camera intrinsics matrices (keyed by camera name)
+    - `cam_extrinsics`: Camera extrinsics matrices (keyed by camera name)
+    - `extra`: Arbitrary additional data
+
+    Examples:
+        # Single-arm manipulator
+        obs = Observation(
+            rgb={"wrist": encode_image(img)},
+            proprio={
+                "ee_pos": [0.4, 0.0, 0.2],
+                "ee_quat": [0, 0, 0, 1],
+                "gripper": [0.5],
+            },
+        )
+
+        # Navigation agent
+        obs = Observation(
+            rgb={"ego": encode_image(img)},
+            proprio={
+                "base_pos": [1.2, 0.0, 3.4],
+                "base_heading": [1.57],
+            },
+            extra={"task_prompt": "Pick up the apple."},
+        )
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    ee_pos_m: list[float] = Field(..., min_length=3, max_length=3)
-    ee_quat_xyzw: list[float] = Field(..., min_length=4, max_length=4)
-    ee_lin_vel_mps: list[float] = Field(..., min_length=3, max_length=3)
-    ee_ang_vel_rps: list[float] = Field(..., min_length=3, max_length=3)
-    gripper_01: float = Field(..., ge=0.0, le=1.0)
-    # Images stored as base64-encoded dicts or nested lists (for backward compat)
     rgb: dict[str, dict | list] = Field(default_factory=dict)
-    depth: dict | list | None = None
-    cam_intrinsics_K: list[list[float]] | None = None  # noqa: N815 (CV convention)
-    cam_extrinsics_T_world_cam: list[list[float]] | None = None  # noqa: N815 (CV convention)
-    # Internal storage for numpy arrays (not serialized)
-    _rgb_arrays: dict[str, np.ndarray] = PrivateAttr(default_factory=dict)
-    _depth_array: np.ndarray | None = PrivateAttr(default=None)
+    depth: dict[str, dict | list] = Field(default_factory=dict)
+    proprio: dict[str, list[float]] = Field(default_factory=dict)
+    cam_intrinsics: dict[str, list[list[float]]] = Field(default_factory=dict)
+    cam_extrinsics: dict[str, list[list[float]]] = Field(default_factory=dict)
+    extra: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator(
-        "ee_pos_m",
-        "ee_quat_xyzw",
-        "ee_lin_vel_mps",
-        "ee_ang_vel_rps",
-        mode="before",
-    )
-    @classmethod
-    def _coerce_vector(cls, value):
-        return _to_list(value)
-
-    @field_validator("rgb", mode="before")
-    @classmethod
-    def _coerce_rgb(cls, value):
-        if value is None:
-            return {}
-        if isinstance(value, dict):
-            result = {}
-            for k, v in value.items():
-                if isinstance(v, np.ndarray):
-                    # Encode numpy array as base64
-                    result[k] = _encode_image(v)
-                elif isinstance(v, dict) and "data" in v:
-                    # Already encoded
-                    result[k] = v
-                else:
-                    # Legacy list format - keep as is
-                    result[k] = _to_list(v) if not isinstance(v, list) else v
-            return result
-        return value
-
-    @field_validator("depth", mode="before")
-    @classmethod
-    def _coerce_depth(cls, value):
-        if value is None:
+    def get_image(self, camera: str) -> np.ndarray | None:
+        """Get decoded RGB image for a camera."""
+        if camera not in self.rgb:
             return None
-        if isinstance(value, np.ndarray):
-            return _encode_image(value)
-        if isinstance(value, dict) and "data" in value:
-            return value
-        return _to_list(value)
+        return decode_image(self.rgb[camera])
 
-    @field_validator("cam_intrinsics_K", "cam_extrinsics_T_world_cam", mode="before")
-    @classmethod
-    def _coerce_matrix(cls, value):
-        return _to_list(value)
+    def get_depth(self, camera: str) -> np.ndarray | None:
+        """Get decoded depth image for a camera."""
+        if camera not in self.depth:
+            return None
+        return decode_image(self.depth[camera])
 
     @property
     def images(self) -> dict[str, np.ndarray]:
-        """Get RGB images as numpy arrays."""
-        result = {}
-        for name, data in self.rgb.items():
-            if isinstance(data, dict) and "data" in data:
-                result[name] = _decode_image(data)
-            elif isinstance(data, list):
-                result[name] = np.array(data, dtype=np.uint8)
-        return result
+        """Get all RGB images as numpy arrays."""
+        return {name: decode_image(data) for name, data in self.rgb.items()}
 
-    @property
-    def depth_array(self) -> np.ndarray | None:
-        """Get depth image as numpy array."""
-        if self.depth is None:
+    def get_proprio(self, key: str) -> np.ndarray | None:
+        """Get a proprioceptive channel as numpy array."""
+        if key not in self.proprio:
             return None
-        if isinstance(self.depth, dict) and "data" in self.depth:
-            return _decode_image(self.depth)
-        return np.array(self.depth, dtype=np.float32)
+        return np.array(self.proprio[key], dtype=np.float32)
 
-    def proprio_array(self) -> np.ndarray:
-        return np.array(
-            [
-                *self.ee_pos_m,
-                *self.ee_quat_xyzw,
-                *self.ee_lin_vel_mps,
-                *self.ee_ang_vel_rps,
-                self.gripper_01,
-            ],
-            dtype=np.float32,
-        )
+    def proprio_array(self, keys: list[str] | None = None) -> np.ndarray:
+        """
+        Concatenate proprio channels into flat array.
 
-    def to_flat_array(self, include_images: bool = False) -> np.ndarray:
-        proprio = self.proprio_array()
-        if not include_images:
-            return proprio
-        image_arrays = []
-        for cam_name in sorted(self.rgb.keys()):
-            img = self.images.get(cam_name)
-            if img is not None:
-                image_arrays.append((img.astype(np.float32) / 255.0).flatten())
-        if image_arrays:
-            return np.concatenate([proprio, *image_arrays]).astype(np.float32)
-        return proprio
-
-    def without_images(self) -> CanonicalObservation:
-        return self.model_copy(update={"rgb": {}})
+        Args:
+            keys: Channel names to include (default: all, sorted alphabetically)
+        """
+        if keys is None:
+            keys = sorted(self.proprio.keys())
+        arrays = [self.proprio[k] for k in keys if k in self.proprio]
+        if not arrays:
+            return np.array([], dtype=np.float32)
+        return np.concatenate(arrays).astype(np.float32)
 
     def to_payload(self, include_images: bool = True) -> dict[str, Any]:
-        if include_images:
-            return self.model_dump(mode="python")
-        return self.without_images().model_dump(mode="python")
+        """Serialize for network transport."""
+        data = self.model_dump(mode="python")
+        if not include_images:
+            data["rgb"] = {}
+            data["depth"] = {}
+        return data
 
 
-class CanonicalAction(BaseModel):
+# =============================================================================
+# Action Class
+# =============================================================================
+
+
+class Action(BaseModel):
+    """
+    Extensible action for any robot embodiment.
+
+    Structure:
+    - `continuous`: Continuous control channels (normalized to [-1, 1] or [0, 1])
+    - `discrete`: Discrete action selections
+    - `extra`: Arbitrary additional data
+
+    Examples:
+        # Manipulator action
+        action = Action(continuous={
+            "ee_twist": [0.1, 0, 0, 0, 0, 0],
+            "gripper": [1.0],
+        })
+
+        # Navigation action
+        action = Action(
+            discrete={"nav": 0},  # 0=forward
+            continuous={"gripper": [0.8]},
+        )
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    twist_ee_norm: list[float] = Field(..., min_length=6, max_length=6)
-    gripper_01: float = Field(..., ge=0.0, le=1.0)
+    continuous: dict[str, list[float]] = Field(default_factory=dict)
+    discrete: dict[str, int] = Field(default_factory=dict)
+    extra: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("twist_ee_norm", mode="before")
+    def get_continuous(self, key: str) -> np.ndarray | None:
+        """Get a continuous channel as numpy array."""
+        if key not in self.continuous:
+            return None
+        return np.array(self.continuous[key], dtype=np.float32)
+
+    def continuous_array(self, keys: list[str] | None = None) -> np.ndarray:
+        """Concatenate continuous channels into flat array."""
+        if keys is None:
+            keys = sorted(self.continuous.keys())
+        arrays = [self.continuous[k] for k in keys if k in self.continuous]
+        if not arrays:
+            return np.array([], dtype=np.float32)
+        return np.concatenate(arrays).astype(np.float32)
+
     @classmethod
-    def _coerce_twist(cls, value: Any) -> Any:
-        return _to_list(value)
+    def from_array(cls, array: Any, schema: dict[str, int]) -> Action:
+        """
+        Construct from flat array given a schema.
 
-    def to_array(self) -> np.ndarray:
-        return np.array([*self.twist_ee_norm, self.gripper_01], dtype=np.float32)
+        Args:
+            array: Flat numpy array of action values
+            schema: Mapping of channel names to sizes, e.g. {"ee_twist": 6, "gripper": 1}
+        """
+        arr = np.asarray(array, dtype=np.float32).flatten()
+        continuous: dict[str, list[float]] = {}
+        idx = 0
+        for key, size in schema.items():
+            continuous[key] = arr[idx : idx + size].tolist()
+            idx += size
+        return cls(continuous=continuous)
 
-    @classmethod
-    def from_array(cls, array: Any, gripper_default: float = 0.0) -> CanonicalAction:
-        arr = np.array(array, dtype=np.float32).flatten()
-        twist = np.zeros(6, dtype=np.float32)
-        gripper = gripper_default
-
-        if arr.size == 4:
-            # MetaWorld format: [x, y, z, gripper] where gripper is in [-1, 1]
-            twist[:3] = arr[:3]
-            gripper = float(np.clip((arr[3] + 1.0) / 2.0, 0.0, 1.0))
-        else:
-            # Standard format: [twist(6), gripper(1)]
-            if arr.size:
-                twist[: min(6, arr.size)] = arr[: min(6, arr.size)]
-            if arr.size > 6:
-                # Gripper should be in [0, 1]; clip if out of range
-                gripper = float(np.clip(arr[6], 0.0, 1.0))
-
-        return cls(twist_ee_norm=twist.tolist(), gripper_01=float(gripper))
+    def to_array(self, keys: list[str] | None = None) -> np.ndarray:
+        """Convert to flat array for backward compatibility."""
+        return self.continuous_array(keys)
 
 
-class CanonicalStep(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    obs: CanonicalObservation
-    action: CanonicalAction
+# =============================================================================
+# Helper Functions
+# =============================================================================
 
 
 def normalize_quaternion(quat: np.ndarray) -> np.ndarray:
+    """Normalize a quaternion to unit length."""
     norm = np.linalg.norm(quat)
     if norm <= 0:
         return np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
     return (quat / norm).astype(np.float32)
 
 
-def coerce_action(action: Any, gripper_default: float = 0.0) -> CanonicalAction:
-    if isinstance(action, CanonicalAction):
-        return action
-    if isinstance(action, dict):
-        return CanonicalAction.model_validate(action)
-    return CanonicalAction.from_array(action, gripper_default=gripper_default)
+class Step(BaseModel):
+    """A step containing observation and action (for trajectories)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    obs: Observation
+    action: Action
