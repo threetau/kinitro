@@ -8,7 +8,7 @@ httpx>=0.25.0
 ai2thor>=5.0.0
 # Install procthor from git to get the latest house specification fix (Dec 2022)
 # The PyPI version 0.0.1.dev2 has incompatible material format with newer AI2-THOR builds
-procthor @ git+https://github.com/allenai/procthor.git
+procthor @ git+https://github.com/allenai/procthor.git@53d5bd4c8c96a699e6a615dc390abb670cc9d353
 
 # Image processing for camera rendering
 Pillow>=10.0.0
