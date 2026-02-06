@@ -312,9 +312,13 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         self._ensure_env()
         try:
             env = cast(Any, self._env)
+            model = env.unwrapped.model
             data = env.unwrapped.data
-            ee_site = env.unwrapped.model.site_name2id(self._ee_site_name)
-            quat_wxyz = data.site_xquat[ee_site]
+            ee_site = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self._ee_site_name)  # type: ignore[attr-defined]
+            # mujoco 3.x stores site orientations as 3x3 matrices, not quaternions
+            rot_mat = data.site_xmat[ee_site].reshape(3, 3)
+            quat_wxyz = np.zeros(4)
+            mujoco.mju_mat2Quat(quat_wxyz, rot_mat.flatten())  # type: ignore[attr-defined]
             quat_xyzw = np.array([quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]])
             return normalize_quaternion(quat_xyzw.astype(np.float32))
         except Exception as e:
@@ -363,10 +367,15 @@ class MetaWorldEnvironment(RoboticsEnvironment):
 
         try:
             env = cast(Any, self._env)
+            model = env.unwrapped.model
             data = env.unwrapped.data
-            ee_site = env.unwrapped.model.site_name2id(self._ee_site_name)
-            ee_lin_vel = np.array(data.site_xvelp[ee_site], dtype=np.float32)
-            ee_ang_vel = np.array(data.site_xvelr[ee_site], dtype=np.float32)
+            ee_site = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self._ee_site_name)  # type: ignore[attr-defined]
+            # mujoco 3.x: use mj_objectVelocity instead of data.site_xvelp/site_xvelr
+            vel = np.zeros(6)
+            mujoco.mj_objectVelocity(model, data, mujoco.mjtObj.mjOBJ_SITE, ee_site, vel, 0)  # type: ignore[attr-defined]
+            # mj_objectVelocity returns [angular(3), linear(3)] in world frame
+            ee_lin_vel = np.array(vel[3:6], dtype=np.float32)
+            ee_ang_vel = np.array(vel[0:3], dtype=np.float32)
         except Exception as e:
             logger.debug("metaworld_velocity_lookup_failed", env_id=self._env_id, error=str(e))
 

@@ -13,7 +13,7 @@ dependencies = [
     "affinetes @ git+https://github.com/AffineFoundation/affinetes.git",
     # Robotics simulation (core - MetaWorld only)
     "mujoco>=3.0.0",
-    "metaworld @ git+https://github.com/Farama-Foundation/Metaworld.git@master",
+    "metaworld @ git+https://github.com/Farama-Foundation/Metaworld.git@3.0.0",
     "gymnasium>=1.1",
     # Async/HTTP
     "httpx>=0.25.0",
@@ -43,7 +43,7 @@ dependencies = [
     "moviepy==1.0.3",
     "networkx>=3.6.1",
     "python-fcl>=0.7.0.10",
-    "procthor>=0.0.1.dev2",
+    "procthor @ git+https://github.com/allenai/procthor.git@53d5bd4c8c96a699e6a615dc390abb670cc9d353",
     "ai2thor>=5.0.0",
 ]
 

@@ -8,8 +8,8 @@ httpx>=0.25.0
 mujoco>=3.0.0
 
 # MetaWorld environments
-# Pin to v3.0.0 for reproducible builds
-metaworld @ git+https://github.com/Farama-Foundation/Metaworld.git@v3.0.0
+# Pin to 3.0.0 release for reproducible builds
+metaworld @ git+https://github.com/Farama-Foundation/Metaworld.git@3.0.0
 
 # Image processing for camera rendering
 Pillow>=10.0.0

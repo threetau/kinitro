@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 from typing import Any
 
@@ -12,6 +13,57 @@ from procthor.generation.room_specs import PROCTHOR10K_ROOM_SPEC_SAMPLER
 from kinitro.environments.procthor.task_types import SceneObject
 
 logger = structlog.get_logger()
+
+
+def _patch_procthor_small_objects() -> None:
+    """Fix procthor bug where 'small|' prefixed object IDs crash room_id parsing.
+
+    The upstream function ``default_add_small_objects`` filters scene objects but
+    misses IDs that start with ``small|``, causing ``int("small")`` to raise
+    ``ValueError``.  We wrap the function so the error is caught and small-object
+    placement is skipped gracefully when triggered.
+
+    See: https://github.com/allenai/procthor/issues/60
+    """
+    try:
+        import procthor.generation.small_objects as sm_mod  # noqa: PLC0415
+    except ImportError:
+        return
+
+    original = getattr(sm_mod, "default_add_small_objects", None)
+    if original is None or getattr(original, "_kinitro_patched", False):
+        return
+
+    @functools.wraps(original)
+    def _safe_add_small_objects(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return original(*args, **kwargs)
+        except ValueError as exc:
+            if "invalid literal for int()" in str(exc):
+                logger.warning(
+                    "procthor_small_objects_skipped",
+                    error=str(exc),
+                    hint="Known upstream bug (allenai/procthor#60); skipping small objects",
+                )
+                return None
+            raise
+
+    _safe_add_small_objects._kinitro_patched = True  # type: ignore[attr-defined]
+    sm_mod.default_add_small_objects = _safe_add_small_objects  # type: ignore[assignment]
+
+    # Also patch any re-exported reference in the generation package so that
+    # PTHouseGenerator picks up the wrapper regardless of how it resolves the name.
+    try:
+        import procthor.generation as gen_mod  # noqa: PLC0415
+
+        if hasattr(gen_mod, "default_add_small_objects"):
+            gen_mod.default_add_small_objects = _safe_add_small_objects  # type: ignore[attr-defined]
+    except ImportError:
+        pass
+
+
+# Apply patch at import time so any PTHouseGenerator instance picks it up.
+_patch_procthor_small_objects()
 
 
 class HouseGenerator:
