@@ -57,6 +57,7 @@ def build_env(
     Environment families:
       - metaworld: MuJoCo-based manipulation tasks (~400MB image)
       - procthor: AI2-THOR procedural house tasks (~1.5GB image, x86_64 Linux only)
+      - genesis: Genesis physics simulation (humanoid locomotion + manipulation)
 
     Examples:
         # Build MetaWorld environment
@@ -64,6 +65,9 @@ def build_env(
 
         # Build ProcTHOR environment
         kinitro env build procthor --tag kinitro/procthor:v1
+
+        # Build Genesis environment
+        kinitro env build genesis --tag kinitro/genesis:v1
 
         # Build and push to registry
         kinitro env build metaworld --push --registry docker.io/myuser

@@ -30,6 +30,7 @@ import structlog
 
 # Import from kinitro package (installed in container via PYTHONPATH)
 from kinitro.environments import get_environment
+from kinitro.environments.base import RoboticsEnvironment
 from kinitro.environments.registry import get_all_environment_ids
 from kinitro.rl_interface import Action
 
@@ -44,14 +45,14 @@ class Actor:
     to get actions, matching the Affine (SN120) evaluation pattern.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the evaluation actor."""
         self._env_cache = {}
         # Don't cache the HTTP client - create fresh for each evaluation
         # to avoid event loop binding issues when affinetes calls methods
         # from different event loops
 
-    def _get_env(self, env_id: str):
+    def _get_env(self, env_id: str) -> RoboticsEnvironment:
         """Get or create a robotics environment."""
         if env_id not in self._env_cache:
             self._env_cache[env_id] = get_environment(env_id)
@@ -335,14 +336,14 @@ class Actor:
             "extra": extra_fields,
         }
 
-    async def cleanup(self):
+    async def cleanup(self) -> None:
         """Cleanup resources."""
         # HTTP clients are now created per-request, no need to close here
 
         # Close environments
-        for env in self._env_cache.values():
+        for env_id, env in self._env_cache.items():
             try:
                 env.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("env_close_error", env_id=env_id, error=str(e))
         self._env_cache.clear()

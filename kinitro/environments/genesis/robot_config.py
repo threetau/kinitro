@@ -34,6 +34,21 @@ class RobotConfig:
     can_locomote: bool = True  # Can walk/move
     supported_task_types: list[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        n = self.num_actuated_dofs
+        if len(self.joint_names) != n:
+            raise ValueError(
+                f"joint_names has {len(self.joint_names)} entries, expected {n}"
+            )
+        if len(self.default_dof_pos) != n:
+            raise ValueError(
+                f"default_dof_pos has {len(self.default_dof_pos)} entries, expected {n}"
+            )
+        if len(self.action_scale) != n:
+            raise ValueError(
+                f"action_scale has {len(self.action_scale)} entries, expected {n}"
+            )
+
 
 # =============================================================================
 # Unitree G1 Humanoid Configuration (43 actuated DOFs)

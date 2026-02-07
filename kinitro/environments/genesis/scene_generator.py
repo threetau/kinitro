@@ -166,7 +166,7 @@ class SceneGenerator:
         # Fallback position
         return [1.5, 0.0, 0.05]
 
-    def build_scene(self, gs_scene: Any, scene_config: SceneConfig) -> list[Any]:
+    def build_scene(self, gs_scene: Any, scene_config: SceneConfig) -> list[Any]:  # Any: genesis types are runtime-only
         """Materialize a SceneConfig into a Genesis scene.
 
         Args:
@@ -218,6 +218,11 @@ class SceneGenerator:
                     surface=surface,
                 )
             else:
+                logger.warning(
+                    "unknown_object_type_skipped",
+                    object_type=obj_config.object_type,
+                    object_id=obj_config.object_id,
+                )
                 continue
 
             entities.append(entity)

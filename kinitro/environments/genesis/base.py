@@ -75,11 +75,16 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         self._max_episode_steps = max_episode_steps
         self._show_viewer = show_viewer
 
-        # Lazy-initialized components
+        # Lazy-initialized Genesis components — typed as Any because genesis
+        # is an optional runtime dependency that the type checker cannot resolve.
         self._scene: Any = None
         self._robot: Any = None
         self._camera: Any = None
         self._object_entities: list[Any] = []
+
+        # Pre-computed arrays for action pipeline (avoid per-step allocation)
+        self._default_dof_pos = np.array(robot_config.default_dof_pos, dtype=np.float32)
+        self._action_scale = np.array(robot_config.action_scale, dtype=np.float32)
 
         # Generators (created by subclass)
         self._scene_generator: SceneGenerator | None = None
@@ -337,8 +342,8 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         if self._scene is not None:
             try:
                 self._scene.destroy()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("scene_destroy_on_rebuild", error=str(e))
 
         # Create new scene
         self._scene = gs.Scene(
@@ -465,8 +470,8 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
                 try:
                     pos = entity.get_pos().cpu().numpy().flatten()
                     states[obj_id] = pos
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("object_state_read_failed", object_id=obj_id, error=str(e))
         return states
 
     def _capture_camera(self) -> tuple[np.ndarray | None, np.ndarray | None]:
@@ -544,10 +549,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         joint_action = np.clip(joint_action, -1.0, 1.0)
 
         # Map to PD targets: target = default_pos + action * action_scale
-        default_pos = np.array(self._robot_config.default_dof_pos, dtype=np.float32)
-        action_scale = np.array(self._robot_config.action_scale, dtype=np.float32)
-
-        target_pos = default_pos + joint_action * action_scale
+        target_pos = self._default_dof_pos + joint_action * self._action_scale
 
         # Control only actuated joints (skip 6 floating base DOFs)
         actuated_dof_idx = list(range(6, 6 + n))

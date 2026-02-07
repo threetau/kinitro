@@ -228,7 +228,7 @@ class TaskGenerator:
     ) -> TaskSpec | None:
         """Generate a place task (pick up object, place near destination)."""
         pickupables = _get_pickupable_objects(objects)
-        destinations = [obj for obj in objects if not obj.pickupable]
+        destinations = _get_landmark_objects(objects)
 
         if not pickupables or not destinations:
             return None
