@@ -4,6 +4,7 @@ import json
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -18,13 +19,13 @@ logger = structlog.get_logger()
 _ENVIRONMENTS_DIR = Path(__file__).parent.parent.parent / "environments"
 
 # Type alias for environment factory functions
-EnvFactory = Callable[[], RoboticsEnvironment]
+EnvFactory = Callable[..., RoboticsEnvironment]
 
 
 def _make_metaworld_env(task: str) -> EnvFactory:
     """Create factory for MetaWorld environment."""
 
-    def factory() -> RoboticsEnvironment:
+    def factory(**_kwargs: Any) -> RoboticsEnvironment:
         # Lazy import to allow containers with partial dependencies
         from kinitro.environments.metaworld_env import MetaWorldEnvironment  # noqa: PLC0415
 
@@ -36,11 +37,24 @@ def _make_metaworld_env(task: str) -> EnvFactory:
 def _make_procthor_env(task: str) -> EnvFactory:
     """Create factory for ProcTHOR procedural environment."""
 
-    def factory() -> RoboticsEnvironment:
+    def factory(**_kwargs: Any) -> RoboticsEnvironment:
         # Lazy import to allow containers with partial dependencies
         from kinitro.environments.procthor import ProcTHOREnvironment  # noqa: PLC0415
 
         return ProcTHOREnvironment(task_name=task)
+
+    return factory
+
+
+def _make_genesis_env(env_cls_name: str, task: str) -> EnvFactory:
+    """Create factory for Genesis environment."""
+
+    def factory(**kwargs: Any) -> RoboticsEnvironment:
+        # Lazy import to allow containers with partial dependencies
+        from kinitro.environments.genesis import envs  # noqa: PLC0415
+
+        cls = getattr(envs, env_cls_name)
+        return cls(task_name=task, **kwargs)
 
     return factory
 
@@ -69,15 +83,21 @@ ENVIRONMENTS: dict[str, EnvFactory] = {
     # Scene-grounded tasks in procedurally generated houses
     # =========================================================================
     "procthor/v0": _make_procthor_env("procthor-v0"),
+    # =========================================================================
+    # GENESIS (Physics simulation with humanoid, quadruped, manipulation)
+    # Genesis-world engine with procedural scenes and scene-grounded tasks
+    # =========================================================================
+    "genesis/g1-v0": _make_genesis_env("G1Environment", "g1-v0"),
 }
 
 
-def get_environment(env_id: str) -> RoboticsEnvironment:
+def get_environment(env_id: str, **kwargs: Any) -> RoboticsEnvironment:
     """
     Load a robotics environment by ID.
 
     Args:
         env_id: Environment identifier (e.g., 'metaworld/pick-place-v3')
+        **kwargs: Extra keyword arguments passed to the environment factory.
 
     Returns:
         Initialized RoboticsEnvironment instance
@@ -91,7 +111,7 @@ def get_environment(env_id: str) -> RoboticsEnvironment:
             f"Unknown environment: {env_id}. Available environments:\n"
             + "\n".join(f"  - {e}" for e in available)
         )
-    return ENVIRONMENTS[env_id]()
+    return ENVIRONMENTS[env_id](**kwargs)
 
 
 def get_all_environment_ids() -> list[str]:

@@ -21,7 +21,7 @@ from kinitro.environments.registry import (
 from kinitro.rl_interface import Action, ActionKeys, Observation
 
 # Available environment families for build command
-AVAILABLE_ENV_FAMILIES = ["metaworld", "procthor"]
+AVAILABLE_ENV_FAMILIES = ["metaworld", "procthor", "genesis"]
 
 
 @runtime_checkable
@@ -207,6 +207,12 @@ def test_env(
         False, "--save-images", help="Save camera images (can be large)"
     ),
     max_steps: int = typer.Option(500, "--max-steps", help="Maximum steps per episode"),
+    viewer: bool = typer.Option(
+        False, "--viewer", help="Open interactive viewer window (Genesis environments only)"
+    ),
+    seed: int | None = typer.Option(
+        None, "--seed", "-s", help="Starting seed for task generation (default: episode index)"
+    ),
 ):
     """
     Test an environment with random actions.
@@ -228,7 +234,7 @@ def test_env(
         typer.echo("Error: --episodes must be >= 1", err=True)
         raise typer.Exit(1)
 
-    env = get_environment(env_id)
+    env = get_environment(env_id, show_viewer=viewer)
     try:
         typer.echo(f"  Canonical observation shape: {env.observation_shape}")
         typer.echo(f"  Canonical action shape: {env.action_shape}")
@@ -270,7 +276,8 @@ def test_env(
         successes = 0
         total_reward = 0.0
         for ep in range(episodes):
-            task_config = env.generate_task(seed=ep)
+            ep_seed = (seed if seed is not None else 0) + ep
+            task_config = env.generate_task(seed=ep_seed)
             obs = env.reset(task_config)
             typer.echo(f"  Episode {ep + 1} initial obs: {obs}")
 
@@ -307,13 +314,23 @@ def test_env(
             ep_reward = 0.0
             steps = 0
             for step_idx in range(max_steps):
-                # Random action
-                action = Action(
-                    continuous={
-                        ActionKeys.EE_TWIST: np.random.uniform(-1, 1, size=6).tolist(),
-                        ActionKeys.GRIPPER: [float(np.random.uniform(0, 1))],
-                    }
-                )
+                # Random action (use appropriate keys based on env family)
+                if env_id.startswith("genesis/"):
+                    action_dim = env.action_shape[0]
+                    action = Action(
+                        continuous={
+                            ActionKeys.JOINT_POS_TARGET: np.random.uniform(
+                                -1, 1, size=action_dim
+                            ).tolist(),
+                        }
+                    )
+                else:
+                    action = Action(
+                        continuous={
+                            ActionKeys.EE_TWIST: np.random.uniform(-1, 1, size=6).tolist(),
+                            ActionKeys.GRIPPER: [float(np.random.uniform(0, 1))],
+                        }
+                    )
                 obs, reward, done, info = env.step(action)
                 ep_reward += reward
                 steps += 1
