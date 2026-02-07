@@ -254,7 +254,7 @@ class TaskGenerator:
             target_position=target.position,
             destination_object_id=destination.object_id,
             destination_position=destination.position,
-            initial_state={"initial_target_pos": target.position},
+            initial_state={"initial_target_pos": list(target.position)},
         )
 
     def _generate_push_task(
@@ -295,7 +295,7 @@ class TaskGenerator:
             target_position=target.position,
             destination_object_id=destination.object_id,
             destination_position=destination.position,
-            initial_state={"initial_target_pos": target.position},
+            initial_state={"initial_target_pos": list(target.position)},
         )
 
     def _generate_prompt(

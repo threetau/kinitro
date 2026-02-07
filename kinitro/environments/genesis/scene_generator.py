@@ -103,6 +103,11 @@ class SceneGenerator:
         rng: np.random.Generator,
     ) -> list[SceneObjectConfig]:
         """Generate a set of objects with distinct colors."""
+        if num_objects < 2:
+            raise ValueError(
+                f"Need at least 2 objects (1 pickupable + 1 landmark), got {num_objects}"
+            )
+
         objects = []
         available_colors = list(OBJECT_COLORS.keys())
         rng.shuffle(available_colors)
@@ -166,7 +171,9 @@ class SceneGenerator:
         # Fallback position
         return [1.5, 0.0, 0.05]
 
-    def build_scene(self, gs_scene: Any, scene_config: SceneConfig) -> list[Any]:  # Any: genesis types are runtime-only
+    def build_scene(
+        self, gs_scene: Any, scene_config: SceneConfig
+    ) -> list[Any]:  # Any: genesis types are runtime-only
         """Materialize a SceneConfig into a Genesis scene.
 
         Args:

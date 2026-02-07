@@ -21,6 +21,7 @@ Usage (from backend):
     )
 """
 
+import asyncio
 import time
 import traceback
 
@@ -48,6 +49,7 @@ class Actor:
     def __init__(self) -> None:
         """Initialize the evaluation actor."""
         self._env_cache = {}
+        self._env_locks: dict[str, asyncio.Lock] = {}
         # Don't cache the HTTP client - create fresh for each evaluation
         # to avoid event loop binding issues when affinetes calls methods
         # from different event loops
@@ -80,7 +82,10 @@ class Actor:
         url = f"{base_url.rstrip('/')}/{endpoint}"
 
         # Create a fresh client for each call to avoid event loop binding issues
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=min(timeout * 2, 5.0))) as client:
+        connect_timeout = min(timeout * 2, 5.0)
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout, connect=connect_timeout),
+        ) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
             return resp.json()
@@ -143,34 +148,46 @@ class Actor:
             )
 
         if base_url is None:
-            raise ValueError("base_url (miner endpoint) is required")
+            return self._build_error_result(
+                env_id=env_id,
+                task_id=task_id,
+                seed=seed or task_id,
+                start_time=time.time(),
+                error="base_url (miner endpoint) is required",
+            )
 
         if seed is None:
             seed = task_id
 
         start_time = time.time()
 
-        try:
-            return await self._run_evaluation(
-                task_id=task_id,
-                seed=seed,
-                model=model,
-                base_url=base_url,
-                env_id=env_id,
-                max_timesteps=max_timesteps,
-                action_timeout=action_timeout,
-                use_images=use_images,
-                start_time=start_time,
-                overall_timeout=timeout,
-            )
-        except Exception as e:
-            return self._build_error_result(
-                env_id=env_id,
-                task_id=task_id,
-                seed=seed,
-                start_time=start_time,
-                error=f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}",
-            )
+        # Serialize concurrent evaluations for the same env_id to prevent
+        # data races on the shared cached environment instance.
+        if env_id not in self._env_locks:
+            self._env_locks[env_id] = asyncio.Lock()
+
+        async with self._env_locks[env_id]:
+            try:
+                return await self._run_evaluation(
+                    task_id=task_id,
+                    seed=seed,
+                    model=model,
+                    base_url=base_url,
+                    env_id=env_id,
+                    max_timesteps=max_timesteps,
+                    action_timeout=action_timeout,
+                    use_images=use_images,
+                    start_time=start_time,
+                    overall_timeout=timeout,
+                )
+            except Exception as e:
+                return self._build_error_result(
+                    env_id=env_id,
+                    task_id=task_id,
+                    seed=seed,
+                    start_time=start_time,
+                    error=f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}",
+                )
 
     async def _run_evaluation(
         self,
