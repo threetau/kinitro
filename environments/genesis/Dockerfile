@@ -39,14 +39,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglx0 \
     libglx-mesa0 \
     mesa-utils \
+    # OSMesa for CPU-only software rendering fallback
+    libosmesa6 \
     && rm -rf /var/lib/apt/lists/*
 
-# EGL for headless rendering
+# EGL for headless rendering (GPU). Override PYOPENGL_PLATFORM=osmesa for CPU-only.
 ENV PYOPENGL_PLATFORM=egl
 ENV NVIDIA_DRIVER_CAPABILITIES=all
-
-# Force software rendering when no GPU available
-ENV LIBGL_ALWAYS_SOFTWARE=1
 ENV MESA_GL_VERSION_OVERRIDE=3.3
 
 # Copy requirements and install dependencies
