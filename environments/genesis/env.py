@@ -111,8 +111,8 @@ class Actor:
         Evaluate a miner's policy on a Genesis task.
 
         This method:
-        1. Resets the simulation environment
-        2. Calls the miner's /reset endpoint
+        1. Calls the miner's /reset endpoint (task metadata only)
+        2. Resets the simulation environment
         3. Loops: get observation -> call miner's /act -> step simulation
         4. Returns success/failure score
 
@@ -163,10 +163,8 @@ class Actor:
 
         # Serialize concurrent evaluations for the same env_id to prevent
         # data races on the shared cached environment instance.
-        if env_id not in self._env_locks:
-            self._env_locks[env_id] = asyncio.Lock()
-
-        async with self._env_locks[env_id]:
+        lock = self._env_locks.setdefault(env_id, asyncio.Lock())
+        async with lock:
             try:
                 return await self._run_evaluation(
                     task_id=task_id,
