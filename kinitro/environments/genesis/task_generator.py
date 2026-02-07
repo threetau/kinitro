@@ -117,6 +117,7 @@ class TaskGenerator:
             )
             return None
 
+        requested_type = task_type
         if task_type is None:
             task_type = _random_choice(available_types, rng)
 
@@ -127,8 +128,12 @@ class TaskGenerator:
             if task is not None:
                 return task
 
-            # Try a different task type
-            task_type = _random_choice(available_types, rng)
+            # Only re-randomize if caller didn't request a specific type
+            task_type = (
+                requested_type
+                if requested_type is not None
+                else _random_choice(available_types, rng)
+            )
 
         logger.warning(
             "task_generation_failed",
@@ -184,7 +189,7 @@ class TaskGenerator:
             task_prompt=prompt,
             target_object_id=target.object_id,
             target_object_type=target.object_type,
-            target_position=target.position,
+            target_position=list(target.position),
             initial_state={"robot_start_pos": [0.0, 0.0, 0.75]},
         )
 
@@ -216,7 +221,7 @@ class TaskGenerator:
             task_prompt=prompt,
             target_object_id=target.object_id,
             target_object_type=target.object_type,
-            target_position=target.position,
+            target_position=list(target.position),
             initial_state={"initial_height": target.position[2]},
         )
 
@@ -251,9 +256,9 @@ class TaskGenerator:
             task_prompt=prompt,
             target_object_id=target.object_id,
             target_object_type=target.object_type,
-            target_position=target.position,
+            target_position=list(target.position),
             destination_object_id=destination.object_id,
-            destination_position=destination.position,
+            destination_position=list(destination.position),
             initial_state={"initial_target_pos": list(target.position)},
         )
 
@@ -292,9 +297,9 @@ class TaskGenerator:
             task_prompt=prompt,
             target_object_id=target.object_id,
             target_object_type=target.object_type,
-            target_position=target.position,
+            target_position=list(target.position),
             destination_object_id=destination.object_id,
-            destination_position=destination.position,
+            destination_position=list(destination.position),
             initial_state={"initial_target_pos": list(target.position)},
         )
 

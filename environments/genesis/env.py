@@ -142,7 +142,7 @@ class Actor:
             return self._build_error_result(
                 env_id=env_id,
                 task_id=task_id,
-                seed=seed or task_id,
+                seed=seed if seed is not None else task_id,
                 start_time=time.time(),
                 error=f"Invalid env_id for Genesis container: {env_id}. Must start with 'genesis/'",
             )
@@ -151,7 +151,7 @@ class Actor:
             return self._build_error_result(
                 env_id=env_id,
                 task_id=task_id,
-                seed=seed or task_id,
+                seed=seed if seed is not None else task_id,
                 start_time=time.time(),
                 error="base_url (miner endpoint) is required",
             )

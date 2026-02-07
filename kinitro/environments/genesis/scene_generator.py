@@ -102,7 +102,7 @@ class SceneGenerator:
         num_objects: int,
         rng: np.random.Generator,
     ) -> list[SceneObjectConfig]:
-        """Generate a set of objects with distinct colors."""
+        """Generate a set of objects with distinct colors (max len(OBJECT_COLORS))."""
         if num_objects < 2:
             raise ValueError(
                 f"Need at least 2 objects (1 pickupable + 1 landmark), got {num_objects}"
@@ -111,6 +111,10 @@ class SceneGenerator:
         objects = []
         available_colors = list(OBJECT_COLORS.keys())
         rng.shuffle(available_colors)
+
+        # Cap to available colors so each object gets a distinct color
+        if num_objects > len(available_colors):
+            num_objects = len(available_colors)
 
         # Ensure mix of pickupable and landmark objects
         # At least 1 pickupable and 1 landmark
@@ -225,12 +229,10 @@ class SceneGenerator:
                     surface=surface,
                 )
             else:
-                logger.warning(
-                    "unknown_object_type_skipped",
-                    object_type=obj_config.object_type,
-                    object_id=obj_config.object_id,
+                raise ValueError(
+                    f"Unknown object type {obj_config.object_type!r} "
+                    f"for object {obj_config.object_id!r}"
                 )
-                continue
 
             entities.append(entity)
 
