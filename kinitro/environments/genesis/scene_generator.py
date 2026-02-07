@@ -110,6 +110,7 @@ class SceneGenerator:
         # Ensure mix of pickupable and landmark objects
         # At least 1 pickupable and 1 landmark
         num_pickupable = max(1, int(rng.integers(1, max(2, num_objects - 1))))
+        num_pickupable = min(num_pickupable, num_objects - 1)
 
         for i in range(num_objects):
             color_name = available_colors[i % len(available_colors)]

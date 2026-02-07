@@ -55,13 +55,20 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Clone MuJoCo Menagerie (sparse checkout -- only robot dirs needed)
 # This provides MJCF assets for supported robots (G1, Go2, Franka, etc.)
-RUN git clone --depth 1 --filter=blob:none --sparse \
+# Pinned to a known-good commit for reproducible builds.
+ARG MENAGERIE_COMMIT=a03e87bf13502b0b48ebbf2808928fd96ebf9cf3
+RUN git clone --filter=blob:none --sparse \
     https://github.com/google-deepmind/mujoco_menagerie.git /opt/menagerie && \
     cd /opt/menagerie && \
+    git checkout ${MENAGERIE_COMMIT} && \
     git sparse-checkout set unitree_g1 && \
     echo "Menagerie assets installed"
 
 ENV GENESIS_MENAGERIE_PATH=/opt/menagerie
+
+# Run as non-root user
+RUN groupadd --gid 1000 genesis && \
+    useradd --uid 1000 --gid genesis --create-home genesis
 
 # Copy the kinitro environments package (copied by env build command)
 # This is a subset of the main kinitro package - only environments/ is needed
@@ -72,5 +79,8 @@ ENV PYTHONPATH="/app:${PYTHONPATH}"
 
 # Copy the eval environment Actor
 COPY env.py /app/
+
+RUN chown -R genesis:genesis /app
+USER genesis
 
 # Affinetes will inject its HTTP server - do not set CMD/ENTRYPOINT

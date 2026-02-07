@@ -79,7 +79,7 @@ class Actor:
         url = f"{base_url.rstrip('/')}/{endpoint}"
 
         # Create a fresh client for each call to avoid event loop binding issues
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=5.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=min(timeout * 2, 5.0))) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
             return resp.json()

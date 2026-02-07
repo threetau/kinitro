@@ -15,7 +15,7 @@ class G1Environment(GenesisBaseEnvironment):
     """G1 humanoid environment with navigation and manipulation tasks.
 
     The Unitree G1 is a full bipedal humanoid (1.27m tall, ~35kg) with
-    dexterous 3-finger hands and 37 actuated DOFs. This enables both
+    dexterous 3-finger hands and 43 actuated DOFs. This enables both
     locomotion and manipulation tasks.
 
     Supported tasks: NAVIGATE, PICKUP, PLACE, PUSH

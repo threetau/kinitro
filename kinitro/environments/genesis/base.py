@@ -291,7 +291,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         else:
             reward = 0.0
 
-        if fallen:
+        if fallen and not self._episode_success:
             reward = -1.0
 
         # Check termination
