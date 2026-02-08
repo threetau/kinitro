@@ -14,7 +14,11 @@ import structlog
 
 from kinitro.environments.base import RoboticsEnvironment, TaskConfig
 from kinitro.environments.genesis.robot_config import RobotConfig
-from kinitro.environments.genesis.scene_generator import SceneConfig, SceneGenerator
+from kinitro.environments.genesis.scene_generator import (
+    SceneConfig,
+    SceneGenerator,
+    SceneObjectConfig,
+)
 from kinitro.environments.genesis.task_generator import TaskGenerator
 from kinitro.environments.genesis.task_types import SceneObject, TaskSpec, TaskType
 from kinitro.rl_interface import Action, ActionKeys, Observation, ProprioKeys, encode_image
@@ -88,12 +92,15 @@ def _init_genesis() -> None:
 
     _detect_render_platform()
 
+    # Deferred import: Genesis locks the PyOpenGL platform backend on import,
+    # so _detect_render_platform() must run first (see PYOPENGL_PLATFORM notes).
     import genesis as gs  # noqa: PLC0415
 
     try:
         gs.init(backend=getattr(gs, "gpu"))
         logger.info("genesis_initialized", backend="gpu")
-    except Exception:
+    except RuntimeError as exc:
+        logger.info("genesis_gpu_unavailable", error=str(exc))
         gs.init(backend=getattr(gs, "cpu"))
         logger.info("genesis_initialized", backend="cpu")
 
@@ -175,10 +182,6 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
     def action_shape(self) -> tuple[int, ...]:
         return (self._robot_config.num_actuated_dofs,)
 
-    # =========================================================================
-    # Abstract methods (subclasses must implement)
-    # =========================================================================
-
     @abstractmethod
     def _get_scene_generator(self) -> SceneGenerator:
         """Return configured scene generator for this environment variant."""
@@ -204,10 +207,6 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         task_spec: TaskSpec,
     ) -> bool:
         """Check environment-specific success condition."""
-
-    # =========================================================================
-    # RoboticsEnvironment interface
-    # =========================================================================
 
     def generate_task(self, seed: int) -> TaskConfig:
         """Generate a procedural task from seed."""
@@ -285,12 +284,6 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         task_dict = task_config.domain_randomization.get("task_spec", {})
 
         self._current_task = TaskSpec.from_dict(task_dict) if task_dict else None
-
-        # Reconstruct SceneConfig
-        from kinitro.environments.genesis.scene_generator import (  # noqa: PLC0415
-            SceneConfig,
-            SceneObjectConfig,
-        )
 
         obj_configs = [
             SceneObjectConfig(
@@ -389,10 +382,6 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
             self._robot = None
             self._camera = None
             self._object_entities = []
-
-    # =========================================================================
-    # Genesis internals
-    # =========================================================================
 
     def _build_scene(self, scene_config: SceneConfig) -> None:
         """Build (or rebuild) the Genesis scene with robot, terrain, objects, camera."""

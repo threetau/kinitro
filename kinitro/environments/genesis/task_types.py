@@ -86,7 +86,9 @@ class SceneObject:
     is_picked_up: bool = False
 
 
-# Predefined color palette with distinct RGB values
+# Predefined color palette with distinct RGB values.
+# TODO: extend to RGBA (alpha channel) for transparency effects (e.g. glass)
+# once Genesis material/texture support is added.
 OBJECT_COLORS: dict[str, tuple[float, float, float]] = {
     "red": (0.9, 0.2, 0.2),
     "green": (0.2, 0.8, 0.2),
@@ -125,22 +127,19 @@ def check_task_feasibility(
             return False, f"Object {target.object_type} is not {prop}"
 
     # Task-specific checks
-    if task_type == TaskType.PICKUP:
-        if target.is_picked_up:
-            return False, f"Object {target.object_type} is already picked up"
-
-    if task_type == TaskType.PLACE:
-        if destination is None:
-            return False, "Place task requires a destination"
-
-    if task_type == TaskType.PUSH:
-        if destination is None:
-            return False, "Push task requires a destination"
-        if target.object_id == destination.object_id:
-            return False, "Cannot push object to itself"
-
-    if task_type == TaskType.NAVIGATE:
-        # Navigate is always feasible if target exists
-        pass
+    match task_type:
+        case TaskType.NAVIGATE:
+            pass  # Always feasible if target exists
+        case TaskType.PICKUP:
+            if target.is_picked_up:
+                return False, f"Object {target.object_type} is already picked up"
+        case TaskType.PLACE:
+            if destination is None:
+                return False, "Place task requires a destination"
+        case TaskType.PUSH:
+            if destination is None:
+                return False, "Push task requires a destination"
+            if target.object_id == destination.object_id:
+                return False, "Cannot push object to itself"
 
     return True, "Task is feasible"

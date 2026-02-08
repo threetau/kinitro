@@ -6,9 +6,6 @@ This Actor class runs inside an affinetes-managed container and:
 2. Queries miner policy endpoints (on Basilica or self-hosted) for actions
 3. Returns evaluation scores
 
-Supported environments:
-- genesis/g1-v0: Unitree G1 humanoid (navigate, pickup, place, push)
-
 Usage (from backend):
     import affinetes as af_env
 
@@ -16,7 +13,7 @@ Usage (from backend):
 
     result = await env.evaluate(
         task_id=789,
-        base_url="https://xxx.deployments.basilica.ai",
+        base_url="https://example.deployments.basilica.ai",
         env_id="genesis/g1-v0"
     )
 """
@@ -24,6 +21,7 @@ Usage (from backend):
 import asyncio
 import time
 import traceback
+from typing import Any, TypedDict
 
 import httpx
 import numpy as np
@@ -36,6 +34,17 @@ from kinitro.environments.registry import get_all_environment_ids
 from kinitro.rl_interface import Action
 
 logger = structlog.get_logger()
+
+
+class EvalResult(TypedDict, total=False):
+    """Result of a single evaluation run."""
+
+    task_name: str
+    score: float
+    success: bool
+    time_taken: float
+    extra: dict[str, Any]
+    error: str
 
 
 class Actor:
@@ -63,7 +72,7 @@ class Actor:
     async def _call_miner(
         self,
         base_url: str,
-        endpoint: str,
+        path: str,
         payload: dict,
         timeout: float = 0.5,
     ) -> dict:
@@ -71,15 +80,15 @@ class Actor:
         Call miner's policy endpoint.
 
         Args:
-            base_url: Miner's base URL (e.g., https://xxx.deployments.basilica.ai)
-            endpoint: Endpoint path (e.g., "act" or "reset")
+            base_url: Miner's base URL (e.g., https://example.deployments.basilica.ai)
+            path: Request path (e.g., "act" or "reset")
             payload: JSON payload to send
             timeout: Request timeout in seconds
 
         Returns:
             JSON response from miner
         """
-        url = f"{base_url.rstrip('/')}/{endpoint}"
+        url = f"{base_url.rstrip('/')}/{path}"
 
         # Create a fresh client for each call to avoid event loop binding issues
         connect_timeout = min(timeout * 2, 5.0)
@@ -97,16 +106,16 @@ class Actor:
     async def evaluate(
         self,
         task_id: int,
+        base_url: str,
         seed: int | None = None,
         model: str | None = None,
-        base_url: str | None = None,
         env_id: str = "genesis/g1-v0",
         max_timesteps: int = 500,
         action_timeout: float = 0.5,
         use_images: bool = True,
         timeout: int = 300,
         **kwargs,
-    ) -> dict:
+    ) -> EvalResult:
         """
         Evaluate a miner's policy on a Genesis task.
 
@@ -118,10 +127,10 @@ class Actor:
 
         Args:
             task_id: Task identifier for reproducibility
+            base_url: Miner's policy endpoint URL
+                      (e.g., "https://example.deployments.basilica.ai")
             seed: Random seed (defaults to task_id)
             model: Miner's model name (for logging)
-            base_url: Miner's policy endpoint URL (required)
-                      e.g., "https://xxx.deployments.basilica.ai"
             env_id: Environment ID (e.g., "genesis/g1-v0")
             max_timesteps: Maximum steps per episode
             action_timeout: Timeout for each action request (seconds)
@@ -129,13 +138,8 @@ class Actor:
             timeout: Overall evaluation timeout (seconds)
 
         Returns:
-            Evaluation result dict with:
-            - task_name: Environment identifier
-            - score: 1.0 for success, 0.0 for failure
-            - success: Boolean success flag
-            - time_taken: Total evaluation time
-            - extra: Additional metrics and metadata
-            - error: Error message if evaluation failed
+            EvalResult with score 1.0 (success) or 0.0 (failure).
+            Score is strictly binary — no partial credit.
         """
         # Validate env_id is a genesis environment
         if not env_id.startswith("genesis/"):
@@ -145,15 +149,6 @@ class Actor:
                 seed=seed if seed is not None else task_id,
                 start_time=time.time(),
                 error=f"Invalid env_id for Genesis container: {env_id}. Must start with 'genesis/'",
-            )
-
-        if base_url is None:
-            return self._build_error_result(
-                env_id=env_id,
-                task_id=task_id,
-                seed=seed if seed is not None else task_id,
-                start_time=time.time(),
-                error="base_url (miner endpoint) is required",
             )
 
         if seed is None:
@@ -199,7 +194,7 @@ class Actor:
         use_images: bool,
         start_time: float,
         overall_timeout: int = 300,
-    ) -> dict:
+    ) -> EvalResult:
         """Internal evaluation loop."""
 
         # Get environment
@@ -219,7 +214,7 @@ class Actor:
         try:
             await self._call_miner(
                 base_url=base_url,
-                endpoint="reset",
+                path="reset",
                 payload={"task_config": task_config_dict},
                 timeout=5.0,
             )
@@ -259,7 +254,7 @@ class Actor:
             try:
                 response = await self._call_miner(
                     base_url=base_url,
-                    endpoint="act",
+                    path="act",
                     payload=payload,
                     timeout=action_timeout,
                 )
@@ -333,7 +328,7 @@ class Actor:
         start_time: float,
         error: str,
         extra: dict[str, object] | None = None,
-    ) -> dict:
+    ) -> EvalResult:
         """Build error result dict."""
         extra_fields: dict[str, object] = {
             "task_id": task_id,

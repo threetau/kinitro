@@ -72,9 +72,11 @@ class SceneGenerator:
         self,
         num_objects: tuple[int, int] = (3, 6),
         arena_size: float = 5.0,
+        min_dist_from_center: float = 0.8,
     ) -> None:
         self._num_objects_range = num_objects
         self._arena_size = arena_size
+        self._min_dist_from_center = min_dist_from_center
 
     def generate_scene(self, seed: int) -> SceneConfig:
         """Generate a procedural scene configuration from seed.
@@ -156,14 +158,13 @@ class SceneGenerator:
     ) -> list[float]:
         """Generate a valid position for an object, avoiding robot spawn area."""
         half_arena = self._arena_size / 2.0
-        min_dist_from_center = 0.8  # Avoid robot spawn area
 
         for _ in range(50):
             x = float(rng.uniform(-half_arena, half_arena))
             y = float(rng.uniform(-half_arena, half_arena))
 
             dist = np.sqrt(x**2 + y**2)
-            if dist < min_dist_from_center:
+            if dist < self._min_dist_from_center:
                 continue
 
             # Pickupable objects should be closer (reachable)
@@ -172,8 +173,8 @@ class SceneGenerator:
 
             return [x, y, 0.05]  # Small offset above flat ground
 
-        # Fallback position
-        return [1.5, 0.0, 0.05]
+        # Fallback: place outside robot spawn area (origin) so objects are reachable
+        return [self._min_dist_from_center * 2, 0.0, 0.05]
 
     def build_scene(
         self, gs_scene: Any, scene_config: SceneConfig
@@ -187,6 +188,8 @@ class SceneGenerator:
         Returns:
             List of Genesis entity references for object tracking
         """
+        # Deferred import: Genesis must be imported after PYOPENGL_PLATFORM is set
+        # at runtime by _detect_render_platform() in base.py.
         import genesis as gs  # noqa: PLC0415
 
         entities = []
