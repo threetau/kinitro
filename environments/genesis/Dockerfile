@@ -69,6 +69,18 @@ ENV GENESIS_MENAGERIE_PATH=/opt/menagerie
 RUN groupadd --gid 1000 genesis && \
     useradd --uid 1000 --gid genesis --create-home genesis
 
+# Pre-warm Taichi kernel cache for Genesis physics.
+# Runs a minimal headless scene build to JIT-compile all physics kernels
+# and bake them into the image layer (~36s savings per container startup).
+# Placed before COPY kinitro/env.py so app code changes don't invalidate
+# this slow layer.
+COPY warmup_kernel_cache.py /tmp/warmup_kernel_cache.py
+RUN chown genesis:genesis /tmp/warmup_kernel_cache.py
+USER genesis
+RUN python /tmp/warmup_kernel_cache.py
+USER root
+RUN rm /tmp/warmup_kernel_cache.py
+
 # Copy the kinitro environments package (copied by env build command)
 # This is a subset of the main kinitro package - only environments/ is needed
 COPY kinitro /app/kinitro
