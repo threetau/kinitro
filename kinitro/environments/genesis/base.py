@@ -96,9 +96,10 @@ def _patch_osmesa_framebuffers() -> None:
     Modern OSMesa with GL 3.3 core profile (provided by ``libosmesa6-dev``)
     fully supports FBOs, so we patch the method to return True.
     """
-    from genesis.ext.pyrender.platforms.osmesa import OSMesaPlatform  # noqa: PLC0415
+    import importlib  # noqa: PLC0415
 
-    OSMesaPlatform.supports_framebuffers = lambda self: True  # type: ignore[assignment]
+    mod = importlib.import_module("genesis.ext.pyrender.platforms.osmesa")
+    setattr(mod.OSMesaPlatform, "supports_framebuffers", lambda self: True)
     logger.info("osmesa_framebuffer_patch_applied")
 
 
