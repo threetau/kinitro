@@ -22,8 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglx0 \
     libglx-mesa0 \
     mesa-utils \
-    # OSMesa for CPU-only software rendering fallback
-    libosmesa6 \
+    # OSMesa for CPU-only software rendering fallback (dev includes libOSMesa.so
+    # symlinks and headers needed for GL 3.3 core profile context creation)
+    libosmesa6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Render platform is auto-detected at runtime (EGL for GPU, OSMesa for CPU).

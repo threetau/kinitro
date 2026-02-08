@@ -84,6 +84,24 @@ def _detect_render_platform() -> None:
         )
 
 
+def _patch_osmesa_framebuffers() -> None:
+    """Patch Genesis's pyrender OSMesa platform to report framebuffer support.
+
+    Genesis hardcodes ``OSMesaPlatform.supports_framebuffers = False``, which
+    sends rendering down a broken code path (the non-FBO path calls
+    ``renderer.render()`` without ``RenderFlags.OFFSCREEN``, so
+    ``_forward_pass()`` never reads the framebuffer and returns None, hitting
+    ``assert result is not None``).
+
+    Modern OSMesa with GL 3.3 core profile (provided by ``libosmesa6-dev``)
+    fully supports FBOs, so we patch the method to return True.
+    """
+    from genesis.ext.pyrender.platforms.osmesa import OSMesaPlatform  # noqa: PLC0415
+
+    OSMesaPlatform.supports_framebuffers = lambda self: True  # type: ignore[assignment]
+    logger.info("osmesa_framebuffer_patch_applied")
+
+
 def _init_genesis() -> None:
     """Initialize Genesis engine (idempotent, once per process)."""
     global _genesis_initialized  # noqa: PLW0603
@@ -95,6 +113,10 @@ def _init_genesis() -> None:
     # Deferred import: Genesis locks the PyOpenGL platform backend on import,
     # so _detect_render_platform() must run first (see PYOPENGL_PLATFORM notes).
     import genesis as gs  # noqa: PLC0415
+
+    # If using OSMesa, patch FBO support before any rendering occurs.
+    if os.environ.get("PYOPENGL_PLATFORM") == "osmesa":
+        _patch_osmesa_framebuffers()
 
     try:
         gs.init(backend=getattr(gs, "gpu"))
@@ -148,6 +170,9 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         self._robot: Any = None
         self._camera: Any = None
         self._object_entities: list[Any] = []
+
+        # Camera availability flag — set to False if validation render fails
+        self._camera_available: bool = True
 
         # Pre-computed arrays for action pipeline (avoid per-step allocation)
         self._default_dof_pos = np.array(robot_config.default_dof_pos, dtype=np.float32)
@@ -438,6 +463,9 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         actuated_dof_idx = list(range(6, 6 + n))
         self._robot.set_dofs_position(default_pos, dofs_idx_local=actuated_dof_idx)
 
+        # Validate camera rendering works before the episode begins
+        self._validate_camera()
+
         logger.info(
             "genesis_scene_built",
             robot=self._robot_config.name,
@@ -482,6 +510,37 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
             "ego_camera_attached", link=link_name, offset=self._robot_config.ego_camera_pos_offset
         )
 
+    def _validate_camera(self) -> None:
+        """Test-render the camera once after scene build to detect OSMesa/EGL failures early.
+
+        Sets ``_camera_available = False`` on failure so ``_capture_camera()``
+        can skip silently instead of logging 500+ identical warnings per episode.
+        """
+        if self._camera is None:
+            self._camera_available = False
+            return
+
+        try:
+            rgb, depth, _seg, _normal = self._camera.render(rgb=True, depth=True)
+            if rgb is None:
+                raise RuntimeError("camera.render() returned None for rgb")
+            self._camera_available = True
+            logger.info(
+                "camera_validation_passed",
+                image_size=self.IMAGE_SIZE,
+                rgb_shape=rgb.shape,
+            )
+        except Exception as e:
+            self._camera_available = False
+            logger.error(
+                "camera_validation_failed",
+                error=repr(e),
+                error_type=type(e).__name__,
+                image_size=self.IMAGE_SIZE,
+                hint="RGB observations will be unavailable for this episode",
+                exc_info=True,
+            )
+
     def _read_robot_state(self) -> dict[str, np.ndarray]:
         """Read robot state from Genesis tensors, convert to numpy.
 
@@ -525,7 +584,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
 
     def _capture_camera(self) -> tuple[np.ndarray | None, np.ndarray | None]:
         """Capture RGB and depth images from camera."""
-        if self._camera is None:
+        if self._camera is None or not self._camera_available:
             return None, None
 
         try:
@@ -542,7 +601,12 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
 
             return rgb, depth
         except Exception as e:
-            logger.warning("camera_capture_failed", error=str(e))
+            logger.warning(
+                "camera_capture_failed",
+                error=repr(e),
+                error_type=type(e).__name__,
+                exc_info=True,
+            )
             return None, None
 
     def _build_observation(

@@ -22,7 +22,15 @@ os.environ.setdefault("PYOPENGL_PLATFORM", "osmesa")
 
 import genesis as gs  # noqa: E402
 
+# Patch OSMesa framebuffer support — Genesis hardcodes supports_framebuffers=False
+# but modern OSMesa (GL 3.3 core via libosmesa6-dev) fully supports FBOs.
+# Without this patch, camera.render() hits a broken non-FBO code path.
+from genesis.ext.pyrender.platforms.osmesa import OSMesaPlatform  # noqa: E402
+
+OSMesaPlatform.supports_framebuffers = lambda self: True  # type: ignore[assignment]
+
 MENAGERIE_ROBOT = "unitree_g1/g1_with_hands.xml"
+IMAGE_SIZE = 84  # Small image size to minimize OSMesa rendering time during warm-up, while still triggering all relevant kernels.
 
 
 def warmup() -> None:
@@ -74,6 +82,14 @@ def warmup() -> None:
             )
         )
 
+    # Camera for rendering validation
+    camera = scene.add_camera(
+        res=(IMAGE_SIZE, IMAGE_SIZE),
+        pos=(0.0, -2.0, 1.5),
+        lookat=(0.0, 0.0, 0.75),
+        fov=90,
+    )
+
     t0 = time.perf_counter()
     scene.build(n_envs=1)
     build_elapsed = time.perf_counter() - t0
@@ -83,6 +99,22 @@ def warmup() -> None:
     scene.step()
     step_elapsed = time.perf_counter() - t1
     print(f"[warmup] scene.step()  completed in {step_elapsed:.1f}s")
+
+    # Validate camera rendering works under OSMesa.
+    # This is intentionally fail-fast: if camera.render() fails, the Docker
+    # build should fail so broken OSMesa configs are caught at build time.
+    rgb, depth, _seg, _normal = camera.render(rgb=True, depth=True)
+    if rgb is None:
+        raise RuntimeError(
+            "Camera render validation failed: rgb is None. "
+            "OSMesa may not be configured correctly (is libosmesa6-dev installed?)."
+        )
+    if rgb.shape[:2] != (IMAGE_SIZE, IMAGE_SIZE):
+        raise RuntimeError(
+            f"Camera render validation failed: expected rgb spatial dims "
+            f"({IMAGE_SIZE}, {IMAGE_SIZE}), got {rgb.shape[:2]}."
+        )
+    print(f"[warmup] camera.render() completed — rgb shape={rgb.shape}")
 
     print(f"[warmup] Kernel cache warm-up complete in {build_elapsed + step_elapsed:.1f}s")
 
