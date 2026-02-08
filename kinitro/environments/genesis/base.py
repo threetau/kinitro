@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import os
+import sys
 from abc import abstractmethod
 from typing import Any
 
@@ -22,11 +25,68 @@ logger = structlog.get_logger()
 _genesis_initialized = False
 
 
+def _detect_render_platform() -> None:
+    """Auto-detect the best OpenGL platform for Genesis rendering.
+
+    On Linux, probes EGL availability (requires GPU + EGL libraries).
+    Falls back to OSMesa (CPU software rendering) when EGL is unavailable.
+    Respects an existing PYOPENGL_PLATFORM env var without overriding it.
+    On non-Linux platforms, does nothing (Genesis uses pyglet by default).
+    """
+    if os.environ.get("PYOPENGL_PLATFORM"):
+        logger.info(
+            "render_platform_preset",
+            platform=os.environ["PYOPENGL_PLATFORM"],
+        )
+        return
+
+    if sys.platform != "linux":
+        return
+
+    # Probe EGL via ctypes (not PyOpenGL) to avoid locking PyOpenGL's
+    # platform before we know whether EGL actually works.
+    try:
+        egl = ctypes.CDLL(ctypes.util.find_library("EGL") or "libEGL.so.1")
+        egl.eglGetDisplay.argtypes = [ctypes.c_void_p]
+        egl.eglGetDisplay.restype = ctypes.c_void_p
+
+        default_display = ctypes.c_void_p(0)
+        display = egl.eglGetDisplay(default_display)
+        if not display:
+            raise RuntimeError("eglGetDisplay returned EGL_NO_DISPLAY")
+
+        major, minor = ctypes.c_int(), ctypes.c_int()
+        egl.eglInitialize.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+        ]
+        egl.eglInitialize.restype = ctypes.c_int
+        if not egl.eglInitialize(display, ctypes.byref(major), ctypes.byref(minor)):
+            raise RuntimeError("eglInitialize failed")
+
+        egl.eglTerminate.argtypes = [ctypes.c_void_p]
+        egl.eglTerminate.restype = ctypes.c_int
+        egl.eglTerminate(display)
+
+        os.environ["PYOPENGL_PLATFORM"] = "egl"
+        logger.info("render_platform_detected", platform="egl")
+    except Exception as exc:
+        os.environ["PYOPENGL_PLATFORM"] = "osmesa"
+        logger.info(
+            "render_platform_detected",
+            platform="osmesa",
+            reason=str(exc),
+        )
+
+
 def _init_genesis() -> None:
     """Initialize Genesis engine (idempotent, once per process)."""
     global _genesis_initialized  # noqa: PLW0603
     if _genesis_initialized:
         return
+
+    _detect_render_platform()
 
     import genesis as gs  # noqa: PLC0415
 

@@ -43,8 +43,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libosmesa6 \
     && rm -rf /var/lib/apt/lists/*
 
-# EGL for headless rendering (GPU). Override PYOPENGL_PLATFORM=osmesa for CPU-only.
-ENV PYOPENGL_PLATFORM=egl
+# Render platform is auto-detected at runtime (EGL for GPU, OSMesa for CPU).
+# Do NOT hardcode PYOPENGL_PLATFORM here — see base.py:_detect_render_platform().
 ENV NVIDIA_DRIVER_CAPABILITIES=all
 ENV MESA_GL_VERSION_OVERRIDE=3.3
 

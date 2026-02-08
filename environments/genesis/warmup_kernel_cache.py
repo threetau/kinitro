@@ -6,18 +6,21 @@ This avoids ~36s of JIT compilation on every fresh container startup.
 
 The script builds a minimal headless scene matching the runtime physics
 structure (ground plane, G1 robot, Box/Sphere/Cylinder primitives) to
-trigger all physics kernel compilation.
+trigger all physics and rendering kernel compilation.
 
-Genesis internally creates a visualizer even when renderer=None, which
-fails without EGL during docker build. The physics kernels are compiled
-before the visualizer step, so we catch the EGL error and exit cleanly.
-Genesis's atexit handler caches the compiled kernels regardless.
+Uses OSMesa (CPU software rendering) because docker build has no GPU.
+With OSMesa the full scene.build() succeeds — including the rasterizer —
+so both physics and rendering kernels get cached.
 """
 
 import os
 import time
 
-import genesis as gs
+# Must be set BEFORE importing genesis — PyOpenGL locks the platform backend
+# on first import. No GPU during docker build, so force OSMesa (CPU software rendering).
+os.environ.setdefault("PYOPENGL_PLATFORM", "osmesa")
+
+import genesis as gs  # noqa: E402
 
 MENAGERIE_ROBOT = "unitree_g1/g1_with_hands.xml"
 
@@ -28,7 +31,7 @@ def warmup() -> None:
     scene = gs.Scene(
         sim_options=gs.options.SimOptions(dt=0.01),
         show_viewer=False,
-        renderer=None,
+        renderer=gs.renderers.Rasterizer(),
     )
 
     # Ground plane
@@ -72,19 +75,7 @@ def warmup() -> None:
         )
 
     t0 = time.perf_counter()
-    try:
-        scene.build(n_envs=1)
-    except Exception as e:
-        # Genesis compiles physics kernels before building the visualizer.
-        # Without EGL (typical in docker build), the visualizer init fails,
-        # but the physics kernels are already compiled and will be cached
-        # by Genesis's atexit handler.
-        build_elapsed = time.perf_counter() - t0
-        print(f"[warmup] scene.build() physics kernels compiled in {build_elapsed:.1f}s")
-        print(f"[warmup] Visualizer init failed (expected without EGL): {type(e).__name__}")
-        print("[warmup] Kernel cache warm-up complete (cached on process exit)")
-        return
-
+    scene.build(n_envs=1)
     build_elapsed = time.perf_counter() - t0
     print(f"[warmup] scene.build() completed in {build_elapsed:.1f}s")
 
