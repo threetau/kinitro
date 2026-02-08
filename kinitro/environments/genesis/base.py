@@ -49,6 +49,9 @@ def _detect_render_platform() -> None:
 
     # Probe EGL via ctypes (not PyOpenGL) to avoid locking PyOpenGL's
     # platform before we know whether EGL actually works.
+    # We must go beyond eglInitialize and verify eglChooseConfig returns
+    # at least one renderable config — Mesa's software EGL can initialize
+    # a display even without a GPU, but eglCreateContext will fail later.
     try:
         egl = ctypes.CDLL(ctypes.util.find_library("EGL") or "libEGL.so.1")
         egl.eglGetDisplay.argtypes = [ctypes.c_void_p]
@@ -68,6 +71,27 @@ def _detect_render_platform() -> None:
         egl.eglInitialize.restype = ctypes.c_int
         if not egl.eglInitialize(display, ctypes.byref(major), ctypes.byref(minor)):
             raise RuntimeError("eglInitialize failed")
+
+        # Verify renderable configs exist. EGL constants:
+        # EGL_RENDERABLE_TYPE=0x3040, EGL_OPENGL_BIT=0x0008, EGL_NONE=0x3038
+        attribs = (ctypes.c_int * 3)(0x3040, 0x0008, 0x3038)
+        config = ctypes.c_void_p()
+        num_configs = ctypes.c_int()
+        egl.eglChooseConfig.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_int),
+        ]
+        egl.eglChooseConfig.restype = ctypes.c_int
+        if (
+            not egl.eglChooseConfig(
+                display, attribs, ctypes.byref(config), 1, ctypes.byref(num_configs)
+            )
+            or num_configs.value < 1
+        ):
+            raise RuntimeError("eglChooseConfig found no renderable configs (no GPU?)")
 
         egl.eglTerminate.argtypes = [ctypes.c_void_p]
         egl.eglTerminate.restype = ctypes.c_int
