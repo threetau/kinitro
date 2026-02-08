@@ -118,7 +118,7 @@ allowed-unresolved-imports = ["genesis"]
 
 [tool.ty.src]
 # Exclude miner templates (they import from local rl_interface.py which is copied at deploy time)
-exclude = [".git", ".pyenv", ".ruff_cache", ".venv", ".vscode", "kinitro/miner/template"]
+exclude = [".git", ".pyenv", ".ruff_cache", ".venv", ".vscode", "kinitro/miner/template", "environments/genesis/warmup_kernel_cache.py"]
 
 [dependency-groups]
 dev = [
