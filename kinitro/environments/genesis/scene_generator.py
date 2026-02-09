@@ -156,25 +156,19 @@ class SceneGenerator:
         rng: np.random.Generator,
         pickupable: bool,
     ) -> list[float]:
-        """Generate a valid position for an object, avoiding robot spawn area."""
-        half_arena = self._arena_size / 2.0
+        """Generate a valid position for an object, avoiding robot spawn area.
 
-        for _ in range(50):
-            x = float(rng.uniform(-half_arena, half_arena))
-            y = float(rng.uniform(-half_arena, half_arena))
+        Samples uniformly from an annulus between the robot spawn exclusion
+        radius and the arena edge (or 70% of it for pickupable objects).
+        """
+        r_min = self._min_dist_from_center
+        r_max = self._arena_size / 2.0 * (0.7 if pickupable else 1.0)
 
-            dist = np.sqrt(x**2 + y**2)
-            if dist < self._min_dist_from_center:
-                continue
+        angle = float(rng.uniform(0, 2 * np.pi))
+        # Uniform in r² gives uniform area distribution across the annulus
+        r = float(np.sqrt(rng.uniform(r_min**2, r_max**2)))
 
-            # Pickupable objects should be closer (reachable)
-            if pickupable and dist > half_arena * 0.7:
-                continue
-
-            return [x, y, 0.05]  # Small offset above flat ground
-
-        # Fallback: place outside robot spawn area (origin) so objects are reachable
-        return [self._min_dist_from_center * 2, 0.0, 0.05]
+        return [r * np.cos(angle), r * np.sin(angle), 0.05]
 
     def build_scene(
         self, gs_scene: Any, scene_config: SceneConfig
