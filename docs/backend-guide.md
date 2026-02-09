@@ -83,7 +83,7 @@ uv run kinitro env build genesis --tag kinitro/genesis:v1
 
 Each image is self-contained with:
 
-- Simulation engine (MuJoCo for MetaWorld, Genesis for humanoid physics)
+- Simulation engine (i.e. MetaWorld, Genesis)
 - HTTP client for calling miner endpoints
 - Environment wrappers and dependencies
 

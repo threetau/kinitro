@@ -33,6 +33,8 @@ kinitro env build metaworld --push --registry docker.io/myuser
 
 ### MetaWorld
 
+> **Note:** MetaWorld is included for local testing and development only. It is not actively used in mainnet evaluations.
+
 MuJoCo-based manipulation tasks for robot arm control.
 
 **Supported environments:**

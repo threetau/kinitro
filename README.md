@@ -15,7 +15,6 @@ https://github.com/user-attachments/assets/37942435-8143-41cf-aa78-39f4e8a04509
 ### Vision-Based Observations
 
 Miners receive **limited observations** to prevent overfitting:
-- **MetaWorld**: End-effector XYZ position + gripper state, corner cameras (84x84)
 - **Genesis**: Full-body proprioception (base pose, joint positions/velocities), ego camera (84x84)
 - Object positions are **NOT exposed** - miners must learn from visual input
 

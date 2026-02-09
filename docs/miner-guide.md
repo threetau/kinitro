@@ -124,7 +124,6 @@ Your policy receives **canonical observations** that vary by environment family.
 
 - `task_prompt`: Natural language task description (e.g., "Walk to the red box.")
 - `task_type`: Task type string (navigate, pickup, place, push)
-- `target_position`: Target XYZ coordinates
 
 **Action space** (`continuous` key):
 
@@ -527,7 +526,7 @@ The `obs` field contains canonical observations. The `rgb` field is optional and
 
 Your policy is evaluated using **epsilon-Pareto dominance**:
 
-1. **Multi-Environment Evaluation**: Your policy runs on all environments (MetaWorld manipulation + Genesis humanoid)
+1. **Multi-Environment Evaluation**: Your policy runs on all environments
 2. **Success Rate**: For each environment, we measure task success rate (binary for Genesis)
 3. **Pareto Frontier**: Miners that dominate on subsets of environments earn points
 4. **Generalists Win**: Larger subsets give more points - you must perform well everywhere
