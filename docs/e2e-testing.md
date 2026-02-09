@@ -34,6 +34,7 @@ Before running evaluations, build the environment Docker images:
 
 ```bash
 uv run kinitro env build metaworld --tag kinitro/metaworld:v1
+uv run kinitro env build genesis --tag kinitro/genesis:v1
 ```
 
 ## Scoring Mechanism Testing

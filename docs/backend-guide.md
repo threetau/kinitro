@@ -76,11 +76,14 @@ The evaluation runs in Docker containers managed by Affinetes. Build separate im
 ```bash
 # Build MetaWorld environment (~1GB image, works on any platform)
 uv run kinitro env build metaworld --tag kinitro/metaworld:v1
+
+# Build Genesis environment (~5GB image, Linux recommended)
+uv run kinitro env build genesis --tag kinitro/genesis:v1
 ```
 
 Each image is self-contained with:
 
-- Simulation engine (MuJoCo for MetaWorld, Genesis for physics simulation)
+- Simulation engine (MuJoCo for MetaWorld, Genesis for humanoid physics)
 - HTTP client for calling miner endpoints
 - Environment wrappers and dependencies
 

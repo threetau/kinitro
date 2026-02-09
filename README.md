@@ -15,8 +15,8 @@ https://github.com/user-attachments/assets/37942435-8143-41cf-aa78-39f4e8a04509
 ### Vision-Based Observations
 
 Miners receive **limited observations** to prevent overfitting:
-- **Proprioceptive**: End-effector XYZ position + gripper state (4 values)
-- **Visual**: RGB camera images from corner cameras (84x84)
+- **MetaWorld**: End-effector XYZ position + gripper state, corner cameras (84x84)
+- **Genesis**: Full-body proprioception (base pose, joint positions/velocities), ego camera (84x84)
 - Object positions are **NOT exposed** - miners must learn from visual input
 
 ### Anti-Overfitting by Design
@@ -107,7 +107,7 @@ flowchart TB
 |---------|---------|---------|---------|
 | **API** | `kinitro api` | REST API, task pool management | Horizontal (stateless) |
 | **Scheduler** | `kinitro scheduler` | Task generation, scoring, weight computation | Single instance |
-| **Executor** | `kinitro executor` | Run MuJoCo evaluations via [Affinetes](https://github.com/AffineFoundation/affinetes/) | Horizontal (GPU machines) |
+| **Executor** | `kinitro executor` | Run evaluations (MuJoCo, Genesis) via [Affinetes](https://github.com/AffineFoundation/affinetes/) | Horizontal (GPU machines) |
 | **Validator** | `kinitro validate` | Submit weights to chain | Per validator |
 
 ### Evaluation Flow
@@ -116,7 +116,7 @@ flowchart TB
 2. **Scheduler** reads miner commitments from chain to discover Basilica endpoints
 3. **Scheduler** creates evaluation tasks in PostgreSQL (task pool)
 4. **Executor(s)** fetch tasks from API (`POST /v1/tasks/fetch`)
-5. **Executor** runs MuJoCo simulation, calls miner endpoints for actions
+5. **Executor** runs simulation (MuJoCo / Genesis), calls miner endpoints for actions
 6. **Executor** submits results to API (`POST /v1/tasks/submit`)
 7. **Scheduler** computes Pareto scores when cycle complete and saves weights
 8. **Validators** poll `GET /v1/weights/latest` and submit to chain
@@ -197,6 +197,7 @@ docker run -d --name kinitro-postgres \
 
 # 2. Build the evaluation environment images
 uv run kinitro env build metaworld --tag kinitro/metaworld:v1
+uv run kinitro env build genesis --tag kinitro/genesis:v1
 # 3. Initialize database
 uv run kinitro db init --database-url postgresql://kinitro:secret@localhost/kinitro
 
@@ -246,6 +247,16 @@ MuJoCo-based robot arm manipulation tasks:
 - `metaworld/drawer-close-v3` - Close a drawer
 - `metaworld/button-press-v3` - Press a button from top-down
 - `metaworld/peg-insert-v3` - Insert peg into hole
+
+### Genesis (Humanoid Locomotion + Manipulation)
+
+Genesis physics simulation with a Unitree G1 humanoid robot in procedurally generated scenes:
+
+- `genesis/g1-v0` - Scene-grounded tasks with a bipedal humanoid (43 actuated DOFs):
+  - Navigate to objects
+  - Pick up small objects
+  - Place objects at target locations
+  - Push objects towards destinations
 
 Use `kinitro env list` to see all available environments.
 
@@ -307,3 +318,5 @@ MIT
 
 - [Bittensor](https://bittensor.com/) - Decentralized AI network
 - [MetaWorld](https://github.com/Farama-Foundation/Metaworld) - Manipulation benchmark
+- [Genesis](https://genesis-world.readthedocs.io/) - Physics simulation engine
+- [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) - Robot models (Unitree G1)
