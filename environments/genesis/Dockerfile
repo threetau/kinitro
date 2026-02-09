@@ -32,6 +32,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV NVIDIA_DRIVER_CAPABILITIES=all
 ENV MESA_GL_VERSION_OVERRIDE=3.3
 
+# Register the NVIDIA EGL ICD so libglvnd's EGL dispatch can find the
+# NVIDIA driver libraries mounted by the NVIDIA Container Toolkit at runtime.
+# Without this, only Mesa's EGL vendor is visible and eglInitialize fails
+# in headless (no-display) environments, forcing a fallback to OSMesa.
+RUN mkdir -p /usr/share/glvnd/egl_vendor.d && \
+    echo '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
+    > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+
 # Copy requirements and install dependencies
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r /app/requirements.txt

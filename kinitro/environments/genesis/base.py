@@ -49,18 +49,18 @@ def _detect_render_platform() -> None:
 
     # Probe EGL via ctypes (not PyOpenGL) to avoid locking PyOpenGL's
     # platform before we know whether EGL actually works.
-    # We must go beyond eglInitialize and verify eglChooseConfig returns
-    # at least one renderable config — Mesa's software EGL can initialize
-    # a display even without a GPU, but eglCreateContext will fail later.
+    #
+    # In headless Docker containers with NVIDIA GPUs, the default EGL
+    # display (EGL_DEFAULT_DISPLAY) often has zero renderable configs
+    # because there is no X11/Wayland display server.  The correct
+    # approach is to enumerate EGL devices via eglQueryDevicesEXT and
+    # open a platform display for the first GPU device.  We fall back
+    # to the legacy eglGetDisplay path when the extension is absent.
     try:
         egl = ctypes.CDLL(ctypes.util.find_library("EGL") or "libEGL.so.1")
-        egl.eglGetDisplay.argtypes = [ctypes.c_void_p]
-        egl.eglGetDisplay.restype = ctypes.c_void_p
-
-        default_display = ctypes.c_void_p(0)
-        display = egl.eglGetDisplay(default_display)
+        display = _egl_get_device_display(egl) or _egl_get_default_display(egl)
         if not display:
-            raise RuntimeError("eglGetDisplay returned EGL_NO_DISPLAY")
+            raise RuntimeError("no usable EGL display found")
 
         major, minor = ctypes.c_int(), ctypes.c_int()
         egl.eglInitialize.argtypes = [
@@ -72,9 +72,13 @@ def _detect_render_platform() -> None:
         if not egl.eglInitialize(display, ctypes.byref(major), ctypes.byref(minor)):
             raise RuntimeError("eglInitialize failed")
 
-        # Verify renderable configs exist. EGL constants:
+        # Verify renderable configs exist.  We must explicitly request
+        # EGL_SURFACE_TYPE=EGL_PBUFFER_BIT because eglChooseConfig defaults
+        # to EGL_WINDOW_BIT, and headless GPU configs only support pbuffers.
+        # EGL constants:
+        # EGL_SURFACE_TYPE=0x3033, EGL_PBUFFER_BIT=0x0001
         # EGL_RENDERABLE_TYPE=0x3040, EGL_OPENGL_BIT=0x0008, EGL_NONE=0x3038
-        attribs = (ctypes.c_int * 3)(0x3040, 0x0008, 0x3038)
+        attribs = (ctypes.c_int * 5)(0x3033, 0x0001, 0x3040, 0x0008, 0x3038)
         config = ctypes.c_void_p()
         num_configs = ctypes.c_int()
         egl.eglChooseConfig.argtypes = [
@@ -106,6 +110,64 @@ def _detect_render_platform() -> None:
             platform="osmesa",
             reason=str(exc),
         )
+
+
+def _egl_get_device_display(egl: ctypes.CDLL) -> ctypes.c_void_p | None:
+    """Try to open an EGL display via device enumeration (headless-friendly).
+
+    Uses EGL_EXT_device_enumeration + EGL_EXT_platform_device to get a
+    display backed by a specific GPU, which works without a display server.
+    Returns None if the extensions are unavailable.
+    """
+    try:
+        egl.eglGetProcAddress.argtypes = [ctypes.c_char_p]
+        egl.eglGetProcAddress.restype = ctypes.c_void_p
+
+        query_ptr = egl.eglGetProcAddress(b"eglQueryDevicesEXT")
+        platform_ptr = egl.eglGetProcAddress(b"eglGetPlatformDisplayEXT")
+        if not query_ptr or not platform_ptr:
+            return None
+
+        FUNCTYPE_QD = ctypes.CFUNCTYPE(  # noqa: N806
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.POINTER(ctypes.c_int),
+        )
+        FUNCTYPE_GP = ctypes.CFUNCTYPE(  # noqa: N806
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_int),
+        )
+        egl_query_devices = FUNCTYPE_QD(query_ptr)
+        egl_get_platform_display = FUNCTYPE_GP(platform_ptr)
+
+        max_devices = 8
+        devices = (ctypes.c_void_p * max_devices)()
+        num_devices = ctypes.c_int()
+        if not egl_query_devices(max_devices, devices, ctypes.byref(num_devices)):
+            return None
+
+        # EGL_PLATFORM_DEVICE_EXT = 0x313F
+        for i in range(num_devices.value):
+            display = egl_get_platform_display(0x313F, devices[i], None)
+            if display:
+                return ctypes.c_void_p(display)
+    except Exception:
+        pass
+    return None
+
+
+def _egl_get_default_display(egl: ctypes.CDLL) -> ctypes.c_void_p | None:
+    """Legacy fallback: open the EGL default display."""
+    try:
+        egl.eglGetDisplay.argtypes = [ctypes.c_void_p]
+        egl.eglGetDisplay.restype = ctypes.c_void_p
+        display = egl.eglGetDisplay(ctypes.c_void_p(0))
+        return ctypes.c_void_p(display) if display else None
+    except Exception:
+        return None
 
 
 def _patch_osmesa_framebuffers() -> None:
