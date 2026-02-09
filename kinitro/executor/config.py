@@ -54,6 +54,7 @@ class ExecutorConfig(BaseSettings):
         default_factory=lambda: {
             "metaworld": "kinitro/metaworld:v1",
             "procthor": "kinitro/procthor:v1",
+            "genesis": "kinitro/genesis:v1",
         },
         description="Mapping of environment family to Docker image. "
         "Keys are family prefixes (e.g., 'metaworld'), values are image tags. "
@@ -159,6 +160,7 @@ class ExecutorConfig(BaseSettings):
         default_factory=lambda: {
             "metaworld": 50,
             "procthor": 20,
+            "genesis": 10,
         },
         description="Max concurrent tasks per environment family",
     )
