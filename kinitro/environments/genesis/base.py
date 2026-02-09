@@ -681,7 +681,15 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
             return
 
         n = self._robot_config.num_actuated_dofs
-        joint_action = joint_action[:n]
+        if joint_action.shape[0] < n:
+            logger.warning(
+                "action_undersized",
+                expected=n,
+                got=joint_action.shape[0],
+            )
+            joint_action = np.pad(joint_action, (0, n - joint_action.shape[0]))
+        else:
+            joint_action = joint_action[:n]
 
         # Clip to [-1, 1]
         joint_action = np.clip(joint_action, -1.0, 1.0)
