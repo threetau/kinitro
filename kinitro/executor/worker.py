@@ -75,7 +75,7 @@ class Worker:
         """
         Get or create the affinetes-managed eval environment for a given env_id.
 
-        Each environment family (metaworld, procthor, etc.) uses a separate
+        Each environment family (metaworld, genesis, etc.) uses a separate
         Docker container with family-specific dependencies.
 
         Args:

@@ -33,7 +33,6 @@ Without `worktree-env.sh`, all scripts use default ports (API=8000, PostgreSQL=5
 Before running evaluations, build the environment Docker images:
 
 ```bash
-uv run kinitro env build procthor --tag kinitro/procthor:v1
 uv run kinitro env build metaworld --tag kinitro/metaworld:v1
 ```
 

@@ -22,9 +22,6 @@ Use the `kinitro env build` command to build environment-specific Docker images:
 # Build MetaWorld environment (~1GB image)
 kinitro env build metaworld --tag kinitro/metaworld:v1
 
-# Build ProcTHOR environment (~3GB image)
-kinitro env build procthor --tag kinitro/procthor:v1
-
 # Build and push to registry
 kinitro env build metaworld --push --registry docker.io/myuser
 ```
@@ -50,31 +47,12 @@ MuJoCo-based manipulation tasks for robot arm control.
 
 **Image size:** ~1GB
 
-### ProcTHOR
-
-AI2-THOR procedural house environments for embodied AI tasks.
-
-**Supported environments:**
-
-- `procthor/v0` - Procedural house tasks with task types:
-  - PICKUP - Pick up an object
-  - PLACE - Place an object at a location
-  - OPEN - Open a container/door
-  - CLOSE - Close a container/door
-  - TOGGLE_ON - Turn on an appliance
-  - TOGGLE_OFF - Turn off an appliance
-
-**Platform:** Requires native x86_64 Linux (does NOT work on ARM64 or under emulation)
-
-**Image size:** ~3GB (includes pre-downloaded AI2-THOR binaries)
-
 ## Backend Configuration
 
 Configure your backend to use the appropriate image for each environment family. Set these environment variables:
 
 ```bash
 KINITRO_BACKEND_EVAL_IMAGE_METAWORLD=kinitro/metaworld:v1
-KINITRO_BACKEND_EVAL_IMAGE_PROCTHOR=kinitro/procthor:v1
 ```
 
 ---
@@ -111,4 +89,4 @@ cp -r environments/_template environments/myenv
 4. Register environment in `kinitro/environments/registry.py`
 5. Build and test: `kinitro env build myenv --tag myenv:v1`
 
-For reference implementations, see `metaworld/` and `procthor/`.
+For reference implementations, see `metaworld/`.

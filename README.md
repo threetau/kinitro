@@ -197,8 +197,6 @@ docker run -d --name kinitro-postgres \
 
 # 2. Build the evaluation environment images
 uv run kinitro env build metaworld --tag kinitro/metaworld:v1
-uv run kinitro env build procthor --tag kinitro/procthor:v1
-
 # 3. Initialize database
 uv run kinitro db init --database-url postgresql://kinitro:secret@localhost/kinitro
 
@@ -248,12 +246,6 @@ MuJoCo-based robot arm manipulation tasks:
 - `metaworld/drawer-close-v3` - Close a drawer
 - `metaworld/button-press-v3` - Press a button from top-down
 - `metaworld/peg-insert-v3` - Insert peg into hole
-
-### ProcTHOR (Embodied AI)
-
-AI2-THOR procedural house environments for embodied AI tasks:
-
-- `procthor/v0` - Procedural house tasks (pickup, place, open, close, toggle)
 
 Use `kinitro env list` to see all available environments.
 
