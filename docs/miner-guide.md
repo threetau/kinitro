@@ -82,11 +82,13 @@ This creates:
 
 ## Step 2: Understand the Observation Space
 
-Your policy receives the **canonical observation** to encourage true generalization:
+Your policy receives **canonical observations** that vary by environment family. A generalist policy must handle both.
 
-### Proprioceptive Observations
+**Important**: Object positions are NOT provided in either family. Miners must learn to infer object locations from camera images.
 
-A dictionary under the `proprio` key with:
+### MetaWorld (Robot Arm Manipulation)
+
+**Proprioceptive** (`proprio` key):
 
 - `ee_pos`: End-effector XYZ position (meters)
 - `ee_quat`: End-effector quaternion (XYZW)
@@ -94,23 +96,38 @@ A dictionary under the `proprio` key with:
 - `ee_vel_ang`: End-effector angular velocity (rad/s)
 - `gripper`: Gripper state as a list, e.g. [1.0], in [0, 1]
 
-### Camera Images (Optional)
-
-A dictionary of RGB images (nested lists):
+**Camera images** (`rgb` key):
 
 - `corner`: 84x84x3 RGB image from corner camera
 - `corner2`: 84x84x3 RGB image from corner camera 2
 
-**Important**: Object positions are NOT provided! You must learn to infer object locations from camera images.
-
-### Action Space
-
-Return an `Action` object with a `continuous` dict containing:
+**Action space** (`continuous` key):
 
 - `ee_twist`: 6D twist (vx, vy, vz, wx, wy, wz) in [-1, 1]
 - `gripper`: Gripper action as a list, e.g. [1.0], in [0, 1]
 
-`ee_twist` values should be in range `[-1, 1]`; `gripper` should be in `[0, 1]`.
+### Genesis (Humanoid Locomotion + Manipulation)
+
+**Proprioceptive** (`proprio` key):
+
+- `base_pos`: Base XYZ position (3 values)
+- `base_quat`: Base quaternion WXYZ (4 values)
+- `base_vel`: Base linear + angular velocity (6 values)
+- `joint_pos`: Joint positions in radians (43 values)
+- `joint_vel`: Joint velocities in rad/s (43 values)
+
+**Camera images** (`rgb` key):
+
+- `ego`: 84x84x3 RGB image from torso-mounted ego camera
+
+**Extra** (`extra` key):
+
+- `task_prompt`: Natural language task description (e.g., "Walk to the red box.")
+- `task_type`: Task type string (navigate, pickup, place, push)
+
+**Action space** (`continuous` key):
+
+- `joint_pos_target`: 43-dimensional joint position targets in [-1, 1], scaled per-joint
 
 ## Step 3: Implement Your Policy
 
@@ -509,8 +526,8 @@ The `obs` field contains canonical observations. The `rgb` field is optional and
 
 Your policy is evaluated using **epsilon-Pareto dominance**:
 
-1. **Multi-Environment Evaluation**: Your policy runs on all MetaWorld environments
-2. **Success Rate**: For each environment, we measure task success rate
+1. **Multi-Environment Evaluation**: Your policy runs on all environments
+2. **Success Rate**: For each environment, we measure task success rate (binary for Genesis)
 3. **Pareto Frontier**: Miners that dominate on subsets of environments earn points
 4. **Generalists Win**: Larger subsets give more points - you must perform well everywhere
 
@@ -632,6 +649,8 @@ for name, env_cls in mt.train_classes.items():
 - [Validator Guide](./validator-guide.md) - For validators
 - [Backend Guide](./backend-guide.md) - For subnet operators
 - [MetaWorld Documentation](https://github.com/Farama-Foundation/Metaworld)
+- [Genesis Documentation](https://genesis-world.readthedocs.io/)
+- [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) - Robot models (Unitree G1)
 - [Bittensor Docs](https://docs.bittensor.com/)
 - [Basilica Documentation](https://docs.basilica.ai/)
 - Template code in `/kinitro/miner/template/`

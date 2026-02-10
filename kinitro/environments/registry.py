@@ -13,7 +13,7 @@ from kinitro.environments.base import RoboticsEnvironment
 logger = structlog.get_logger()
 
 # Note: Environment classes are imported lazily in factory functions to allow
-# containers with partial dependencies (e.g., procthor container without metaworld)
+# containers with partial dependencies (e.g., genesis container without metaworld)
 
 # Path to environments directory (robo-subnet/environments/)
 _ENVIRONMENTS_DIR = Path(__file__).parent.parent.parent / "environments"
@@ -30,18 +30,6 @@ def _make_metaworld_env(task: str) -> EnvFactory:
         from kinitro.environments.metaworld_env import MetaWorldEnvironment  # noqa: PLC0415
 
         return MetaWorldEnvironment(task)
-
-    return factory
-
-
-def _make_procthor_env(task: str) -> EnvFactory:
-    """Create factory for ProcTHOR procedural environment."""
-
-    def factory(**_kwargs: Any) -> RoboticsEnvironment:
-        # Lazy import to allow containers with partial dependencies
-        from kinitro.environments.procthor import ProcTHOREnvironment  # noqa: PLC0415
-
-        return ProcTHOREnvironment(task_name=task)
 
     return factory
 
@@ -78,11 +66,6 @@ ENVIRONMENTS: dict[str, EnvFactory] = {
     "metaworld/drawer-close-v3": _make_metaworld_env("drawer-close-v3"),
     "metaworld/button-press-v3": _make_metaworld_env("button-press-topdown-v3"),
     "metaworld/peg-insert-v3": _make_metaworld_env("peg-insert-side-v3"),
-    # =========================================================================
-    # PROCEDURAL EMBODIED AI (ProcTHOR)
-    # Scene-grounded tasks in procedurally generated houses
-    # =========================================================================
-    "procthor/v0": _make_procthor_env("procthor-v0"),
     # =========================================================================
     # GENESIS (Physics simulation with humanoid, quadruped, manipulation)
     # Genesis-world engine with procedural scenes and scene-grounded tasks

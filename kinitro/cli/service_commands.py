@@ -78,7 +78,7 @@ def scheduler(
     episodes_per_env: int = typer.Option(50, help="Episodes per environment"),
     env_families: str | None = typer.Option(
         None,
-        help="Filter environments to specific families, comma-separated (e.g., metaworld,procthor)",
+        help="Filter environments to specific families, comma-separated (e.g., metaworld,genesis)",
     ),
     log_level: str = typer.Option("INFO", help="Logging level"),
 ):
@@ -154,7 +154,7 @@ def executor(
     ),
     env_families: str | None = typer.Option(
         None,
-        help="Comma-separated environment families to run (e.g., 'metaworld,procthor'). "
+        help="Comma-separated environment families to run (e.g., 'metaworld,genesis'). "
         "Defaults to families in --eval-images.",
     ),
 ):
@@ -206,7 +206,7 @@ def executor(
     # Validate env_families against eval_images in concurrent mode
     if concurrent and parsed_env_families:
         available_families = set(
-            parsed_eval_images.keys() if parsed_eval_images else {"metaworld", "procthor"}
+            parsed_eval_images.keys() if parsed_eval_images else {"metaworld", "genesis"}
         )
         invalid_families = [f for f in parsed_env_families if f not in available_families]
         if invalid_families:

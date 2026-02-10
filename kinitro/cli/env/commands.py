@@ -21,7 +21,7 @@ from kinitro.environments.registry import (
 from kinitro.rl_interface import Action, ActionKeys, Observation
 
 # Available environment families for build command
-AVAILABLE_ENV_FAMILIES = ["metaworld", "procthor", "genesis"]
+AVAILABLE_ENV_FAMILIES = ["metaworld", "genesis"]
 
 
 @runtime_checkable
@@ -56,15 +56,11 @@ def build_env(
 
     Environment families:
       - metaworld: MuJoCo-based manipulation tasks (~400MB image)
-      - procthor: AI2-THOR procedural house tasks (~1.5GB image, x86_64 Linux only)
       - genesis: Genesis physics simulation (humanoid locomotion + manipulation)
 
     Examples:
         # Build MetaWorld environment
         kinitro env build metaworld --tag kinitro/metaworld:v1
-
-        # Build ProcTHOR environment
-        kinitro env build procthor --tag kinitro/procthor:v1
 
         # Build Genesis environment
         kinitro env build genesis --tag kinitro/genesis:v1

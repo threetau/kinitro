@@ -11,7 +11,7 @@ Keep it current when commands or conventions change.
 ## Repo Map
 - `demos/` demonstration scripts and examples.
 - `docs/` operator, validator, and miner guides.
-- `environments/` evaluation environments (MetaWorld, ProcTHOR).
+- `environments/` evaluation environments (MetaWorld, Genesis).
 - `scripts/` utility scripts.
 - `tests/` unit and integration tests.
 - `kinitro/` core package.
@@ -67,7 +67,7 @@ Keep it current when commands or conventions change.
 ## Services (local dev)
 - API: `uv run kinitro api --database-url postgresql://user:pass@host/db`
 - Scheduler: `uv run kinitro scheduler --netuid <id> --network finney --database-url postgresql://user:pass@host/db`
-  - Filter to specific environment families: `--env-families metaworld` or `--env-families metaworld,procthor`
+  - Filter to specific environment families: `--env-families metaworld` or `--env-families metaworld,genesis`
 - Executor: `uv run kinitro executor --api-url http://localhost:8000`
   - Docker mode: `--eval-mode docker --eval-images '{"metaworld":"image:tag"}'`
   - Basilica mode: `--eval-mode basilica --eval-images '{"metaworld":"image:tag"}'`

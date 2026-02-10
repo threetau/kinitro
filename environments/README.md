@@ -22,8 +22,8 @@ Use the `kinitro env build` command to build environment-specific Docker images:
 # Build MetaWorld environment (~1GB image)
 kinitro env build metaworld --tag kinitro/metaworld:v1
 
-# Build ProcTHOR environment (~3GB image)
-kinitro env build procthor --tag kinitro/procthor:v1
+# Build Genesis environment (~5GB image)
+kinitro env build genesis --tag kinitro/genesis:v1
 
 # Build and push to registry
 kinitro env build metaworld --push --registry docker.io/myuser
@@ -32,6 +32,8 @@ kinitro env build metaworld --push --registry docker.io/myuser
 ## Environment Families
 
 ### MetaWorld
+
+> **Note:** MetaWorld is included for local testing and development only. It is not actively used in mainnet evaluations.
 
 MuJoCo-based manipulation tasks for robot arm control.
 
@@ -50,23 +52,32 @@ MuJoCo-based manipulation tasks for robot arm control.
 
 **Image size:** ~1GB
 
-### ProcTHOR
+### Genesis
 
-AI2-THOR procedural house environments for embodied AI tasks.
+Genesis physics simulation with a Unitree G1 humanoid robot in procedurally generated scenes.
 
 **Supported environments:**
 
-- `procthor/v0` - Procedural house tasks with task types:
-  - PICKUP - Pick up an object
-  - PLACE - Place an object at a location
-  - OPEN - Open a container/door
-  - CLOSE - Close a container/door
-  - TOGGLE_ON - Turn on an appliance
-  - TOGGLE_OFF - Turn off an appliance
+- `genesis/g1-v0` - Unitree G1 humanoid (43 actuated DOFs) with scene-grounded tasks:
+  - NAVIGATE - Walk to a target object (success: within 0.5m)
+  - PICKUP - Pick up a small object (success: lifted >0.15m)
+  - PLACE - Pick up and place an object at a destination (success: within 0.3m)
+  - PUSH - Push an object towards a destination (success: within 0.5m)
 
-**Platform:** Requires native x86_64 Linux (does NOT work on ARM64 or under emulation)
+**Observations:**
 
-**Image size:** ~3GB (includes pre-downloaded AI2-THOR binaries)
+- Proprioceptive (99 values): base position (3), base quaternion (4), base velocity (6), joint positions (43), joint velocities (43)
+- Visual: 84x84 RGB ego camera mounted on robot torso
+
+**Actions:** 43-dimensional continuous joint position targets in [-1, 1], scaled per-joint
+
+**Scene generation:** 3-6 procedural objects (pickupable items + fixed landmarks) with randomized shapes, colors, sizes, and positions. Deterministic from seed.
+
+**Control:** PD control at 50 Hz (2 physics substeps at 100 Hz per control step)
+
+**Platform:** Linux recommended. GPU optional (CPU fallback via OSMesa for headless rendering).
+
+**Image size:** ~5GB (includes Genesis engine, MuJoCo Menagerie, pre-compiled Taichi kernels)
 
 ## Backend Configuration
 
@@ -74,7 +85,7 @@ Configure your backend to use the appropriate image for each environment family.
 
 ```bash
 KINITRO_BACKEND_EVAL_IMAGE_METAWORLD=kinitro/metaworld:v1
-KINITRO_BACKEND_EVAL_IMAGE_PROCTHOR=kinitro/procthor:v1
+KINITRO_BACKEND_EVAL_IMAGE_GENESIS=kinitro/genesis:v1
 ```
 
 ---
@@ -111,4 +122,4 @@ cp -r environments/_template environments/myenv
 4. Register environment in `kinitro/environments/registry.py`
 5. Build and test: `kinitro env build myenv --tag myenv:v1`
 
-For reference implementations, see `metaworld/` and `procthor/`.
+For reference implementations, see `metaworld/` and `genesis/`.

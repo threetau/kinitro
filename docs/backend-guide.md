@@ -77,17 +77,15 @@ The evaluation runs in Docker containers managed by Affinetes. Build separate im
 # Build MetaWorld environment (~1GB image, works on any platform)
 uv run kinitro env build metaworld --tag kinitro/metaworld:v1
 
-# Build ProcTHOR environment (~3GB image, requires x86_64 Linux)
-uv run kinitro env build procthor --tag kinitro/procthor:v1
+# Build Genesis environment (~5GB image, Linux recommended)
+uv run kinitro env build genesis --tag kinitro/genesis:v1
 ```
 
 Each image is self-contained with:
 
-- Simulation engine (MuJoCo for MetaWorld, ProcTHOR renderer on AI2-THOR framework)
+- Simulation engine (i.e. MetaWorld, Genesis)
 - HTTP client for calling miner endpoints
 - Environment wrappers and dependencies
-
-**Note**: ProcTHOR requires native x86_64 Linux and will not work on ARM64 or under emulation.
 
 ### 4. Initialize the Database
 
@@ -158,7 +156,7 @@ Additional API settings:
 | `--netuid`           | `KINITRO_SCHEDULER_NETUID`                | `1`                        | Subnet UID                                                                |
 | `--eval-interval`    | `KINITRO_SCHEDULER_EVAL_INTERVAL_SECONDS` | `3600`                     | Seconds between eval cycles                                               |
 | `--episodes-per-env` | `KINITRO_SCHEDULER_EPISODES_PER_ENV`      | `50`                       | Episodes per environment                                                  |
-| `--env-families`     | `KINITRO_SCHEDULER_ENV_FAMILIES`          | `null` (all)               | Filter to specific families, comma-separated (e.g., `metaworld,procthor`) |
+| `--env-families`     | `KINITRO_SCHEDULER_ENV_FAMILIES`          | `null` (all)               | Filter to specific families, comma-separated (e.g., `metaworld,genesis`) |
 | `--log-level`        | `KINITRO_SCHEDULER_LOG_LEVEL`             | `INFO`                     | Logging level                                                             |
 
 Additional Scheduler settings:
@@ -194,7 +192,7 @@ The executor uses different Docker images for each environment family. The defau
 ```json
 {
   "metaworld": "kinitro/metaworld:v1",
-  "procthor": "kinitro/procthor:v1"
+  "genesis": "kinitro/genesis:v1"
 }
 ```
 
@@ -205,7 +203,7 @@ You can override this via CLI or environment variable:
 uv run kinitro executor --eval-images '{"metaworld": "myregistry/metaworld:latest"}'
 
 # Via environment variable
-export KINITRO_EXECUTOR_EVAL_IMAGES='{"metaworld": "kinitro/metaworld:v1", "procthor": "kinitro/procthor:v1"}'
+export KINITRO_EXECUTOR_EVAL_IMAGES='{"metaworld": "kinitro/metaworld:v1", "genesis": "kinitro/genesis:v1"}'
 ```
 
 The executor automatically selects the correct image based on each task's environment family. This allows a single executor to handle all environment types.
@@ -268,7 +266,7 @@ flowchart TB
         W1N["N async workers"]
     end
 
-    subgraph W2["FamilyWorker (procthor)"]
+    subgraph W2["FamilyWorker (genesis)"]
         W2N["N async workers"]
     end
 
@@ -300,7 +298,7 @@ uv run kinitro executor \
 **Per-family concurrency configuration:**
 
 ```bash
-export KINITRO_EXECUTOR_MAX_CONCURRENT_PER_FAMILY='{"metaworld": 50, "procthor": 20}'
+export KINITRO_EXECUTOR_MAX_CONCURRENT_PER_FAMILY='{"metaworld": 50, "genesis": 10}'
 ```
 
 The concurrent mode uses a producer-consumer pattern:
@@ -749,7 +747,6 @@ Monitor these conditions:
 - Ensure Docker is running: `docker ps`
 - Check Docker socket permissions: `ls -la /var/run/docker.sock`
 - Verify environment images exist: `docker images | grep kinitro`
-- For ProcTHOR: ensure you're on native x86_64 Linux (not ARM64 or emulated)
 
 ### "No miners found"
 

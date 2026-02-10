@@ -38,20 +38,10 @@ dependencies = [
     "basilica-sdk==0.15.0",
     # HuggingFace Hub for model uploads
     "huggingface-hub>=0.20.0",
-    "pandas>=3.0.0",
-    "shapely>=2.1.2",
-    "moviepy==1.0.3",
-    "networkx>=3.6.1",
-    "python-fcl>=0.7.0.10",
-    "procthor>=0.0.1.dev2",
-    "ai2thor>=5.0.0",
 ]
 
 [project.optional-dependencies]
 # Optional environment families
-procthor = [
-    "ai2thor>=5.0.0",
-]
 # dm-control = [
 #     "dm_control>=1.0.0",
 # ]

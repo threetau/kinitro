@@ -726,9 +726,6 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
             extra={
                 "task_prompt": self._current_task.task_prompt if self._current_task else "",
                 "task_type": self._current_task.task_type.value if self._current_task else "",
-                "target_position": (
-                    self._current_task.target_position if self._current_task else []
-                ),
             },
         )
 

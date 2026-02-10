@@ -37,7 +37,7 @@ class ExecutorManager:
     Main process that spawns and manages worker subprocesses.
 
     Architecture:
-    - One subprocess per environment family (metaworld, procthor, etc.)
+    - One subprocess per environment family (metaworld, genesis, etc.)
     - Each subprocess runs a FamilyWorker with N async execution workers
     - Health checker monitors and restarts dead workers
     - Stats collector aggregates metrics from workers via IPC queue
