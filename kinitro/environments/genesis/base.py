@@ -728,8 +728,14 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
                 try:
                     pos = self._object_entities[i].get_pos().cpu().numpy().flatten()
                     states[obj_id] = pos
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(
+                        "object_state_individual_read_failed",
+                        object_id=obj_id,
+                        index=i,
+                        error_type=type(e).__name__,
+                        error=str(e),
+                    )
             return states
 
     def _capture_camera(self) -> tuple[np.ndarray | None, np.ndarray | None]:
