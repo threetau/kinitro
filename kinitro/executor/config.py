@@ -63,6 +63,10 @@ class ExecutorConfig(BaseSettings):
         default="docker",
         description="Evaluation mode: 'docker' or 'basilica'",
     )
+    eval_gpu: bool = Field(
+        default=False,
+        description="Enable GPU access for evaluation containers (passes --gpus all)",
+    )
     eval_mem_limit: str = Field(
         default="8g",
         description="Memory limit for evaluation container. "

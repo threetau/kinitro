@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import affinetes as af_env
+import docker.types
 import structlog
 
 from kinitro.backend.models import Task, TaskResult
@@ -122,6 +123,10 @@ class Worker:
                         "force_recreate": True,
                     }
                 )
+                if self.config.eval_gpu:
+                    load_kwargs["device_requests"] = [
+                        docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])
+                    ]
             elif self.config.eval_mode == "basilica":
                 load_kwargs.update(
                     {
