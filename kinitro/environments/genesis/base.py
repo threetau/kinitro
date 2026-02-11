@@ -518,8 +518,12 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
             self._scene_generator = self._get_scene_generator()
         self._object_entities = self._scene_generator.build_scene(self._scene, scene_config)
 
-        # Load robot
-        menagerie_path = os.environ.get("GENESIS_MENAGERIE_PATH", "/opt/menagerie")
+        # Load robot — auto-downloads menagerie assets if needed (see menagerie.py)
+        from kinitro.environments.genesis.menagerie import (  # noqa: PLC0415
+            ensure_menagerie,
+        )
+
+        menagerie_path = ensure_menagerie()
         mjcf_path = os.path.join(menagerie_path, self._robot_config.mjcf_path)
 
         self._robot = self._scene.add_entity(

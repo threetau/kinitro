@@ -79,6 +79,14 @@ Genesis physics simulation with a Unitree G1 humanoid robot in procedurally gene
 
 **Image size:** ~5GB (includes Genesis engine, MuJoCo Menagerie, pre-compiled Taichi kernels)
 
+**Local development (outside Docker):**
+
+MuJoCo Menagerie robot assets are automatically downloaded on first use to `~/.cache/kinitro/menagerie`. This requires `git` to be installed. To use a custom location, set:
+
+```bash
+export GENESIS_MENAGERIE_PATH=/path/to/mujoco_menagerie
+```
+
 ## Backend Configuration
 
 Configure your backend to use the appropriate image for each environment family. Set these environment variables:

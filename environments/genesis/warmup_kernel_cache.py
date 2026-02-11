@@ -45,8 +45,12 @@ def warmup() -> None:
     # Ground plane
     scene.add_entity(gs.morphs.Plane())
 
-    # G1 humanoid robot (matches runtime spawn in base.py)
-    menagerie_path = os.environ.get("GENESIS_MENAGERIE_PATH", "/opt/menagerie")
+    # Auto-resolve menagerie path (uses GENESIS_MENAGERIE_PATH or Docker default in containers)
+    from kinitro.environments.genesis.menagerie import (  # noqa: PLC0415
+        ensure_menagerie,
+    )
+
+    menagerie_path = ensure_menagerie()
     mjcf_path = os.path.join(menagerie_path, MENAGERIE_ROBOT)
     scene.add_entity(
         gs.morphs.MJCF(
