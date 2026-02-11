@@ -85,12 +85,12 @@ The Genesis container reads these optional environment variables to tune renderi
 
 | Variable               | Default | Description                                                |
 | ---------------------- | ------- | ---------------------------------------------------------- |
-| `GENESIS_RENDER_DEPTH` | `true`  | Set to `false` to disable depth rendering for faster steps |
+| `GENESIS_RENDER_DEPTH` | `false` | Set to `true` to enable depth rendering (slower) |
 
-Example: disable depth for faster evaluations:
+Example: enable depth rendering if your policy uses depth images:
 
 ```bash
-GENESIS_RENDER_DEPTH=false
+GENESIS_RENDER_DEPTH=true
 ```
 
 ## Backend Configuration

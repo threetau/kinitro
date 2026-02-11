@@ -264,7 +264,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
 
         # Rendering configuration — constructor args override env vars
         if render_depth is None:
-            render_depth = os.environ.get("GENESIS_RENDER_DEPTH", "true").lower() not in (
+            render_depth = os.environ.get("GENESIS_RENDER_DEPTH", "false").lower() not in (
                 "false",
                 "0",
                 "no",

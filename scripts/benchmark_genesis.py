@@ -65,7 +65,7 @@ class TimingBucket:
 def benchmark(
     num_steps: int = 100,
     skip_render: bool = False,
-    render_depth: bool = True,
+    render_depth: bool = False,
 ) -> None:
     # ── Genesis init ─────────────────────────────────────────────
     print("=" * 70)
