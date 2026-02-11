@@ -25,14 +25,12 @@ class G1Environment(GenesisBaseEnvironment):
         self,
         task_name: str = "g1-v0",
         show_viewer: bool = False,
-        render_interval: int | None = None,
         render_depth: bool | None = None,
     ) -> None:
         super().__init__(
             robot_config=G1_CONFIG,
             task_name=task_name,
             show_viewer=show_viewer,
-            render_interval=render_interval,
             render_depth=render_depth,
         )
 

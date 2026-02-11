@@ -83,15 +83,14 @@ Genesis physics simulation with a Unitree G1 humanoid robot in procedurally gene
 
 The Genesis container reads these optional environment variables to tune rendering performance:
 
-| Variable                  | Default | Description                                                |
-| ------------------------- | ------- | ---------------------------------------------------------- |
-| `GENESIS_RENDER_INTERVAL` | `1`     | Render every N steps (e.g., `2` skips every other render)  |
-| `GENESIS_RENDER_DEPTH`    | `true`  | Set to `false` to disable depth rendering for faster steps |
+| Variable               | Default | Description                                                |
+| ---------------------- | ------- | ---------------------------------------------------------- |
+| `GENESIS_RENDER_DEPTH` | `true`  | Set to `false` to disable depth rendering for faster steps |
 
-Example: disable depth and render every other step for ~49% faster evaluations:
+Example: disable depth for faster evaluations:
 
 ```bash
-GENESIS_RENDER_INTERVAL=2 GENESIS_RENDER_DEPTH=false
+GENESIS_RENDER_DEPTH=false
 ```
 
 ## Backend Configuration

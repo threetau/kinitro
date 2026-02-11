@@ -245,7 +245,6 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         task_name: str,
         max_episode_steps: int = 500,
         show_viewer: bool = False,
-        render_interval: int | None = None,
         render_depth: bool | None = None,
     ) -> None:
         self._robot_config = robot_config
@@ -263,21 +262,14 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         # Camera availability flag — set to False if validation render fails
         self._camera_available: bool = True
 
-        # Rendering optimisation knobs — constructor args override env vars
-        if render_interval is None:
-            render_interval = int(os.environ.get("GENESIS_RENDER_INTERVAL", "1"))
+        # Rendering configuration — constructor args override env vars
         if render_depth is None:
             render_depth = os.environ.get("GENESIS_RENDER_DEPTH", "true").lower() not in (
                 "false",
                 "0",
                 "no",
             )
-        self._render_interval = max(1, render_interval)
         self._render_depth = render_depth
-
-        # Cached camera frames (reused between render intervals)
-        self._cached_rgb: np.ndarray | None = None
-        self._cached_depth: np.ndarray | None = None
 
         # Pre-computed arrays for action pipeline (avoid per-step allocation)
         self._default_dof_pos = np.array(robot_config.default_dof_pos, dtype=np.float32)
@@ -287,10 +279,6 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         n = robot_config.num_actuated_dofs
         self._actuated_dof_idx = list(range(6, 6 + n))
         self._physics_steps = max(1, int(self.CONTROL_DT / self.SIM_DT))
-
-        # Cached encoded images (avoid re-encoding on frame-skip steps)
-        self._cached_rgb_encoded: dict[str, Any] | None = None
-        self._cached_depth_encoded: dict[str, Any] | None = None
 
         # Generators (created by subclass)
         self._scene_generator: SceneGenerator | None = None
@@ -417,10 +405,6 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         # Reset episode state
         self._episode_steps = 0
         self._episode_success = False
-        self._cached_rgb = None
-        self._cached_depth = None
-        self._cached_rgb_encoded = None
-        self._cached_depth_encoded = None
 
         # Extract scene config and task spec from TaskConfig
         scene_data = task_config.domain_randomization.get("scene_config", {})
@@ -739,17 +723,9 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
             return states
 
     def _capture_camera(self) -> tuple[np.ndarray | None, np.ndarray | None]:
-        """Capture RGB and (optionally) depth images from camera.
-
-        When ``render_interval > 1``, rendering is skipped on intermediate
-        steps and the most recent cached frames are returned instead.
-        """
+        """Capture RGB and (optionally) depth images from camera."""
         if self._camera is None or not self._camera_available:
             return None, None
-
-        # Frame-skip: reuse cached frames on non-render steps
-        if self._render_interval > 1 and self._episode_steps % self._render_interval != 0:
-            return self._cached_rgb, self._cached_depth
 
         try:
             # Update camera pose to follow attached link
@@ -770,13 +746,6 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
             if not render_depth:
                 depth = None
 
-            # Cache for reuse
-            self._cached_rgb = rgb
-            self._cached_depth = depth
-            # Invalidate encoded caches so _build_observation re-encodes
-            self._cached_rgb_encoded = None
-            self._cached_depth_encoded = None
-
             return rgb, depth
         except Exception as e:
             logger.warning(
@@ -793,23 +762,14 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         cam_rgb: np.ndarray | None,
         cam_depth: np.ndarray | None,
     ) -> Observation:
-        """Build the full Observation from robot state and camera images.
-
-        Caches encoded images to avoid redundant base64 encoding on
-        frame-skip steps where the same arrays are reused.
-        """
+        """Build the full Observation from robot state and camera images."""
         rgb: dict[str, dict | list] = {}
         if cam_rgb is not None:
-            # Re-encode only if the underlying array changed (new render)
-            if cam_rgb is not self._cached_rgb or self._cached_rgb_encoded is None:
-                self._cached_rgb_encoded = encode_image(cam_rgb)
-            rgb["ego"] = self._cached_rgb_encoded
+            rgb["ego"] = encode_image(cam_rgb)
 
         depth: dict[str, dict | list] = {}
         if cam_depth is not None:
-            if cam_depth is not self._cached_depth or self._cached_depth_encoded is None:
-                self._cached_depth_encoded = encode_image(cam_depth)
-            depth["ego"] = self._cached_depth_encoded
+            depth["ego"] = encode_image(cam_depth)
 
         return Observation(
             rgb=rgb,
