@@ -688,7 +688,9 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         pairs = list(zip(self._scene_objects, self._object_entities))
 
         try:
+            # Concatenate all object positions on GPU, then transfer once to CPU
             packed = torch.cat([e.get_pos().reshape(-1) for _, e in pairs]).cpu().numpy()
+            # Slice the flat array into per-object [x, y, z] positions
             return {obj.object_id: packed[i * 3 : (i + 1) * 3] for i, (obj, _) in enumerate(pairs)}
         except Exception as e:
             logger.debug("object_state_batch_read_failed", error=str(e))
