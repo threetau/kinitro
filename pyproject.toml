@@ -20,7 +20,7 @@ dependencies = [
     "httpx>=0.25.0",
     "aiohttp>=3.9.0",
     # Numerics
-    "numpy>=1.24.0",
+    "numpy>=1.24.0,<2.3",  # capped for numba compatibility (Genesis dependency)
     "scipy>=1.11.0",
     # Utils
     "typer[all]>=0.9.0",
@@ -104,8 +104,8 @@ markers = [
 python-version = "3.12"
 
 [tool.ty.analysis]
-# genesis is a runtime-only dependency (installed in Docker container, not in CI)
-allowed-unresolved-imports = ["genesis"]
+# genesis and torch are runtime-only dependencies (installed in Docker container, not in CI)
+allowed-unresolved-imports = ["genesis", "torch"]
 
 [tool.ty.src]
 # Exclude miner templates (they import from local rl_interface.py which is copied at deploy time)

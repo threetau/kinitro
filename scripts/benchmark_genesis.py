@@ -62,7 +62,11 @@ class TimingBucket:
         return len(self.times)
 
 
-def benchmark(num_steps: int = 100, skip_render: bool = False) -> None:
+def benchmark(
+    num_steps: int = 100,
+    skip_render: bool = False,
+    render_depth: bool = False,
+) -> None:
     # ── Genesis init ─────────────────────────────────────────────
     print("=" * 70)
     print("Genesis Environment Benchmark")
@@ -82,7 +86,7 @@ def benchmark(num_steps: int = 100, skip_render: bool = False) -> None:
     # ── Environment setup ────────────────────────────────────────
     from kinitro.environments.genesis.envs.g1_humanoid import G1Environment  # noqa: PLC0415
 
-    env = G1Environment()
+    env = G1Environment(render_depth=render_depth)
     task_config = env.generate_task(seed=42)
 
     t0 = time.perf_counter()
@@ -105,6 +109,7 @@ def benchmark(num_steps: int = 100, skip_render: bool = False) -> None:
     print(f"  Substeps/ctrl:  {int(env.CONTROL_DT / env.SIM_DT)}")
     print(f"  Benchmark steps: {num_steps}")
     print(f"  Rendering:      {'DISABLED' if skip_render else 'ENABLED'}")
+    print(f"  Depth rendering: {'ON' if render_depth else 'OFF'}")
 
     # ── Timing buckets ───────────────────────────────────────────
     t_physics_1 = TimingBucket("physics_1_substep")
@@ -328,5 +333,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Benchmark Genesis environment")
     parser.add_argument("--steps", type=int, default=100, help="Number of steps to benchmark")
     parser.add_argument("--no-render", action="store_true", help="Disable camera rendering")
+    parser.add_argument("--no-depth", action="store_true", help="Disable depth rendering")
     args = parser.parse_args()
-    benchmark(num_steps=args.steps, skip_render=args.no_render)
+    benchmark(
+        num_steps=args.steps,
+        skip_render=args.no_render,
+        render_depth=not args.no_depth,
+    )

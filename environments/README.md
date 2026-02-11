@@ -79,6 +79,20 @@ Genesis physics simulation with a Unitree G1 humanoid robot in procedurally gene
 
 **Image size:** ~5GB (includes Genesis engine, MuJoCo Menagerie, pre-compiled Taichi kernels)
 
+**Rendering configuration (environment variables):**
+
+The Genesis container reads these optional environment variables to tune rendering performance:
+
+| Variable               | Default | Description                                                |
+| ---------------------- | ------- | ---------------------------------------------------------- |
+| `GENESIS_RENDER_DEPTH` | `0`     | Set to `1` to enable depth rendering (slower) |
+
+Example: enable depth rendering if your policy uses depth images:
+
+```bash
+GENESIS_RENDER_DEPTH=1
+```
+
 ## Backend Configuration
 
 Configure your backend to use the appropriate image for each environment family. Set these environment variables:

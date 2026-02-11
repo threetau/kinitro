@@ -221,6 +221,18 @@ Additional Executor settings:
 | `KINITRO_EXECUTOR_EVAL_TIMEOUT`   | `300`               | Timeout for individual evaluation (seconds) |
 | `KINITRO_EXECUTOR_USE_IMAGES`     | `true`              | Include camera images in observations       |
 
+### Genesis Container Environment Variables
+
+These environment variables are read **inside** the Genesis evaluation container (not by the executor process). They control rendering behaviour during evaluations.
+
+| Environment Variable   | Default | Description                                               |
+| ---------------------- | ------- | --------------------------------------------------------- |
+| `GENESIS_RENDER_DEPTH` | `0`     | Enable depth rendering (`1` to enable; disabled by default for speed) |
+
+Depth rendering is disabled by default for speed. Enable it if the miner policy uses depth images. Configure it by setting the environment variable on the Docker container via your orchestration layer (e.g., Docker Compose, Kubernetes).
+
+> **Note**: Constructor arguments to `G1Environment(render_depth=...)` take precedence over environment variables. The env var fallback is designed for container deployments where the constructor is called without explicit arguments.
+
 ### Executor Verification Settings
 
 The executor can perform spot-check verification to ensure miners' Basilica deployments match their HuggingFace uploads. This detects miners running modified code.
