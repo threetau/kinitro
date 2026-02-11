@@ -123,14 +123,13 @@ def benchmark(num_steps: int = 100, skip_render: bool = False) -> None:
     t_camera_render = TimingBucket("camera_render")
     t_camera_total = TimingBucket("camera_total")
     t_img_encode = TimingBucket("image_encode")
-    t_obs_build = TimingBucket("obs_build_full")
     t_action_apply = TimingBucket("action_apply")
     t_reward_check = TimingBucket("reward+success_check")
     t_full_step = TimingBucket("full_step_e2e")
 
     # Create a dummy action
     dummy_action_data = np.zeros(n_dofs, dtype=np.float32)
-    from kinitro.rl_interface import Action, ActionKeys  # noqa: PLC0415
+    from kinitro.rl_interface import Action, ActionKeys, encode_image  # noqa: PLC0415
 
     dummy_action = Action(continuous={ActionKeys.JOINT_POS_TARGET: dummy_action_data.tolist()})
 
@@ -213,8 +212,6 @@ def benchmark(num_steps: int = 100, skip_render: bool = False) -> None:
 
             # 7. Image encoding
             t = time.perf_counter()
-            from kinitro.rl_interface import encode_image  # noqa: PLC0415
-
             if rgb is not None:
                 if rgb.dtype != np.uint8:
                     rgb = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
@@ -271,7 +268,6 @@ def benchmark(num_steps: int = 100, skip_render: bool = False) -> None:
         t_camera_render,
         t_img_encode,
         None,
-        t_obs_build,
         t_reward_check,
     ]
 
