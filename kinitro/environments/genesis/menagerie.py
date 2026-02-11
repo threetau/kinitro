@@ -108,14 +108,22 @@ def _download_menagerie(dest: Path) -> None:
     ]
 
     for cmd in commands:
-        result = subprocess.run(
-            cmd,
-            cwd=str(dest),
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=_GIT_TIMEOUT_SECONDS,
-        )
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(dest),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_GIT_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                f"MuJoCo Menagerie download timed out at step: {' '.join(cmd)} "
+                f"(>{_GIT_TIMEOUT_SECONDS}s)\n"
+                "You can manually clone https://github.com/google-deepmind/mujoco_menagerie "
+                "and set GENESIS_MENAGERIE_PATH."
+            ) from None
         if result.returncode != 0:
             raise RuntimeError(
                 f"MuJoCo Menagerie download failed at step: {' '.join(cmd)}\n"
