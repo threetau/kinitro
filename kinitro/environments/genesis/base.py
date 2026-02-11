@@ -690,33 +690,27 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
 
         Batches GPU→CPU transfers when multiple objects are present.
         """
-        n = min(len(self._object_entities), len(self._scene_objects))
-        if n == 0:
+        if not self._object_entities or not self._scene_objects:
             return {}
 
         import torch  # noqa: PLC0415
 
+        pairs = list(zip(self._scene_objects, self._object_entities))
+
         try:
-            tensors = [self._object_entities[i].get_pos().reshape(-1) for i in range(n)]
-            packed = torch.cat(tensors).cpu().numpy()
-            states: dict[str, np.ndarray] = {}
-            for i in range(n):
-                states[self._scene_objects[i].object_id] = packed[i * 3 : (i + 1) * 3]
-            return states
+            packed = torch.cat([e.get_pos().reshape(-1) for _, e in pairs]).cpu().numpy()
+            return {obj.object_id: packed[i * 3 : (i + 1) * 3] for i, (obj, _) in enumerate(pairs)}
         except Exception as e:
             logger.debug("object_state_batch_read_failed", error=str(e))
             # Fallback: individual reads
-            states = {}
-            for i in range(n):
-                obj_id = self._scene_objects[i].object_id
+            states: dict[str, np.ndarray] = {}
+            for obj, entity in pairs:
                 try:
-                    pos = self._object_entities[i].get_pos().cpu().numpy().flatten()
-                    states[obj_id] = pos
+                    states[obj.object_id] = entity.get_pos().cpu().numpy().flatten()
                 except Exception as e:
                     logger.debug(
                         "object_state_individual_read_failed",
-                        object_id=obj_id,
-                        index=i,
+                        object_id=obj.object_id,
                         error_type=type(e).__name__,
                         error=str(e),
                     )
