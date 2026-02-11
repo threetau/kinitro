@@ -21,8 +21,20 @@ class G1Environment(GenesisBaseEnvironment):
     Supported tasks: NAVIGATE, PICKUP, PLACE, PUSH
     """
 
-    def __init__(self, task_name: str = "g1-v0", show_viewer: bool = False) -> None:
-        super().__init__(robot_config=G1_CONFIG, task_name=task_name, show_viewer=show_viewer)
+    def __init__(
+        self,
+        task_name: str = "g1-v0",
+        show_viewer: bool = False,
+        render_interval: int = 1,
+        render_depth: bool = True,
+    ) -> None:
+        super().__init__(
+            robot_config=G1_CONFIG,
+            task_name=task_name,
+            show_viewer=show_viewer,
+            render_interval=render_interval,
+            render_depth=render_depth,
+        )
 
     def _get_scene_generator(self) -> SceneGenerator:
         return SceneGenerator(num_objects=(3, 6))

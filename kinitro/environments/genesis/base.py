@@ -245,6 +245,8 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         task_name: str,
         max_episode_steps: int = 500,
         show_viewer: bool = False,
+        render_interval: int = 1,
+        render_depth: bool = True,
     ) -> None:
         self._robot_config = robot_config
         self._task_name = task_name
@@ -261,9 +263,26 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         # Camera availability flag — set to False if validation render fails
         self._camera_available: bool = True
 
+        # Rendering optimisation knobs
+        self._render_interval = max(1, render_interval)
+        self._render_depth = render_depth
+
+        # Cached camera frames (reused between render intervals)
+        self._cached_rgb: np.ndarray | None = None
+        self._cached_depth: np.ndarray | None = None
+
         # Pre-computed arrays for action pipeline (avoid per-step allocation)
         self._default_dof_pos = np.array(robot_config.default_dof_pos, dtype=np.float32)
         self._action_scale = np.array(robot_config.action_scale, dtype=np.float32)
+
+        # Pre-computed indices for action pipeline (avoid per-step list creation)
+        n = robot_config.num_actuated_dofs
+        self._actuated_dof_idx = list(range(6, 6 + n))
+        self._physics_steps = max(1, int(self.CONTROL_DT / self.SIM_DT))
+
+        # Cached encoded images (avoid re-encoding on frame-skip steps)
+        self._cached_rgb_encoded: dict[str, Any] | None = None
+        self._cached_depth_encoded: dict[str, Any] | None = None
 
         # Generators (created by subclass)
         self._scene_generator: SceneGenerator | None = None
@@ -390,6 +409,10 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         # Reset episode state
         self._episode_steps = 0
         self._episode_success = False
+        self._cached_rgb = None
+        self._cached_depth = None
+        self._cached_rgb_encoded = None
+        self._cached_depth_encoded = None
 
         # Extract scene config and task spec from TaskConfig
         scene_data = task_config.domain_randomization.get("scene_config", {})
@@ -436,9 +459,8 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         # Apply action (joint position targets)
         self._apply_action(action)
 
-        # Step simulation (2 physics steps per control step)
-        physics_steps = max(1, int(self.CONTROL_DT / self.SIM_DT))
-        for _ in range(physics_steps):
+        # Step simulation (physics substeps per control step)
+        for _ in range(self._physics_steps):
             self._scene.step()
 
         # Read state
@@ -545,10 +567,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         self._attach_ego_camera()
 
         # Set default pose (only actuated joints, skip 6 floating base DOFs)
-        default_pos = np.array(self._robot_config.default_dof_pos, dtype=np.float32)
-        n = self._robot_config.num_actuated_dofs
-        actuated_dof_idx = list(range(6, 6 + n))
-        self._robot.set_dofs_position(default_pos, dofs_idx_local=actuated_dof_idx)
+        self._robot.set_dofs_position(self._default_dof_pos, dofs_idx_local=self._actuated_dof_idx)
 
         # Validate camera rendering works before the episode begins
         self._validate_camera()
@@ -631,48 +650,92 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
     def _read_robot_state(self) -> dict[str, np.ndarray]:
         """Read robot state from Genesis tensors, convert to numpy.
 
+        Batches all GPU tensor reads into a single CPU transfer via
+        ``torch.cat`` to minimise GPU→CPU synchronisation overhead.
+
         Genesis DOFs include the floating base (6 DOFs) at indices [0:6],
         followed by actuated joints at [6:6+N]. We return only the actuated
         joint positions/velocities for the observation.
         """
-        pos = self._robot.get_pos().cpu().numpy().flatten()
-        quat = self._robot.get_quat().cpu().numpy().flatten()
-        vel = self._robot.get_vel().cpu().numpy().flatten()
-        ang_vel = self._robot.get_ang().cpu().numpy().flatten()
-        all_dof_pos = self._robot.get_dofs_position().cpu().numpy().flatten()
-        all_dof_vel = self._robot.get_dofs_velocity().cpu().numpy().flatten()
+        import torch  # noqa: PLC0415
 
-        # Skip floating base DOFs (first 6) to get only actuated joints
+        # Gather all GPU tensors (each is shape [1, K])
+        t_pos = self._robot.get_pos().reshape(-1)  # [3]
+        t_quat = self._robot.get_quat().reshape(-1)  # [4]
+        t_vel = self._robot.get_vel().reshape(-1)  # [3]
+        t_ang = self._robot.get_ang().reshape(-1)  # [3]
+        t_dof_pos = self._robot.get_dofs_position().reshape(-1)  # [6+N]
+        t_dof_vel = self._robot.get_dofs_velocity().reshape(-1)  # [6+N]
+
+        # Single GPU→CPU transfer
+        packed = torch.cat([t_pos, t_quat, t_vel, t_ang, t_dof_pos, t_dof_vel]).cpu().numpy()
+
+        # Unpack
         n = self._robot_config.num_actuated_dofs
+        pos = packed[0:3]
+        quat = packed[3:7]
+        vel = packed[7:10]
+        ang_vel = packed[10:13]
+        dof_start = 13
+        dof_end = dof_start + 6 + n  # floating base + actuated
+        all_dof_pos = packed[dof_start:dof_end]
+        vel_start = dof_end
+        all_dof_vel = packed[vel_start : vel_start + 6 + n]
         dof_pos = all_dof_pos[6 : 6 + n]
         dof_vel = all_dof_vel[6 : 6 + n]
 
         return {
-            "base_pos": pos,  # [x, y, z]
-            "base_quat": quat,  # [w, x, y, z]
-            "base_vel": vel,  # [vx, vy, vz]
-            "base_ang_vel": ang_vel,  # [wx, wy, wz]
-            "dof_pos": dof_pos,  # [N actuated]
-            "dof_vel": dof_vel,  # [N actuated]
+            "base_pos": pos,
+            "base_quat": quat,
+            "base_vel": vel,
+            "base_ang_vel": ang_vel,
+            "dof_pos": dof_pos,
+            "dof_vel": dof_vel,
         }
 
     def _read_object_states(self) -> dict[str, np.ndarray]:
-        """Read positions of all tracked objects."""
-        states = {}
-        for i, entity in enumerate(self._object_entities):
-            if i < len(self._scene_objects):
+        """Read positions of all tracked objects.
+
+        Batches GPU→CPU transfers when multiple objects are present.
+        """
+        n = min(len(self._object_entities), len(self._scene_objects))
+        if n == 0:
+            return {}
+
+        import torch  # noqa: PLC0415
+
+        try:
+            tensors = [self._object_entities[i].get_pos().reshape(-1) for i in range(n)]
+            packed = torch.cat(tensors).cpu().numpy()
+            states: dict[str, np.ndarray] = {}
+            for i in range(n):
+                states[self._scene_objects[i].object_id] = packed[i * 3 : (i + 1) * 3]
+            return states
+        except Exception as e:
+            logger.debug("object_state_batch_read_failed", error=str(e))
+            # Fallback: individual reads
+            states = {}
+            for i in range(n):
                 obj_id = self._scene_objects[i].object_id
                 try:
-                    pos = entity.get_pos().cpu().numpy().flatten()
+                    pos = self._object_entities[i].get_pos().cpu().numpy().flatten()
                     states[obj_id] = pos
-                except Exception as e:
-                    logger.debug("object_state_read_failed", object_id=obj_id, error=str(e))
-        return states
+                except Exception:
+                    pass
+            return states
 
     def _capture_camera(self) -> tuple[np.ndarray | None, np.ndarray | None]:
-        """Capture RGB and depth images from camera."""
+        """Capture RGB and (optionally) depth images from camera.
+
+        When ``render_interval > 1``, rendering is skipped on intermediate
+        steps and the most recent cached frames are returned instead.
+        """
         if self._camera is None or not self._camera_available:
             return None, None
+
+        # Frame-skip: reuse cached frames on non-render steps
+        if self._render_interval > 1 and self._episode_steps % self._render_interval != 0:
+            return self._cached_rgb, self._cached_depth
 
         try:
             # Update camera pose to follow attached link
@@ -680,11 +743,22 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
                 self._camera.move_to_attach()
 
             # camera.render() returns (rgb, depth, segmentation, normal)
-            rgb, depth, _seg, _normal = self._camera.render(rgb=True, depth=True)
+            render_depth = self._render_depth
+            rgb, depth, _seg, _normal = self._camera.render(
+                rgb=True,
+                depth=render_depth,
+            )
 
             # Ensure uint8 for RGB
             if rgb is not None and rgb.dtype != np.uint8:
                 rgb = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
+
+            if not render_depth:
+                depth = None
+
+            # Cache for reuse
+            self._cached_rgb = rgb
+            self._cached_depth = depth
 
             return rgb, depth
         except Exception as e:
@@ -702,14 +776,23 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         cam_rgb: np.ndarray | None,
         cam_depth: np.ndarray | None,
     ) -> Observation:
-        """Build the full Observation from robot state and camera images."""
-        rgb = {}
-        if cam_rgb is not None:
-            rgb["ego"] = encode_image(cam_rgb)
+        """Build the full Observation from robot state and camera images.
 
-        depth = {}
+        Caches encoded images to avoid redundant base64 encoding on
+        frame-skip steps where the same arrays are reused.
+        """
+        rgb: dict[str, dict | list] = {}
+        if cam_rgb is not None:
+            # Re-encode only if the underlying array changed (new render)
+            if cam_rgb is not self._cached_rgb or self._cached_rgb_encoded is None:
+                self._cached_rgb_encoded = encode_image(cam_rgb)
+            rgb["ego"] = self._cached_rgb_encoded
+
+        depth: dict[str, dict | list] = {}
         if cam_depth is not None:
-            depth["ego"] = encode_image(cam_depth)
+            if cam_depth is not self._cached_depth or self._cached_depth_encoded is None:
+                self._cached_depth_encoded = encode_image(cam_depth)
+            depth["ego"] = self._cached_depth_encoded
 
         return Observation(
             rgb=rgb,
@@ -757,8 +840,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         target_pos = self._default_dof_pos + joint_action * self._action_scale
 
         # Control only actuated joints (skip 6 floating base DOFs)
-        actuated_dof_idx = list(range(6, 6 + n))
-        self._robot.control_dofs_position(target_pos, dofs_idx_local=actuated_dof_idx)
+        self._robot.control_dofs_position(target_pos, dofs_idx_local=self._actuated_dof_idx)
 
     def _check_fallen(self, robot_state: dict[str, np.ndarray]) -> bool:
         """Check if robot has fallen over."""
