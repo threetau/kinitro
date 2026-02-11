@@ -29,6 +29,9 @@ MENAGERIE_SPARSE_DIRS = ["unitree_g1"]
 # Default cache location (XDG-style)
 _DEFAULT_CACHE_DIR = Path.home() / ".cache" / "kinitro" / "menagerie"
 
+# Timeout for git operations (seconds) — generous for slow networks
+_GIT_TIMEOUT_SECONDS = 120
+
 
 def _get_cache_dir() -> Path:
     """Return the cache directory for menagerie assets.
@@ -79,13 +82,14 @@ def _download_menagerie(dest: Path) -> None:
             ["git", "--version"],
             check=True,
             capture_output=True,
+            timeout=_GIT_TIMEOUT_SECONDS,
         )
-    except FileNotFoundError:
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         raise RuntimeError(
             "git is required to download MuJoCo Menagerie assets but was not found. "
             "Install git or manually clone https://github.com/google-deepmind/mujoco_menagerie "
             "and set GENESIS_MENAGERIE_PATH."
-        )
+        ) from None
 
     # Clean up any partial previous download
     if dest.exists():
@@ -110,6 +114,7 @@ def _download_menagerie(dest: Path) -> None:
             capture_output=True,
             text=True,
             check=False,
+            timeout=_GIT_TIMEOUT_SECONDS,
         )
         if result.returncode != 0:
             raise RuntimeError(

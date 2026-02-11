@@ -114,6 +114,10 @@ class TestEnsureMenagerie:
                 return_value=cache_dir,
             ),
             patch("kinitro.environments.genesis.menagerie._download_menagerie") as mock_dl,
+            patch(
+                "kinitro.environments.genesis.menagerie._is_menagerie_valid",
+                side_effect=lambda p: p == cache_dir,
+            ),
         ):
             result = ensure_menagerie()
             mock_dl.assert_not_called()
@@ -144,6 +148,10 @@ class TestEnsureMenagerie:
                 "kinitro.environments.genesis.menagerie._download_menagerie",
                 side_effect=fake_download,
             ) as mock_dl,
+            patch(
+                "kinitro.environments.genesis.menagerie._is_menagerie_valid",
+                side_effect=[False, False, True],  # Docker, cache pre-download, cache post-download
+            ),
         ):
             result = ensure_menagerie()
             mock_dl.assert_called_once_with(cache_dir)
