@@ -759,6 +759,9 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
             # Cache for reuse
             self._cached_rgb = rgb
             self._cached_depth = depth
+            # Invalidate encoded caches so _build_observation re-encodes
+            self._cached_rgb_encoded = None
+            self._cached_depth_encoded = None
 
             return rgb, depth
         except Exception as e:
