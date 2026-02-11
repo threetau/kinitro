@@ -152,6 +152,11 @@ def executor(
         20,
         help="Max concurrent tasks per environment family (used with --concurrent)",
     ),
+    eval_gpu: bool = typer.Option(
+        False,
+        "--eval-gpu",
+        help="Enable GPU access for evaluation containers (passes --gpus all to Docker)",
+    ),
     env_families: str | None = typer.Option(
         None,
         help="Comma-separated environment families to run (e.g., 'metaworld,genesis'). "
@@ -223,6 +228,7 @@ def executor(
         "batch_size": batch_size,
         "poll_interval_seconds": poll_interval,
         "eval_mode": eval_mode,
+        "eval_gpu": eval_gpu,
         "log_level": log_level,
         "use_concurrent_executor": concurrent,
         "default_max_concurrent": max_concurrent,
@@ -242,6 +248,7 @@ def executor(
     typer.echo(f"  Auth: {'configured' if config.api_key else 'not configured'}")
     typer.echo(f"  Batch size: {batch_size}")
     typer.echo(f"  Eval images: {config.eval_images}")
+    typer.echo(f"  GPU: {'enabled' if eval_gpu else 'disabled'}")
     typer.echo(f"  Concurrent mode: {concurrent}")
     if concurrent:
         typer.echo(f"  Max concurrent per family: {max_concurrent}")
