@@ -245,8 +245,8 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         task_name: str,
         max_episode_steps: int = 500,
         show_viewer: bool = False,
-        render_interval: int = 1,
-        render_depth: bool = True,
+        render_interval: int | None = None,
+        render_depth: bool | None = None,
     ) -> None:
         self._robot_config = robot_config
         self._task_name = task_name
@@ -263,7 +263,15 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         # Camera availability flag — set to False if validation render fails
         self._camera_available: bool = True
 
-        # Rendering optimisation knobs
+        # Rendering optimisation knobs — constructor args override env vars
+        if render_interval is None:
+            render_interval = int(os.environ.get("GENESIS_RENDER_INTERVAL", "1"))
+        if render_depth is None:
+            render_depth = os.environ.get("GENESIS_RENDER_DEPTH", "true").lower() not in (
+                "false",
+                "0",
+                "no",
+            )
         self._render_interval = max(1, render_interval)
         self._render_depth = render_depth
 
