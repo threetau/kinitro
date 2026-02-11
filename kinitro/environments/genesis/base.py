@@ -651,38 +651,28 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         """
         import torch  # noqa: PLC0415
 
-        # Gather all GPU tensors (each is shape [1, K])
-        t_pos = self._robot.get_pos().reshape(-1)  # [3]
-        t_quat = self._robot.get_quat().reshape(-1)  # [4]
-        t_vel = self._robot.get_vel().reshape(-1)  # [3]
-        t_ang = self._robot.get_ang().reshape(-1)  # [3]
-        t_dof_pos = self._robot.get_dofs_position().reshape(-1)  # [6+N]
-        t_dof_vel = self._robot.get_dofs_velocity().reshape(-1)  # [6+N]
+        tensors = [
+            self._robot.get_pos().reshape(-1),  # 3
+            self._robot.get_quat().reshape(-1),  # 4
+            self._robot.get_vel().reshape(-1),  # 3
+            self._robot.get_ang().reshape(-1),  # 3
+            self._robot.get_dofs_position().reshape(-1),  # 6+N
+            self._robot.get_dofs_velocity().reshape(-1),  # 6+N
+        ]
+        packed = torch.cat(tensors).cpu().numpy()
+        pos, quat, vel, ang_vel, all_dof_pos, all_dof_vel = np.split(
+            packed,
+            np.cumsum([t.shape[0] for t in tensors[:-1]]),
+        )
 
-        # Single GPU→CPU transfer
-        packed = torch.cat([t_pos, t_quat, t_vel, t_ang, t_dof_pos, t_dof_vel]).cpu().numpy()
-
-        # Unpack
         n = self._robot_config.num_actuated_dofs
-        pos = packed[0:3]
-        quat = packed[3:7]
-        vel = packed[7:10]
-        ang_vel = packed[10:13]
-        dof_start = 13
-        dof_end = dof_start + 6 + n  # floating base + actuated
-        all_dof_pos = packed[dof_start:dof_end]
-        vel_start = dof_end
-        all_dof_vel = packed[vel_start : vel_start + 6 + n]
-        dof_pos = all_dof_pos[6 : 6 + n]
-        dof_vel = all_dof_vel[6 : 6 + n]
-
         return {
             "base_pos": pos,
             "base_quat": quat,
             "base_vel": vel,
             "base_ang_vel": ang_vel,
-            "dof_pos": dof_pos,
-            "dof_vel": dof_vel,
+            "dof_pos": all_dof_pos[6 : 6 + n],
+            "dof_vel": all_dof_vel[6 : 6 + n],
         }
 
     def _read_object_states(self) -> dict[str, np.ndarray]:
