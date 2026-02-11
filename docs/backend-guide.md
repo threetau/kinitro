@@ -227,7 +227,7 @@ These environment variables are read **inside** the Genesis evaluation container
 
 | Environment Variable   | Default | Description                                               |
 | ---------------------- | ------- | --------------------------------------------------------- |
-| `GENESIS_RENDER_DEPTH` | `false` | Enable depth rendering (`true` to enable; disabled by default for speed) |
+| `GENESIS_RENDER_DEPTH` | `0`     | Enable depth rendering (`1` to enable; disabled by default for speed) |
 
 Depth rendering is disabled by default for speed. Enable it if the miner policy uses depth images. Configure it by setting the environment variable on the Docker container via your orchestration layer (e.g., Docker Compose, Kubernetes).
 

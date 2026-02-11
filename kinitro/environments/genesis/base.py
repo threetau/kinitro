@@ -263,13 +263,11 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         self._camera_available: bool = True
 
         # Rendering configuration — constructor args override env vars
-        if render_depth is None:
-            render_depth = os.environ.get("GENESIS_RENDER_DEPTH", "false").lower() not in (
-                "false",
-                "0",
-                "no",
-            )
-        self._render_depth = render_depth
+        self._render_depth = (
+            render_depth
+            if render_depth is not None
+            else bool(int(os.environ.get("GENESIS_RENDER_DEPTH", "0")))
+        )
 
         # Pre-computed arrays for action pipeline (avoid per-step allocation)
         self._default_dof_pos = np.array(robot_config.default_dof_pos, dtype=np.float32)
