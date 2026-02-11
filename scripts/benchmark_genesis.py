@@ -193,8 +193,9 @@ def benchmark(num_steps: int = 100, skip_render: bool = False) -> None:
 
         # 5. Object state read
         t = time.perf_counter()
+        obj_positions = []
         for entity in env._object_entities:
-            entity.get_pos().cpu().numpy().flatten()
+            obj_positions.append(entity.get_pos().cpu().numpy().flatten())
         t_object_state.record(time.perf_counter() - t)
 
         # 6. Camera rendering
@@ -233,9 +234,9 @@ def benchmark(num_steps: int = 100, skip_render: bool = False) -> None:
             "dof_vel": dof_vel[6 : 6 + n_dofs],
         }
         object_states = {}
-        for j, entity in enumerate(env._object_entities):
+        for j, obj_pos in enumerate(obj_positions):
             if j < len(env._scene_objects):
-                object_states[env._scene_objects[j].object_id] = pos
+                object_states[env._scene_objects[j].object_id] = obj_pos
         if env._current_task:
             env._compute_reward(robot_state, object_states, env._current_task)
             env._check_success(robot_state, object_states, env._current_task)

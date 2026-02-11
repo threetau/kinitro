@@ -11,6 +11,7 @@ dependencies = [
     "bittensor>=8.0.0",
     # Container execution (for running eval environments)
     "affinetes @ git+https://github.com/AffineFoundation/affinetes.git",
+    "docker>=7.0.0",
     # Robotics simulation (core - MetaWorld only)
     "mujoco>=3.0.0",
     "metaworld @ git+https://github.com/Farama-Foundation/Metaworld.git@master",
