@@ -23,7 +23,7 @@ import httpx
 import structlog
 
 from kinitro.environments import get_environment
-from kinitro.environments.registry import get_all_environment_ids
+from kinitro.environments.registry import get_environments_by_family
 from kinitro.rl_interface import Action
 
 logger = structlog.get_logger()
@@ -69,8 +69,8 @@ class Actor:
 
     async def list_environments(self) -> list[str]:
         """List available environments in this family."""
-        # TODO: Change "myenv/" to your environment family prefix
-        return [e for e in get_all_environment_ids() if e.startswith("myenv/")]
+        # TODO: Change "myenv" to your environment family prefix
+        return get_environments_by_family("myenv")
 
     async def evaluate(
         self,

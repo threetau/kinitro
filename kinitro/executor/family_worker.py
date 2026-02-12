@@ -4,15 +4,19 @@ import asyncio
 import logging
 import multiprocessing as mp
 import os
-import subprocess
 from typing import Any
 
-import affinetes as af_env
-import aiohttp
 import structlog
 
 from kinitro.backend.models import Task, TaskResult
 from kinitro.environments import get_environments_by_family
+from kinitro.executor.api_client import APIClient
+from kinitro.executor.env_loader import (
+    build_load_kwargs,
+    force_remove_container,
+    load_and_warmup_env,
+    run_evaluation,
+)
 
 # Configure structlog for this subprocess
 structlog.configure(
@@ -59,6 +63,7 @@ class FamilyWorker:
         poll_interval: int,
         stats_queue: mp.Queue,
         api_key: str | None = None,
+        gpu_enabled: bool = False,
     ):
         self.family = family
         self.max_concurrent = max_concurrent
@@ -76,30 +81,20 @@ class FamilyWorker:
         self.poll_interval = poll_interval
         self.stats_queue = stats_queue
         self.api_key = api_key
+        self.gpu_enabled = gpu_enabled
+
+        # API client for HTTP communication
+        self.api_client = APIClient(api_url, executor_id, api_key)
 
         # Async primitives (initialized in run())
         self.task_queue: asyncio.Queue | None = None
         self.semaphore: asyncio.Semaphore | None = None
         self.env: Any = None
         self.running = False
-        self._session: aiohttp.ClientSession | None = None
 
         # Metrics
         self.tasks_succeeded = 0
         self.tasks_failed = 0
-
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create HTTP session."""
-        if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=30)
-            self._session = aiohttp.ClientSession(timeout=timeout)
-        return self._session
-
-    def _get_auth_headers(self) -> dict[str, str]:
-        """Get authentication headers if API key is configured."""
-        if self.api_key:
-            return {"Authorization": f"Bearer {self.api_key}"}
-        return {}
 
     async def initialize(self) -> None:
         """Load the environment container once."""
@@ -115,44 +110,18 @@ class FamilyWorker:
         )
 
         # Load environment via affinetes
-        load_kwargs = {
-            "image": self.image,
-            "mode": self.eval_mode,
-            "mem_limit": self.mem_limit,
-            "pull": True,
-        }
+        load_kwargs = build_load_kwargs(
+            image=self.image,
+            eval_mode=self.eval_mode,
+            mem_limit=self.mem_limit,
+            executor_id=self.executor_id,
+            family=self.family,
+            hosts=self.hosts,
+            eval_timeout=self.eval_timeout,
+            gpu_enabled=self.gpu_enabled,
+        )
 
-        if self.eval_mode == "docker":
-            load_kwargs.update(
-                {
-                    "hosts": self.hosts,
-                    "container_name": f"kinitro-eval-{self.executor_id}-{self.family}",
-                    "force_recreate": True,
-                }
-            )
-        elif self.eval_mode == "basilica":
-            load_kwargs.update(
-                {
-                    "cpu_limit": "2000m",
-                    "ttl_buffer": self.eval_timeout + 60,
-                }
-            )
-
-        self.env = await asyncio.to_thread(af_env.load_env, **load_kwargs)
-
-        # Warm-up call
-        logger.info("warmup_call_starting", family=self.family)
-        try:
-            await self.env.list_environments()
-            logger.info("warmup_call_succeeded", family=self.family)
-        except Exception as e:
-            logger.info(
-                "warmup_call_absorbed_expected_error",
-                family=self.family,
-                error=str(e)[:100],
-            )
-
-        logger.info("eval_environment_loaded", family=self.family, image=self.image)
+        self.env = await load_and_warmup_env(self.family, self.image, load_kwargs)
 
     async def _fetch_loop(self) -> None:
         """Producer: fetch tasks from API, push to queue."""
@@ -191,47 +160,8 @@ class FamilyWorker:
 
     async def _fetch_tasks_batch(self, batch_size: int) -> list[Task]:
         """Fetch a batch of tasks from the API, filtered to this family."""
-        session = await self._get_session()
-
-        # Get env_ids for this family and filter at the API level
         env_ids = get_environments_by_family(self.family)
-        payload = {
-            "executor_id": self.executor_id,
-            "batch_size": batch_size,
-            "env_ids": env_ids,
-        }
-
-        try:
-            async with session.post(
-                f"{self.api_url}/v1/tasks/fetch",
-                json=payload,
-                headers=self._get_auth_headers(),
-            ) as resp:
-                if resp.status != 200:
-                    error = await resp.text()
-                    logger.error(
-                        "fetch_tasks_error",
-                        family=self.family,
-                        status=resp.status,
-                        error=error,
-                    )
-                    return []
-
-                data = await resp.json()
-                tasks = [Task(**t) for t in data["tasks"]]
-
-                if tasks:
-                    logger.info(
-                        "tasks_fetched",
-                        family=self.family,
-                        count=len(tasks),
-                        total_pending=data.get("total_pending", 0),
-                    )
-                return tasks
-
-        except Exception as e:
-            logger.error("fetch_tasks_exception", family=self.family, error=str(e))
-            return []
+        return await self.api_client.fetch_tasks(batch_size=batch_size, env_ids=env_ids)
 
     async def _execution_worker(self, worker_id: int) -> None:
         """Consumer: pull tasks from queue, execute, submit results."""
@@ -292,78 +222,28 @@ class FamilyWorker:
             env_id=task.env_id,
         )
 
-        result = await self.env.evaluate(
-            task_id=task.seed,
-            model=f"miner-{task.miner_uid}",
-            base_url=task.miner_endpoint,
-            env_id=task.env_id,
+        task_result = await run_evaluation(
+            env=self.env,
+            task=task,
             max_timesteps=self.max_timesteps,
             action_timeout=self.action_timeout,
             use_images=self.use_images,
-            _timeout=self.eval_timeout,
+            eval_timeout=self.eval_timeout,
         )
-
-        success = result.get("success", False)
-        score = result.get("score", 0.0)
-        extra = result.get("extra", {})
 
         logger.info(
             "task_executed",
             family=self.family,
             task_uuid=task.task_uuid,
-            success=success,
-            score=score,
+            success=task_result.success,
+            score=task_result.score,
         )
 
-        return TaskResult(
-            task_uuid=task.task_uuid,
-            success=success,
-            score=score,
-            total_reward=extra.get("total_reward", 0.0),
-            timesteps=extra.get("timesteps", 0),
-            error=None,
-        )
+        return task_result
 
     async def _submit_result(self, result: TaskResult) -> None:
         """Submit a task result to the API."""
-        session = await self._get_session()
-
-        payload = {
-            "executor_id": self.executor_id,
-            "results": [result.model_dump()],
-        }
-
-        try:
-            async with session.post(
-                f"{self.api_url}/v1/tasks/submit",
-                json=payload,
-                headers=self._get_auth_headers(),
-            ) as resp:
-                if resp.status != 200:
-                    error = await resp.text()
-                    logger.error(
-                        "submit_result_error",
-                        family=self.family,
-                        task_uuid=result.task_uuid,
-                        status=resp.status,
-                        error=error,
-                    )
-                else:
-                    data = await resp.json()
-                    logger.debug(
-                        "result_submitted",
-                        family=self.family,
-                        task_uuid=result.task_uuid,
-                        accepted=data.get("accepted", 0),
-                    )
-
-        except Exception as e:
-            logger.error(
-                "submit_result_exception",
-                family=self.family,
-                task_uuid=result.task_uuid,
-                error=str(e),
-            )
+        await self.api_client.submit_results([result])
 
     async def _report_metrics(self) -> None:
         """Periodically report metrics to main process."""
@@ -419,8 +299,7 @@ class FamilyWorker:
         logger.info("family_worker_cleaning_up", family=self.family)
 
         # Close HTTP session
-        if self._session and not self._session.closed:
-            await self._session.close()
+        await self.api_client.close()
 
         # Cleanup environment
         if self.env:
@@ -431,16 +310,7 @@ class FamilyWorker:
 
         # Force cleanup docker container
         container_name = f"kinitro-eval-{self.executor_id}-{self.family}"
-        try:
-            subprocess.run(
-                ["docker", "rm", "-f", container_name],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=False,
-            )
-        except Exception:
-            pass
+        force_remove_container(container_name)
 
         logger.info("family_worker_stopped", family=self.family)
 
@@ -463,6 +333,7 @@ def run_family_worker(
     stats_queue: mp.Queue,
     log_level: str,
     api_key: str | None = None,
+    gpu_enabled: bool = False,
 ) -> None:
     """Entry point for subprocess (called by multiprocessing)."""
     # Configure logging for subprocess
@@ -485,6 +356,7 @@ def run_family_worker(
         poll_interval=poll_interval,
         stats_queue=stats_queue,
         api_key=api_key,
+        gpu_enabled=gpu_enabled,
     )
 
     try:

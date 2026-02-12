@@ -1,33 +1,21 @@
 """Worker that executes evaluation tasks using affinetes."""
 
 import asyncio
-import subprocess
-from dataclasses import dataclass
 from typing import Any
 
-import affinetes as af_env
-import docker.types
 import structlog
 
 from kinitro.backend.models import Task, TaskResult
 from kinitro.executor.config import ExecutorConfig
+from kinitro.executor.env_loader import (
+    build_load_kwargs,
+    force_remove_container,
+    load_and_warmup_env,
+    run_evaluation,
+)
 from kinitro.executor.verification import PolicyVerifier, VerificationResult
 
 logger = structlog.get_logger()
-
-
-@dataclass
-class EvalEnvConfig:
-    """Configuration for the evaluation environment."""
-
-    image: str
-    mode: str
-    mem_limit: str
-    hosts: list[str]
-    max_timesteps: int
-    action_timeout: float
-    eval_timeout: int
-    use_images: bool
 
 
 class Worker:
@@ -107,49 +95,18 @@ class Worker:
             )
 
             # Load eval environment via affinetes
-            load_kwargs = {
-                "image": image,
-                "mode": self.config.eval_mode,
-                "mem_limit": self.config.eval_mem_limit,
-                "pull": True,
-            }
+            load_kwargs = build_load_kwargs(
+                image=image,
+                eval_mode=self.config.eval_mode,
+                mem_limit=self.config.eval_mem_limit,
+                executor_id=self.config.executor_id,
+                family=family,
+                hosts=self.config.eval_hosts,
+                eval_timeout=self.config.eval_timeout,
+                gpu_enabled=self.config.eval_gpu,
+            )
 
-            if self.config.eval_mode == "docker":
-                load_kwargs.update(
-                    {
-                        "hosts": self.config.eval_hosts,
-                        # Unique container name per family
-                        "container_name": f"kinitro-eval-{self.config.executor_id}-{family}",
-                        "force_recreate": True,
-                    }
-                )
-                if self.config.eval_gpu:
-                    load_kwargs["device_requests"] = [
-                        docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])
-                    ]
-            elif self.config.eval_mode == "basilica":
-                load_kwargs.update(
-                    {
-                        "cpu_limit": "2000m",
-                        "ttl_buffer": self.config.eval_timeout + 60,
-                    }
-                )
-
-            env = await asyncio.to_thread(af_env.load_env, **load_kwargs)
-
-            # Warm-up call
-            logger.info("warmup_call_starting", family=family)
-            try:
-                await env.list_environments()
-                logger.info("warmup_call_succeeded", family=family)
-            except Exception as e:
-                logger.info(
-                    "warmup_call_absorbed_expected_error",
-                    family=family,
-                    error=str(e)[:100],
-                )
-
-            logger.info("eval_environment_loaded", family=family, image=image)
+            env = await load_and_warmup_env(family, image, load_kwargs)
             self._envs[family] = env
             return env
 
@@ -177,36 +134,23 @@ class Worker:
         try:
             env = await self._get_eval_environment(task.env_id)
 
-            result = await env.evaluate(
-                task_id=task.seed,  # Use seed for environment reproducibility
-                model=f"miner-{task.miner_uid}",  # Identifier for logging
-                base_url=task.miner_endpoint,
-                env_id=task.env_id,
+            task_result = await run_evaluation(
+                env=env,
+                task=task,
                 max_timesteps=self.config.max_timesteps,
                 action_timeout=self.config.action_timeout,
                 use_images=self.config.use_images,
-                _timeout=self.config.eval_timeout,
+                eval_timeout=self.config.eval_timeout,
             )
-
-            success = result.get("success", False)
-            score = result.get("score", 0.0)
-            extra = result.get("extra", {})
 
             logger.info(
                 "task_executed",
                 task_uuid=task.task_uuid,
-                success=success,
-                score=score,
+                success=task_result.success,
+                score=task_result.score,
             )
 
-            return TaskResult(
-                task_uuid=task.task_uuid,
-                success=success,
-                score=score,
-                total_reward=extra.get("total_reward", 0.0),
-                timesteps=extra.get("timesteps", 0),
-                error=None,
-            )
+            return task_result
 
         except TimeoutError:
             logger.warning("task_timeout", task_uuid=task.task_uuid)
@@ -348,31 +292,12 @@ class Worker:
         for family in list(self._envs.keys()):
             container_name = f"kinitro-eval-{self.config.executor_id}-{family}"
             logger.info("force_cleanup_container", container=container_name, family=family)
-
-            try:
-                subprocess.run(
-                    ["docker", "rm", "-f", container_name],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    check=False,
-                )
-            except Exception as e:
-                logger.warning("docker_cleanup_failed", family=family, error=str(e))
+            force_remove_container(container_name)
 
         # Also try to clean up any containers matching the executor pattern
         # in case there are orphaned containers from previous runs
         for family in self.config.eval_images.keys():
             container_name = f"kinitro-eval-{self.config.executor_id}-{family}"
-            try:
-                subprocess.run(
-                    ["docker", "rm", "-f", container_name],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    check=False,
-                )
-            except Exception:
-                pass  # Ignore errors for containers that don't exist
+            force_remove_container(container_name)
 
         self._envs.clear()

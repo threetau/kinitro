@@ -37,7 +37,7 @@ import structlog
 
 # Import from kinitro package (installed in container via PYTHONPATH)
 from kinitro.environments import get_environment
-from kinitro.environments.registry import get_all_environment_ids
+from kinitro.environments.registry import get_environments_by_family
 from kinitro.rl_interface import Action
 
 logger = structlog.get_logger()
@@ -93,7 +93,7 @@ class Actor:
 
     async def list_environments(self) -> list[str]:
         """List available MetaWorld environments."""
-        return [env_id for env_id in get_all_environment_ids() if env_id.startswith("metaworld/")]
+        return get_environments_by_family("metaworld")
 
     async def evaluate(
         self,

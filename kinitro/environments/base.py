@@ -45,23 +45,6 @@ class TaskConfig:
         }
 
 
-@dataclass
-class EpisodeResult:
-    """Result of a single episode evaluation."""
-
-    success: bool
-    total_reward: float
-    timesteps: int
-    info: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def efficiency(self) -> float:
-        """Reward per timestep (higher is better)."""
-        if self.timesteps == 0:
-            return 0.0
-        return self.total_reward / self.timesteps
-
-
 class RoboticsEnvironment(ABC):
     """
     Abstract base class for all robotics environments.

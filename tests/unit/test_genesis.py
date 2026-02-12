@@ -75,6 +75,21 @@ def _make_task_spec(
     )
 
 
+def _make_g1_env() -> G1Environment:
+    """Create a G1Environment without full __init__ (for unit-testing reward/success).
+
+    Invariant: _compute_reward and _check_success must only use their explicit
+    arguments and never access self.* attributes.  If that changes, these tests
+    will need a proper mock or fixture with instance state.
+    """
+    return object.__new__(G1Environment)
+
+
+@pytest.fixture()
+def g1_env() -> G1Environment:
+    return _make_g1_env()
+
+
 def _make_test_objects() -> list[SceneObject]:
     """Create a mixed set of pickupable + landmark objects for task generation tests."""
     return [
@@ -256,66 +271,69 @@ class TestSceneObject:
 class TestCheckTaskFeasibility:
     """Tests for check_task_feasibility function."""
 
-    def test_navigate_always_feasible(self):
-        """NAVIGATE should be feasible for any object."""
-        obj = _make_scene_object(pickupable=False)
-        feasible, _ = check_task_feasibility(TaskType.NAVIGATE, obj)
-        assert feasible is True
+    @pytest.mark.parametrize(
+        "task_type, obj_kwargs, dest_factory, expected",
+        [
+            pytest.param(TaskType.NAVIGATE, {"pickupable": False}, None, True, id="navigate_any"),
+            pytest.param(TaskType.PICKUP, {"pickupable": True}, None, True, id="pickup_ok"),
+            pytest.param(
+                TaskType.PLACE,
+                {"pickupable": True},
+                lambda: _make_scene_object(object_id="dest", pickupable=False),
+                True,
+                id="place_ok",
+            ),
+            pytest.param(
+                TaskType.PUSH,
+                {"object_id": "a"},
+                lambda: _make_scene_object(object_id="b"),
+                True,
+                id="push_ok",
+            ),
+        ],
+    )
+    def test_feasible_cases(self, task_type, obj_kwargs, dest_factory, expected):
+        obj = _make_scene_object(**obj_kwargs)
+        dest = dest_factory() if dest_factory else None
+        feasible, _ = check_task_feasibility(task_type, obj, destination=dest)
+        assert feasible is expected
 
-    def test_pickup_feasible(self):
-        """PICKUP should be feasible for pickupable objects."""
-        obj = _make_scene_object(pickupable=True)
-        feasible, _ = check_task_feasibility(TaskType.PICKUP, obj)
-        assert feasible is True
-
-    def test_pickup_infeasible_not_pickupable(self):
-        """PICKUP should be infeasible for non-pickupable objects."""
-        obj = _make_scene_object(pickupable=False)
-        feasible, reason = check_task_feasibility(TaskType.PICKUP, obj)
+    @pytest.mark.parametrize(
+        "task_type, obj_kwargs, dest_factory, reason_substr",
+        [
+            pytest.param(
+                TaskType.PICKUP,
+                {"pickupable": False},
+                None,
+                "not pickupable",
+                id="pickup_not_pickupable",
+            ),
+            pytest.param(
+                TaskType.PICKUP,
+                {"pickupable": True, "is_picked_up": True},
+                None,
+                "already picked up",
+                id="pickup_already_picked",
+            ),
+            pytest.param(
+                TaskType.PLACE, {"pickupable": True}, None, "destination", id="place_no_dest"
+            ),
+            pytest.param(
+                TaskType.PUSH,
+                {"object_id": "same"},
+                lambda: _make_scene_object(object_id="same"),
+                "itself",
+                id="push_same_object",
+            ),
+            pytest.param(TaskType.PUSH, {}, None, "destination", id="push_no_dest"),
+        ],
+    )
+    def test_infeasible_cases(self, task_type, obj_kwargs, dest_factory, reason_substr):
+        obj = _make_scene_object(**obj_kwargs)
+        dest = dest_factory() if dest_factory else None
+        feasible, reason = check_task_feasibility(task_type, obj, destination=dest)
         assert feasible is False
-        assert "not pickupable" in reason
-
-    def test_pickup_infeasible_already_picked_up(self):
-        """PICKUP should be infeasible when object is already picked up."""
-        obj = _make_scene_object(pickupable=True, is_picked_up=True)
-        feasible, reason = check_task_feasibility(TaskType.PICKUP, obj)
-        assert feasible is False
-        assert "already picked up" in reason
-
-    def test_place_feasible(self):
-        """PLACE should be feasible with pickupable target + destination."""
-        target = _make_scene_object(pickupable=True)
-        dest = _make_scene_object(object_id="dest", pickupable=False)
-        feasible, _ = check_task_feasibility(TaskType.PLACE, target, destination=dest)
-        assert feasible is True
-
-    def test_place_infeasible_no_destination(self):
-        """PLACE should be infeasible without a destination."""
-        target = _make_scene_object(pickupable=True)
-        feasible, reason = check_task_feasibility(TaskType.PLACE, target, destination=None)
-        assert feasible is False
-        assert "destination" in reason.lower()
-
-    def test_push_feasible(self):
-        """PUSH should be feasible with target + different destination."""
-        target = _make_scene_object(object_id="a")
-        dest = _make_scene_object(object_id="b")
-        feasible, _ = check_task_feasibility(TaskType.PUSH, target, destination=dest)
-        assert feasible is True
-
-    def test_push_infeasible_same_object(self):
-        """PUSH should be infeasible when target == destination."""
-        obj = _make_scene_object(object_id="same")
-        feasible, reason = check_task_feasibility(TaskType.PUSH, obj, destination=obj)
-        assert feasible is False
-        assert "itself" in reason.lower()
-
-    def test_push_infeasible_no_destination(self):
-        """PUSH should be infeasible without a destination."""
-        target = _make_scene_object()
-        feasible, reason = check_task_feasibility(TaskType.PUSH, target, destination=None)
-        assert feasible is False
-        assert "destination" in reason.lower()
+        assert reason_substr in reason.lower()
 
     def test_robot_capability_filtering_unsupported(self):
         """Task type not in robot_supported_tasks should be infeasible."""
@@ -609,44 +627,37 @@ class TestTaskGenerator:
 class TestG1Reward:
     """Tests for G1Environment._compute_reward using object.__new__() bypass."""
 
-    def _make_env(self) -> G1Environment:
-        return object.__new__(G1Environment)
-
-    def test_navigate_alive_bonus(self):
+    def test_navigate_alive_bonus(self, g1_env):
         """NAVIGATE reward should always include alive bonus."""
-        env = self._make_env()
         robot_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
         spec = _make_task_spec(task_type=TaskType.NAVIGATE, target_position=[5.0, 5.0, 0.0])
 
-        reward = env._compute_reward(robot_state, {}, spec)
+        reward = g1_env._compute_reward(robot_state, {}, spec)
 
         assert reward >= 0.01  # alive bonus
 
-    def test_navigate_reward_increases_closer(self):
+    def test_navigate_reward_increases_closer(self, g1_env):
         """NAVIGATE reward should increase as distance decreases."""
-        env = self._make_env()
         spec = _make_task_spec(task_type=TaskType.NAVIGATE, target_position=[3.0, 0.0, 0.0])
 
         far_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
         near_state = {"base_pos": np.array([2.5, 0.0, 0.75])}
 
-        r_far = env._compute_reward(far_state, {}, spec)
-        r_near = env._compute_reward(near_state, {}, spec)
+        r_far = g1_env._compute_reward(far_state, {}, spec)
+        r_near = g1_env._compute_reward(near_state, {}, spec)
 
         assert r_near > r_far
 
-    def test_navigate_high_reward_near_target(self):
+    def test_navigate_high_reward_near_target(self, g1_env):
         """NAVIGATE reward should be higher when very close to target."""
-        env = self._make_env()
         spec = _make_task_spec(task_type=TaskType.NAVIGATE, target_position=[0.1, 0.0, 0.0])
         robot_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
 
-        reward = env._compute_reward(robot_state, {}, spec)
+        reward = g1_env._compute_reward(robot_state, {}, spec)
         assert reward > 0.01  # more than just alive bonus
 
-    def test_pickup_approach_reward(self):
+    def test_pickup_approach_reward(self, g1_env):
         """PICKUP should give approach reward when near the object."""
-        env = self._make_env()
         spec = _make_task_spec(
             task_type=TaskType.PICKUP,
             target_object_id="obj_00",
@@ -656,12 +667,11 @@ class TestG1Reward:
         robot_state = {"base_pos": np.array([0.8, 0.0, 0.75])}
         obj_states = {"obj_00": np.array([1.0, 0.0, 0.05])}
 
-        reward = env._compute_reward(robot_state, obj_states, spec)
+        reward = g1_env._compute_reward(robot_state, obj_states, spec)
         assert reward > 0.01  # alive + approach
 
-    def test_pickup_lift_bonus(self):
+    def test_pickup_lift_bonus(self, g1_env):
         """PICKUP should give large bonus when object is lifted above threshold."""
-        env = self._make_env()
         spec = _make_task_spec(
             task_type=TaskType.PICKUP,
             target_object_id="obj_00",
@@ -671,12 +681,11 @@ class TestG1Reward:
         robot_state = {"base_pos": np.array([1.0, 0.0, 0.75])}
         obj_states = {"obj_00": np.array([1.0, 0.0, 0.5])}  # lifted well above 0.05 + 0.15
 
-        reward = env._compute_reward(robot_state, obj_states, spec)
+        reward = g1_env._compute_reward(robot_state, obj_states, spec)
         assert reward >= 1.0  # lift bonus of 1.0
 
-    def test_pickup_no_lift_bonus_below_threshold(self):
+    def test_pickup_no_lift_bonus_below_threshold(self, g1_env):
         """PICKUP should not give lift bonus when height below threshold."""
-        env = self._make_env()
         spec = _make_task_spec(
             task_type=TaskType.PICKUP,
             target_object_id="obj_00",
@@ -686,12 +695,11 @@ class TestG1Reward:
         robot_state = {"base_pos": np.array([1.0, 0.0, 0.75])}
         obj_states = {"obj_00": np.array([1.0, 0.0, 0.1])}  # only 0.05 above, < 0.15
 
-        reward = env._compute_reward(robot_state, obj_states, spec)
+        reward = g1_env._compute_reward(robot_state, obj_states, spec)
         assert reward < 1.0  # no lift bonus
 
-    def test_pickup_missing_object_only_alive_bonus(self):
+    def test_pickup_missing_object_only_alive_bonus(self, g1_env):
         """PICKUP should return only alive bonus when object not in states."""
-        env = self._make_env()
         spec = _make_task_spec(
             task_type=TaskType.PICKUP,
             target_object_id="obj_missing",
@@ -699,12 +707,11 @@ class TestG1Reward:
         )
         robot_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
 
-        reward = env._compute_reward(robot_state, {}, spec)
+        reward = g1_env._compute_reward(robot_state, {}, spec)
         assert abs(reward - 0.01) < 1e-6
 
-    def test_place_reward_based_on_distance(self):
+    def test_place_reward_based_on_distance(self, g1_env):
         """PLACE reward should depend on object-to-destination distance."""
-        env = self._make_env()
         spec = _make_task_spec(
             task_type=TaskType.PLACE,
             target_object_id="obj_00",
@@ -714,17 +721,16 @@ class TestG1Reward:
 
         # Object far from destination
         far = {"obj_00": np.array([0.0, 0.0, 0.05])}
-        r_far = env._compute_reward(robot_state, far, spec)
+        r_far = g1_env._compute_reward(robot_state, far, spec)
 
         # Object close to destination
         close = {"obj_00": np.array([2.9, 2.9, 0.1])}
-        r_close = env._compute_reward(robot_state, close, spec)
+        r_close = g1_env._compute_reward(robot_state, close, spec)
 
         assert r_close > r_far
 
-    def test_push_reward_based_on_xy_distance(self):
+    def test_push_reward_based_on_xy_distance(self, g1_env):
         """PUSH reward should depend on XY distance to destination."""
-        env = self._make_env()
         spec = _make_task_spec(
             task_type=TaskType.PUSH,
             target_object_id="obj_00",
@@ -735,14 +741,13 @@ class TestG1Reward:
         far = {"obj_00": np.array([0.0, 0.0, 0.05])}
         close = {"obj_00": np.array([2.8, 0.0, 0.05])}
 
-        r_far = env._compute_reward(robot_state, far, spec)
-        r_close = env._compute_reward(robot_state, close, spec)
+        r_far = g1_env._compute_reward(robot_state, far, spec)
+        r_close = g1_env._compute_reward(robot_state, close, spec)
 
         assert r_close > r_far
 
-    def test_all_rewards_non_negative(self):
+    def test_all_rewards_non_negative(self, g1_env):
         """All task types should produce non-negative rewards (alive bonus)."""
-        env = self._make_env()
         robot_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
         obj_states = {"obj_00": np.array([2.0, 2.0, 0.05])}
 
@@ -753,7 +758,7 @@ class TestG1Reward:
                 destination_position=[3.0, 3.0, 0.1],
                 initial_state={"initial_height": 0.05},
             )
-            reward = env._compute_reward(robot_state, obj_states, spec)
+            reward = g1_env._compute_reward(robot_state, obj_states, spec)
             assert reward >= 0.0, f"{task_type} produced negative reward: {reward}"
 
 
@@ -765,127 +770,95 @@ class TestG1Reward:
 class TestG1Success:
     """Tests for G1Environment._check_success using object.__new__() bypass."""
 
-    def _make_env(self) -> G1Environment:
-        return object.__new__(G1Environment)
-
-    def test_navigate_success_close(self):
-        """NAVIGATE should succeed when distance < 0.5."""
-        env = self._make_env()
-        robot_state = {"base_pos": np.array([2.8, 0.0, 0.75])}
-        spec = _make_task_spec(task_type=TaskType.NAVIGATE, target_position=[3.0, 0.0, 0.0])
-
-        assert env._check_success(robot_state, {}, spec) is True
-
-    def test_navigate_failure_far(self):
-        """NAVIGATE should fail when distance >= 0.5."""
-        env = self._make_env()
-        robot_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
-        spec = _make_task_spec(task_type=TaskType.NAVIGATE, target_position=[3.0, 0.0, 0.0])
-
-        assert env._check_success(robot_state, {}, spec) is False
-
-    def test_pickup_success_lifted(self):
-        """PICKUP should succeed when lifted > 0.15 above initial height."""
-        env = self._make_env()
-        robot_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
-        spec = _make_task_spec(
-            task_type=TaskType.PICKUP,
-            target_object_id="obj_00",
-            initial_state={"initial_height": 0.05},
-        )
-        obj_states = {"obj_00": np.array([1.0, 0.0, 0.25])}  # 0.2 above initial
-
-        assert env._check_success(robot_state, obj_states, spec) is True
-
-    def test_pickup_failure_not_lifted(self):
-        """PICKUP should fail when not lifted enough."""
-        env = self._make_env()
-        robot_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
-        spec = _make_task_spec(
-            task_type=TaskType.PICKUP,
-            target_object_id="obj_00",
-            initial_state={"initial_height": 0.05},
-        )
-        obj_states = {"obj_00": np.array([1.0, 0.0, 0.1])}  # only 0.05 above
-
-        assert env._check_success(robot_state, obj_states, spec) is False
-
-    def test_pickup_failure_object_missing(self):
-        """PICKUP should fail when object not in states dict."""
-        env = self._make_env()
-        robot_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
-        spec = _make_task_spec(
-            task_type=TaskType.PICKUP,
-            target_object_id="obj_missing",
-            initial_state={"initial_height": 0.05},
-        )
-
-        assert env._check_success(robot_state, {}, spec) is False
-
-    def test_place_success_within_threshold(self):
-        """PLACE should succeed when object within 0.3 of destination."""
-        env = self._make_env()
-        robot_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
-        spec = _make_task_spec(
-            task_type=TaskType.PLACE,
-            target_object_id="obj_00",
-            destination_position=[3.0, 3.0, 0.1],
-        )
-        obj_states = {"obj_00": np.array([3.1, 3.1, 0.1])}  # ~0.14 away
-
-        assert env._check_success(robot_state, obj_states, spec) is True
-
-    def test_place_failure_too_far(self):
-        """PLACE should fail when object too far from destination."""
-        env = self._make_env()
-        robot_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
-        spec = _make_task_spec(
-            task_type=TaskType.PLACE,
-            target_object_id="obj_00",
-            destination_position=[3.0, 3.0, 0.1],
-        )
-        obj_states = {"obj_00": np.array([0.0, 0.0, 0.05])}
-
-        assert env._check_success(robot_state, obj_states, spec) is False
-
-    def test_place_failure_destination_none(self):
-        """PLACE should fail when destination is None."""
-        env = self._make_env()
-        robot_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
-        spec = _make_task_spec(
-            task_type=TaskType.PLACE,
-            target_object_id="obj_00",
-            destination_position=None,
-        )
-        obj_states = {"obj_00": np.array([0.0, 0.0, 0.05])}
-
-        assert env._check_success(robot_state, obj_states, spec) is False
-
-    def test_push_success_close(self):
-        """PUSH should succeed when XY distance < 0.5."""
-        env = self._make_env()
-        robot_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
-        spec = _make_task_spec(
-            task_type=TaskType.PUSH,
-            target_object_id="obj_00",
-            destination_position=[3.0, 0.0, 0.05],
-        )
-        obj_states = {"obj_00": np.array([2.8, 0.0, 0.05])}  # 0.2 away in XY
-
-        assert env._check_success(robot_state, obj_states, spec) is True
-
-    def test_push_failure_too_far(self):
-        """PUSH should fail when XY distance >= 0.5."""
-        env = self._make_env()
-        robot_state = {"base_pos": np.array([0.0, 0.0, 0.75])}
-        spec = _make_task_spec(
-            task_type=TaskType.PUSH,
-            target_object_id="obj_00",
-            destination_position=[3.0, 0.0, 0.05],
-        )
-        obj_states = {"obj_00": np.array([0.0, 0.0, 0.05])}
-
-        assert env._check_success(robot_state, obj_states, spec) is False
+    @pytest.mark.parametrize(
+        "task_type, spec_kwargs, robot_pos, obj_states, expected",
+        [
+            pytest.param(
+                TaskType.NAVIGATE,
+                {"target_position": [3.0, 0.0, 0.0]},
+                [2.8, 0.0, 0.75],
+                {},
+                True,
+                id="navigate_success_close",
+            ),
+            pytest.param(
+                TaskType.NAVIGATE,
+                {"target_position": [3.0, 0.0, 0.0]},
+                [0.0, 0.0, 0.75],
+                {},
+                False,
+                id="navigate_failure_far",
+            ),
+            pytest.param(
+                TaskType.PICKUP,
+                {"target_object_id": "obj_00", "initial_state": {"initial_height": 0.05}},
+                [0.0, 0.0, 0.75],
+                {"obj_00": np.array([1.0, 0.0, 0.25])},
+                True,
+                id="pickup_success_lifted",
+            ),
+            pytest.param(
+                TaskType.PICKUP,
+                {"target_object_id": "obj_00", "initial_state": {"initial_height": 0.05}},
+                [0.0, 0.0, 0.75],
+                {"obj_00": np.array([1.0, 0.0, 0.1])},
+                False,
+                id="pickup_failure_not_lifted",
+            ),
+            pytest.param(
+                TaskType.PICKUP,
+                {"target_object_id": "obj_missing", "initial_state": {"initial_height": 0.05}},
+                [0.0, 0.0, 0.75],
+                {},
+                False,
+                id="pickup_failure_missing",
+            ),
+            pytest.param(
+                TaskType.PLACE,
+                {"target_object_id": "obj_00", "destination_position": [3.0, 3.0, 0.1]},
+                [0.0, 0.0, 0.75],
+                {"obj_00": np.array([3.1, 3.1, 0.1])},
+                True,
+                id="place_success_within_threshold",
+            ),
+            pytest.param(
+                TaskType.PLACE,
+                {"target_object_id": "obj_00", "destination_position": [3.0, 3.0, 0.1]},
+                [0.0, 0.0, 0.75],
+                {"obj_00": np.array([0.0, 0.0, 0.05])},
+                False,
+                id="place_failure_too_far",
+            ),
+            pytest.param(
+                TaskType.PLACE,
+                {"target_object_id": "obj_00", "destination_position": None},
+                [0.0, 0.0, 0.75],
+                {"obj_00": np.array([0.0, 0.0, 0.05])},
+                False,
+                id="place_failure_dest_none",
+            ),
+            pytest.param(
+                TaskType.PUSH,
+                {"target_object_id": "obj_00", "destination_position": [3.0, 0.0, 0.05]},
+                [0.0, 0.0, 0.75],
+                {"obj_00": np.array([2.8, 0.0, 0.05])},
+                True,
+                id="push_success_close",
+            ),
+            pytest.param(
+                TaskType.PUSH,
+                {"target_object_id": "obj_00", "destination_position": [3.0, 0.0, 0.05]},
+                [0.0, 0.0, 0.75],
+                {"obj_00": np.array([0.0, 0.0, 0.05])},
+                False,
+                id="push_failure_too_far",
+            ),
+        ],
+    )
+    def test_check_success(self, g1_env, task_type, spec_kwargs, robot_pos, obj_states, expected):
+        robot_state = {"base_pos": np.array(robot_pos)}
+        spec = _make_task_spec(task_type=task_type, **spec_kwargs)
+        assert g1_env._check_success(robot_state, obj_states, spec) is expected
 
 
 # =============================================================================

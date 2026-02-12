@@ -13,6 +13,34 @@ from kinitro.backend.models import (
 from kinitro.backend.storage import Storage
 
 
+def _make_mock_cycle(
+    cycle_id: int = 1,
+    status: str = EvaluationCycleStatus.RUNNING.value,
+) -> MagicMock:
+    """Create a mock EvaluationCycleORM."""
+    mock = MagicMock(spec=EvaluationCycleORM)
+    mock.id = cycle_id
+    mock.status = status
+    return mock
+
+
+def _make_mock_task(status: str = TaskStatus.PENDING.value) -> MagicMock:
+    """Create a mock TaskPoolORM."""
+    mock = MagicMock(spec=TaskPoolORM)
+    mock.status = status
+    return mock
+
+
+def _mock_execute_results(*results_lists: list) -> AsyncMock:
+    """Build an AsyncMock side_effect from lists of ORM objects per query."""
+    side_effects = []
+    for items in results_lists:
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = items
+        side_effects.append(result)
+    return AsyncMock(side_effect=side_effects)
+
+
 class TestCancelIncompleteCycles:
     """Tests for Storage.cancel_incomplete_cycles()."""
 
@@ -25,10 +53,7 @@ class TestCancelIncompleteCycles:
     @pytest.mark.asyncio
     async def test_no_incomplete_cycles(self, mock_session):
         """When no incomplete cycles exist, nothing is cancelled."""
-        # Mock execute to return empty result for cycles query
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.execute = _mock_execute_results([])
 
         storage = Storage("postgresql+asyncpg://test:test@localhost/test")
 
@@ -40,25 +65,11 @@ class TestCancelIncompleteCycles:
     @pytest.mark.asyncio
     async def test_cancels_running_cycle_and_tasks(self, mock_session):
         """Running cycles and their pending/assigned tasks are cancelled."""
-        # Create mock cycle
-        mock_cycle = MagicMock(spec=EvaluationCycleORM)
-        mock_cycle.id = 1
-        mock_cycle.status = EvaluationCycleStatus.RUNNING.value
+        mock_cycle = _make_mock_cycle()
+        mock_task1 = _make_mock_task(TaskStatus.PENDING.value)
+        mock_task2 = _make_mock_task(TaskStatus.ASSIGNED.value)
 
-        # Create mock tasks
-        mock_task1 = MagicMock(spec=TaskPoolORM)
-        mock_task1.status = TaskStatus.PENDING.value
-        mock_task2 = MagicMock(spec=TaskPoolORM)
-        mock_task2.status = TaskStatus.ASSIGNED.value
-
-        # Mock execute - first call returns cycles, second returns tasks
-        cycles_result = MagicMock()
-        cycles_result.scalars.return_value.all.return_value = [mock_cycle]
-
-        tasks_result = MagicMock()
-        tasks_result.scalars.return_value.all.return_value = [mock_task1, mock_task2]
-
-        mock_session.execute = AsyncMock(side_effect=[cycles_result, tasks_result])
+        mock_session.execute = _mock_execute_results([mock_cycle], [mock_task1, mock_task2])
 
         storage = Storage("postgresql+asyncpg://test:test@localhost/test")
 
@@ -80,23 +91,10 @@ class TestCancelIncompleteCycles:
     @pytest.mark.asyncio
     async def test_leaves_completed_tasks_unchanged(self, mock_session):
         """Completed/failed tasks from incomplete cycles are not modified."""
-        # Create mock cycle
-        mock_cycle = MagicMock(spec=EvaluationCycleORM)
-        mock_cycle.id = 1
-        mock_cycle.status = EvaluationCycleStatus.RUNNING.value
+        mock_cycle = _make_mock_cycle()
+        mock_task = _make_mock_task(TaskStatus.PENDING.value)
 
-        # Only pending task (completed tasks not returned by query)
-        mock_task = MagicMock(spec=TaskPoolORM)
-        mock_task.status = TaskStatus.PENDING.value
-
-        cycles_result = MagicMock()
-        cycles_result.scalars.return_value.all.return_value = [mock_cycle]
-
-        # Query only returns pending/assigned, not completed
-        tasks_result = MagicMock()
-        tasks_result.scalars.return_value.all.return_value = [mock_task]
-
-        mock_session.execute = AsyncMock(side_effect=[cycles_result, tasks_result])
+        mock_session.execute = _mock_execute_results([mock_cycle], [mock_task])
 
         storage = Storage("postgresql+asyncpg://test:test@localhost/test")
 
