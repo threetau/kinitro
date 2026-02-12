@@ -15,16 +15,8 @@ class NetworkConfig(BaseSettings):
     hotkey_name: str = Field(default="default", description="Hotkey name")
 
 
-class ValidatorConfig(BaseSettings):
+class ValidatorConfig(NetworkConfig):
     """Validator-specific configuration."""
-
-    model_config = SettingsConfigDict(env_prefix="KINITRO_")
-
-    # Network settings (inherited concept)
-    network: str = Field(default="finney")
-    netuid: int = Field(default=1)
-    wallet_name: str = Field(default="default")
-    hotkey_name: str = Field(default="default")
 
     # Evaluation settings
     episodes_per_env: int = Field(
@@ -55,15 +47,8 @@ class ValidatorConfig(BaseSettings):
     log_level: str = Field(default="INFO", description="Logging level")
 
 
-class MinerConfig(BaseSettings):
+class MinerConfig(NetworkConfig):
     """Miner-specific configuration."""
-
-    model_config = SettingsConfigDict(env_prefix="KINITRO_")
-
-    network: str = Field(default="finney")
-    netuid: int = Field(default=1)
-    wallet_name: str = Field(default="default")
-    hotkey_name: str = Field(default="default")
 
     # Model settings
     huggingface_repo: str | None = Field(default=None, description="HuggingFace model repo")

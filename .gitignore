@@ -24,8 +24,9 @@ wheels/
 .venv/
 venv/
 
-# UV
+# uv and ruff
 .uv/
+.ruff_cache/
 
 # IDE
 .claude/
@@ -87,4 +88,3 @@ temp/
 
 # Docker compose overrides (generated per-worktree)
 docker-compose.override.yml
-

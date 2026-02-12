@@ -58,6 +58,7 @@ class WorkerProcess:
                 self.stats_queue,
                 self.config.log_level,
                 self.config.api_key,
+                self.config.eval_gpu,
             ),
             name=f"Worker-{self.family}",
         )

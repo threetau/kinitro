@@ -173,21 +173,3 @@ def get_available_families() -> list[str]:
 def get_family_metadata(family: str) -> dict[str, str] | None:
     """Get display metadata for a family (name, description) from metadata.json."""
     return _get_family_metadata_cache().get(family)
-
-
-def is_family_available(family: str) -> bool:
-    """Check if an environment family is available."""
-    return family in _get_family_metadata_cache()
-
-
-def register_environment(env_id: str, factory: EnvFactory) -> None:
-    """
-    Register a new environment.
-
-    Args:
-        env_id: Unique environment identifier
-        factory: Callable that returns a RoboticsEnvironment
-    """
-    if env_id in ENVIRONMENTS:
-        raise ValueError(f"Environment {env_id} is already registered")
-    ENVIRONMENTS[env_id] = factory

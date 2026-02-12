@@ -206,12 +206,6 @@ class MetaWorldEnvironment(RoboticsEnvironment):
             return (8,)
         return (7,)
 
-    @property
-    def action_bounds(self) -> tuple[np.ndarray, np.ndarray]:
-        low = np.full(self.action_shape, -1.0, dtype=np.float32)
-        high = np.full(self.action_shape, 1.0, dtype=np.float32)
-        return (low, high)
-
     def _warn_once(self, key: str, message: str, **kwargs: Any) -> None:
         if key in self._warned_keys:
             return
@@ -275,26 +269,27 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         proprio = full_obs[0:4].astype(np.float32)
         return proprio[0:3], float(proprio[3])
 
+    def _sync_camera_state(self, cam_env: Any) -> None:
+        """Copy physics state from main env to a camera env and run forward kinematics."""
+        if hasattr(self._env, "unwrapped") and hasattr(cam_env, "unwrapped"):
+            env = cast(Any, self._env)
+            main_data = env.unwrapped.data
+            cam_data = cam_env.unwrapped.data
+
+            cam_data.qpos[:] = main_data.qpos[:]
+            cam_data.qvel[:] = main_data.qvel[:]
+
+            mj_forward = getattr(mujoco, "mj_forward", None)
+            if callable(mj_forward):
+                mj_forward(cam_env.unwrapped.model, cam_data)
+
     def _get_camera_images(self) -> dict[str, np.ndarray]:
         """Render images from all configured cameras."""
         images = {}
 
         for cam_name, cam_env in self._camera_envs.items():
             try:
-                # Copy the physics state from main env to camera env
-                if hasattr(self._env, "unwrapped") and hasattr(cam_env, "unwrapped"):
-                    env = cast(Any, self._env)
-                    main_data = env.unwrapped.data
-                    cam_data = cam_env.unwrapped.data
-
-                    # Copy qpos and qvel
-                    cam_data.qpos[:] = main_data.qpos[:]
-                    cam_data.qvel[:] = main_data.qvel[:]
-
-                    # Forward kinematics to update derived quantities
-                    mj_forward = getattr(mujoco, "mj_forward", None)
-                    if callable(mj_forward):
-                        mj_forward(cam_env.unwrapped.model, cam_data)
+                self._sync_camera_state(cam_env)
 
                 # Render
                 img = cam_env.render()
@@ -635,17 +630,8 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         """
         if camera_name in self._camera_envs:
             try:
-                # Sync state and render
                 cam_env = self._camera_envs[camera_name]
-                if hasattr(self._env, "unwrapped") and hasattr(cam_env, "unwrapped"):
-                    env = cast(Any, self._env)
-                    main_data = env.unwrapped.data
-                    cam_data = cam_env.unwrapped.data
-                    cam_data.qpos[:] = main_data.qpos[:]
-                    cam_data.qvel[:] = main_data.qvel[:]
-                    mj_forward = getattr(mujoco, "mj_forward", None)
-                    if callable(mj_forward):
-                        mj_forward(cam_env.unwrapped.model, cam_data)
+                self._sync_camera_state(cam_env)
                 return cam_env.render()
             except Exception as e:
                 logger.debug("metaworld_render_failed", camera_name=camera_name, error=str(e))
