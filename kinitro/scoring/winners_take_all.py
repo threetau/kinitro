@@ -4,12 +4,21 @@ from itertools import combinations
 
 import numpy as np
 
+from kinitro.types import (
+    EnvironmentId,
+    MinerFirstBlocks,
+    MinerScores,
+    MinerThresholds,
+    MinerUID,
+    SubsetWeightScheme,
+)
+
 
 def scores_to_weights(
-    scores: dict[int, float],
+    scores: dict[MinerUID, float],
     temperature: float = 1.0,
     min_weight: float = 0.0,
-) -> dict[int, float]:
+) -> dict[MinerUID, float]:
     """
     Convert scores to normalized weights via softmax.
 
@@ -58,11 +67,11 @@ def scores_to_weights(
 
 
 def find_subset_winner_with_priority(
-    miner_scores: dict[int, dict[str, float]],
-    miner_thresholds: dict[int, dict[str, float]],
-    miner_first_blocks: dict[int, int],
-    subset: tuple[str, ...],
-) -> int | None:
+    miner_scores: MinerScores,
+    miner_thresholds: MinerThresholds,
+    miner_first_blocks: MinerFirstBlocks,
+    subset: tuple[EnvironmentId, ...],
+) -> MinerUID | None:
     """
     Find the miner that dominates all others on a subset, with first-commit advantage.
 
@@ -136,12 +145,12 @@ def find_subset_winner_with_priority(
 
 
 def compute_subset_scores_with_priority(
-    miner_scores: dict[int, dict[str, float]],
-    miner_thresholds: dict[int, dict[str, float]],
-    miner_first_blocks: dict[int, int],
-    env_ids: list[str],
-    subset_weight_scheme: str = "linear",
-) -> dict[int, float]:
+    miner_scores: MinerScores,
+    miner_thresholds: MinerThresholds,
+    miner_first_blocks: MinerFirstBlocks,
+    env_ids: list[EnvironmentId],
+    subset_weight_scheme: SubsetWeightScheme = SubsetWeightScheme.LINEAR,
+) -> dict[MinerUID, float]:
     """
     Compute winners-take-all scores with first-commit advantage.
 
@@ -154,7 +163,7 @@ def compute_subset_scores_with_priority(
         miner_thresholds: Dict mapping uid -> env_id -> threshold
         miner_first_blocks: Dict mapping uid -> first committed block
         env_ids: List of environment IDs
-        subset_weight_scheme: How to weight subsets ("linear", "exponential", "equal")
+        subset_weight_scheme: How to weight subsets
 
     Returns:
         Dict mapping uid -> total score
@@ -168,14 +177,15 @@ def compute_subset_scores_with_priority(
     # Iterate over all non-empty subsets
     for subset_size in range(1, len(env_ids) + 1):
         # Compute weight for this subset size
-        if subset_weight_scheme == "linear":
-            subset_weight = float(subset_size)
-        elif subset_weight_scheme == "exponential":
-            subset_weight = float(2 ** (subset_size - 1))
-        elif subset_weight_scheme == "equal":
-            subset_weight = 1.0
-        else:
-            subset_weight = float(subset_size)
+        match subset_weight_scheme:
+            case SubsetWeightScheme.LINEAR:
+                subset_weight = float(subset_size)
+            case SubsetWeightScheme.EXPONENTIAL:
+                subset_weight = float(2 ** (subset_size - 1))
+            case SubsetWeightScheme.EQUAL:
+                subset_weight = 1.0
+            case _:
+                raise ValueError(f"Unknown subset weight scheme: {subset_weight_scheme}")
 
         # Check each subset of this size
         for subset in combinations(env_ids, subset_size):

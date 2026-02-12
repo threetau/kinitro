@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from kinitro.types import RobotStateDict
+
 
 @dataclass
 class TimingBucket:
@@ -227,7 +229,7 @@ def benchmark(
 
         # 8. Reward/success check (lightweight but measure anyway)
         t = time.perf_counter()
-        robot_state = {
+        robot_state: RobotStateDict = {
             "base_pos": pos,
             "base_quat": quat,
             "base_vel": vel,

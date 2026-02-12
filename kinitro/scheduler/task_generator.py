@@ -6,11 +6,12 @@ import uuid
 import structlog
 
 from kinitro.chain.commitments import MinerCommitment
+from kinitro.types import BlockNumber, EnvironmentId, Seed, TaskCreateData
 
 logger = structlog.get_logger()
 
 
-def generate_seed(task_uuid: str) -> int:
+def generate_seed(task_uuid: str) -> Seed:
     """
     Generate a deterministic seed from task UUID.
 
@@ -28,7 +29,7 @@ def generate_seed(task_uuid: str) -> int:
     """
     hash_bytes = hashlib.sha256(task_uuid.encode()).digest()[:4]
     # Mask to 31 bits to fit PostgreSQL signed int4 (max 2,147,483,647)
-    return int.from_bytes(hash_bytes, byteorder="big") & 0x7FFFFFFF
+    return Seed(int.from_bytes(hash_bytes, byteorder="big") & 0x7FFFFFFF)
 
 
 def get_miner_endpoint(miner: MinerCommitment) -> str:
@@ -47,11 +48,11 @@ def get_miner_endpoint(miner: MinerCommitment) -> str:
 
 def generate_tasks(
     miners: list[MinerCommitment],
-    env_ids: list[str],
+    env_ids: list[EnvironmentId],
     episodes_per_env: int,
-    block_number: int,
+    block_number: BlockNumber,
     cycle_id: int,
-) -> list[dict]:
+) -> list[TaskCreateData]:
     """
     Generate evaluation tasks for all miners and environments.
 

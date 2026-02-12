@@ -13,6 +13,7 @@ from kinitro.environments.genesis.task_types import (
     OBJECT_TYPES,
     SceneObject,
 )
+from kinitro.types import ObjectType
 
 logger = structlog.get_logger()
 
@@ -22,7 +23,7 @@ class SceneObjectConfig:
     """Configuration for an object to be placed in the scene."""
 
     object_id: str
-    object_type: str  # "box", "sphere", "cylinder"
+    object_type: ObjectType
     position: list[float]  # [x, y, z]
     color: str
     color_rgb: tuple[float, float, float]
@@ -35,6 +36,7 @@ class SceneConfig:
     """Configuration for a procedurally generated scene."""
 
     terrain_type: str  # Currently always "flat"; kept for future scene types
+    # Any: terrain params are engine-specific (reserved for future terrain types)
     terrain_params: dict[str, Any] = field(default_factory=dict)
     objects: list[SceneObjectConfig] = field(default_factory=list)
 
@@ -126,7 +128,7 @@ class SceneGenerator:
         for i in range(num_objects):
             color_name = available_colors[i % len(available_colors)]
             color_rgb = OBJECT_COLORS[color_name]
-            obj_type = rng.choice(OBJECT_TYPES)
+            obj_type = ObjectType(rng.choice(OBJECT_TYPES))
             is_pickupable = i < num_pickupable
 
             if is_pickupable:
@@ -139,7 +141,7 @@ class SceneGenerator:
 
             objects.append(
                 SceneObjectConfig(
-                    object_id=f"obj_{i:02d}_{color_name}_{obj_type}",
+                    object_id=f"obj_{i:02d}_{color_name}_{obj_type.value}",
                     object_type=obj_type,
                     position=position,
                     color=color_name,
@@ -197,39 +199,40 @@ class SceneGenerator:
             surface = gs.surfaces.Default(color=obj_config.color_rgb)
             is_fixed = not obj_config.pickupable
 
-            if obj_config.object_type == "box":
-                entity = gs_scene.add_entity(
-                    gs.morphs.Box(
-                        pos=pos,
-                        size=(obj_config.size, obj_config.size, obj_config.size),
-                        fixed=is_fixed,
-                    ),
-                    surface=surface,
-                )
-            elif obj_config.object_type == "sphere":
-                entity = gs_scene.add_entity(
-                    gs.morphs.Sphere(
-                        pos=pos,
-                        radius=obj_config.size,
-                        fixed=is_fixed,
-                    ),
-                    surface=surface,
-                )
-            elif obj_config.object_type == "cylinder":
-                entity = gs_scene.add_entity(
-                    gs.morphs.Cylinder(
-                        pos=pos,
-                        radius=obj_config.size,
-                        height=obj_config.size * 2,
-                        fixed=is_fixed,
-                    ),
-                    surface=surface,
-                )
-            else:
-                raise ValueError(
-                    f"Unknown object type {obj_config.object_type!r} "
-                    f"for object {obj_config.object_id!r}"
-                )
+            match obj_config.object_type:
+                case ObjectType.BOX:
+                    entity = gs_scene.add_entity(
+                        gs.morphs.Box(
+                            pos=pos,
+                            size=(obj_config.size, obj_config.size, obj_config.size),
+                            fixed=is_fixed,
+                        ),
+                        surface=surface,
+                    )
+                case ObjectType.SPHERE:
+                    entity = gs_scene.add_entity(
+                        gs.morphs.Sphere(
+                            pos=pos,
+                            radius=obj_config.size,
+                            fixed=is_fixed,
+                        ),
+                        surface=surface,
+                    )
+                case ObjectType.CYLINDER:
+                    entity = gs_scene.add_entity(
+                        gs.morphs.Cylinder(
+                            pos=pos,
+                            radius=obj_config.size,
+                            height=obj_config.size * 2,
+                            fixed=is_fixed,
+                        ),
+                        surface=surface,
+                    )
+                case _:
+                    raise ValueError(
+                        f"Unknown object type {obj_config.object_type!r} "
+                        f"for object {obj_config.object_id!r}"
+                    )
 
             entities.append(entity)
 

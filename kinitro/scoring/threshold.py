@@ -2,6 +2,8 @@
 
 import math
 
+from kinitro.types import EnvironmentId, MinerScores, MinerThresholds
+
 
 def calculate_threshold(
     prior_score: float,
@@ -37,12 +39,12 @@ def calculate_threshold(
 
 
 def compute_miner_thresholds(
-    miner_scores: dict[int, dict[str, float]],
-    episodes_per_env: int | dict[str, int],
+    miner_scores: MinerScores,
+    episodes_per_env: int | dict[EnvironmentId, int],
     z_score: float = 1.5,
     min_gap: float = 0.02,
     max_gap: float = 0.10,
-) -> dict[int, dict[str, float]]:
+) -> MinerThresholds:
     """
     Compute thresholds for all miners across all environments.
 
@@ -56,7 +58,7 @@ def compute_miner_thresholds(
     Returns:
         Dict mapping uid -> env_id -> threshold
     """
-    thresholds: dict[int, dict[str, float]] = {}
+    thresholds: MinerThresholds = {}
 
     for uid, env_scores in miner_scores.items():
         thresholds[uid] = {}

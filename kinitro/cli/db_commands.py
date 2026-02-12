@@ -41,7 +41,7 @@ def db_init(
         await storage.initialize()
         await storage.close()
 
-    typer.echo(f"Initializing database: {database_url.split('@')[-1]}")
+    typer.echo(f"Initializing database: {database_url.rsplit('@', maxsplit=1)[-1]}")
     asyncio.run(_init())
     typer.echo("Database initialized successfully!")
 

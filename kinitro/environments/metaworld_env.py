@@ -15,6 +15,7 @@ from kinitro.rl_interface import (
     encode_image,
     normalize_quaternion,
 )
+from kinitro.types import StepInfo
 
 logger = structlog.get_logger()
 
@@ -95,6 +96,8 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         self._camera_names = camera_names or self.CAMERA_NAMES
         self._image_width, self._image_height = image_size
 
+        # MetaWorld types (ML1, SawyerEnv, etc.) are from an optional dependency
+        # that has no public type stubs, so we use Any for these runtime objects.
         self._env: Any | None = None
         self._camera_envs: dict[str, Any] = {}  # Separate env instances for each camera
         self._ml1: Any | None = None
@@ -216,6 +219,8 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         if self._env is None:
             return
 
+        # cast(Any, …) silences type-checker on untyped MetaWorld attrs
+        # (action_space, sim, etc.) — see _env field comment above.
         env = cast(Any, self._env)
         action_dim = int(env.action_space.shape[0])
         valid_formats = {"auto", "xyz_gripper", "xyz_quat", "xyz_quat_gripper"}
@@ -514,7 +519,7 @@ class MetaWorldEnvironment(RoboticsEnvironment):
     def step(
         self,
         action: Action,
-    ) -> tuple[Observation, float, bool, dict[str, Any]]:
+    ) -> tuple[Observation, float, bool, StepInfo]:
         """
         Execute action in environment.
 
@@ -580,7 +585,7 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         mw_action = np.clip(mw_action, env.action_space.low, env.action_space.high)
 
         total_reward = 0.0
-        info = {}
+        info: dict[str, Any] = {}  # Any: MetaWorld step info has heterogeneous values
         terminated = False
         truncated = False
         full_obs = None
@@ -595,11 +600,15 @@ class MetaWorldEnvironment(RoboticsEnvironment):
         if info.get("success", False):
             self._episode_success = True
 
-        done = terminated or truncated
+        done: bool = terminated or truncated
 
         if full_obs is None:
             raise RuntimeError("MetaWorld step returned no observation")
-        return self._build_observation(full_obs), float(total_reward), done, info
+
+        step_info: StepInfo = {
+            "success": self._episode_success,
+        }
+        return self._build_observation(full_obs), float(total_reward), done, step_info
 
     def get_success(self) -> bool:
         """Check if task was completed successfully."""

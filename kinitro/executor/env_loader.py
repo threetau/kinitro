@@ -9,6 +9,7 @@ import docker.types
 import structlog
 
 from kinitro.backend.models import Task, TaskResult
+from kinitro.types import AffinetesEnv
 
 logger = structlog.get_logger()
 
@@ -38,6 +39,7 @@ def build_load_kwargs(
     Returns:
         Dict of keyword arguments for af_env.load_env().
     """
+    # Any: affinetes.load_env() accepts heterogeneous kwargs (str, bool, list, etc.)
     load_kwargs: dict[str, Any] = {
         "image": image,
         "mode": eval_mode,
@@ -68,7 +70,7 @@ def build_load_kwargs(
     return load_kwargs
 
 
-async def load_and_warmup_env(family: str, image: str, load_kwargs: dict[str, Any]) -> Any:
+async def load_and_warmup_env(family: str, image: str, load_kwargs: dict[str, Any]) -> AffinetesEnv:
     """Load an affinetes environment and perform a warmup call.
 
     Args:
@@ -98,7 +100,7 @@ async def load_and_warmup_env(family: str, image: str, load_kwargs: dict[str, An
 
 
 async def run_evaluation(
-    env: Any,
+    env: AffinetesEnv,
     task: Task,
     max_timesteps: int,
     action_timeout: float,

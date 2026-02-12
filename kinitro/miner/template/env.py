@@ -82,7 +82,9 @@ class RobotActor:
         self._image_size = (84, 84)
         self._camera_names = ["corner", "corner2"]
 
-    async def reset(self, task_config: dict[str, Any]) -> None:
+    async def reset(
+        self, task_config: dict[str, Any]
+    ) -> None:  # Any: task config is env-specific JSON
         """
         Reset policy for a new episode.
 
@@ -105,7 +107,9 @@ class RobotActor:
         # Example: You might want to condition your policy on the task
         # self.task_embedding = self.encode_task(task_config)
 
-    async def act(self, observation: dict[str, Any]) -> dict[str, Any]:
+    async def act(
+        self, observation: dict[str, Any]
+    ) -> dict[str, Any]:  # Any: obs/action are env-specific JSON
         """
         Get action for current observation.
 
@@ -183,7 +187,7 @@ class ExampleVisionPolicy:
         else:
             print(f"Warning: Model not found at {model_path}")
 
-    def preprocess_images(self, images: dict[str, np.ndarray]) -> "Any":
+    def preprocess_images(self, images: dict[str, np.ndarray]) -> np.ndarray | None:
         """Preprocess camera images for the policy."""
         if not images:
             return None

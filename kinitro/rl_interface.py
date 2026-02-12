@@ -20,11 +20,10 @@ import base64
 from typing import Any
 
 import numpy as np
+from numpy.typing import ArrayLike
 from pydantic import BaseModel, ConfigDict, Field
 
-# =============================================================================
-# Conventional Key Names
-# =============================================================================
+from kinitro.types import EncodedImage
 
 
 class ProprioKeys:
@@ -95,12 +94,7 @@ class ActionKeys:
     RIGHT_GRIPPER = "right_gripper"
 
 
-# =============================================================================
-# Image Encoding/Decoding
-# =============================================================================
-
-
-def encode_image(img: np.ndarray) -> dict[str, Any]:
+def encode_image(img: np.ndarray) -> EncodedImage:
     """Encode image as base64 with metadata for efficient serialization."""
     return {
         "data": base64.b64encode(img.tobytes()).decode("ascii"),
@@ -109,21 +103,12 @@ def encode_image(img: np.ndarray) -> dict[str, Any]:
     }
 
 
-def decode_image(encoded: dict[str, Any] | list) -> np.ndarray:
-    """Decode image from base64 or nested list format."""
-    if isinstance(encoded, list):
-        # Legacy nested list format
-        return np.array(encoded, dtype=np.uint8)
-    # Base64 encoded format
+def decode_image(encoded: EncodedImage) -> np.ndarray:
+    """Decode a base64-encoded image back to a numpy array."""
     data = base64.b64decode(encoded["data"])
     shape = tuple(encoded["shape"])
     dtype = np.dtype(encoded["dtype"])
     return np.frombuffer(data, dtype=dtype).reshape(shape)
-
-
-# =============================================================================
-# Observation Class
-# =============================================================================
 
 
 class Observation(BaseModel):
@@ -162,11 +147,12 @@ class Observation(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    rgb: dict[str, dict | list] = Field(default_factory=dict)
-    depth: dict[str, dict | list] = Field(default_factory=dict)
+    rgb: dict[str, EncodedImage] = Field(default_factory=dict)
+    depth: dict[str, EncodedImage] = Field(default_factory=dict)
     proprio: dict[str, list[float]] = Field(default_factory=dict)
     cam_intrinsics: dict[str, list[list[float]]] = Field(default_factory=dict)
     cam_extrinsics: dict[str, list[list[float]]] = Field(default_factory=dict)
+    # Any: open-ended for env-specific data
     extra: dict[str, Any] = Field(default_factory=dict)
 
     def get_image(self, camera: str) -> np.ndarray | None:
@@ -206,18 +192,15 @@ class Observation(BaseModel):
             return np.array([], dtype=np.float32)
         return np.concatenate(arrays).astype(np.float32)
 
-    def to_payload(self, include_images: bool = True) -> dict[str, Any]:
+    def to_payload(
+        self, include_images: bool = True
+    ) -> dict[str, Any]:  # Any: Pydantic model_dump output
         """Serialize for network transport."""
         data = self.model_dump(mode="python")
         if not include_images:
             data["rgb"] = {}
             data["depth"] = {}
         return data
-
-
-# =============================================================================
-# Action Class
-# =============================================================================
 
 
 class Action(BaseModel):
@@ -247,6 +230,7 @@ class Action(BaseModel):
 
     continuous: dict[str, list[float]] = Field(default_factory=dict)
     discrete: dict[str, int] = Field(default_factory=dict)
+    # Any: open-ended for env-specific data
     extra: dict[str, Any] = Field(default_factory=dict)
 
     def get_continuous(self, key: str) -> np.ndarray | None:
@@ -265,7 +249,7 @@ class Action(BaseModel):
         return np.concatenate(arrays).astype(np.float32)
 
     @classmethod
-    def from_array(cls, array: Any, schema: dict[str, int]) -> Action:
+    def from_array(cls, array: ArrayLike, schema: dict[str, int]) -> Action:
         """
         Construct from flat array given a schema.
 
@@ -284,11 +268,6 @@ class Action(BaseModel):
     def to_array(self, keys: list[str] | None = None) -> np.ndarray:
         """Convert to flat array for backward compatibility."""
         return self.continuous_array(keys)
-
-
-# =============================================================================
-# Helper Functions
-# =============================================================================
 
 
 def normalize_quaternion(quat: np.ndarray) -> np.ndarray:

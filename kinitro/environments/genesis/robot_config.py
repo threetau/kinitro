@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from kinitro.environments.genesis.task_types import TaskType
+
 
 @dataclass
 class RobotConfig:
@@ -32,7 +34,7 @@ class RobotConfig:
     # Task capability flags
     can_manipulate: bool = False  # Has hands/gripper
     can_locomote: bool = True  # Can walk/move
-    supported_task_types: list[str] = field(default_factory=list)
+    supported_task_types: list[TaskType] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         n = self.num_actuated_dofs
@@ -167,5 +169,5 @@ G1_CONFIG = RobotConfig(
     ego_camera_pos_offset=(0.15, 0.0, 0.25),  # Forward 15cm, up 25cm from torso → ~head height
     can_manipulate=True,
     can_locomote=True,
-    supported_task_types=["navigate", "pickup", "place", "push"],
+    supported_task_types=[TaskType.NAVIGATE, TaskType.PICKUP, TaskType.PLACE, TaskType.PUSH],
 )

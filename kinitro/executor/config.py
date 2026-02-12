@@ -6,6 +6,8 @@ import uuid
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from kinitro.types import EnvironmentId, env_family_from_id
+
 
 def default_executor_id() -> str:
     """Generate a default executor ID."""
@@ -44,7 +46,7 @@ class ExecutorConfig(BaseSettings):
         default=5,
         description="Seconds to wait between polling for tasks",
     )
-    env_ids: list[str] | None = Field(
+    env_ids: list[EnvironmentId] | None = Field(
         default=None,
         description="Filter tasks by environment IDs (None = all envs)",
     )
@@ -212,8 +214,7 @@ class ExecutorConfig(BaseSettings):
         Raises:
             ValueError: If no image is configured for the environment's family
         """
-        # Extract family from env_id (e.g., 'metaworld' from 'metaworld/pick-place-v3')
-        family = env_id.split("/")[0] if "/" in env_id else env_id
+        family = env_family_from_id(env_id)
 
         if family not in self.eval_images:
             available = list(self.eval_images.keys())

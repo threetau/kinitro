@@ -6,6 +6,7 @@ import asyncio
 import time
 
 import structlog
+from bittensor import Subtensor
 
 from kinitro.backend.storage import Storage
 from kinitro.chain.commitments import read_miner_commitments
@@ -18,6 +19,7 @@ from kinitro.scheduler.scoring import (
     convert_to_scores_data,
 )
 from kinitro.scheduler.task_generator import generate_tasks
+from kinitro.types import BlockNumber, EnvironmentId
 
 logger = structlog.get_logger()
 
@@ -39,7 +41,7 @@ class Scheduler:
         self.storage = storage
         # Filter environments by family if configured
         if self.config.env_families:
-            env_ids: list[str] = []
+            env_ids: list[EnvironmentId] = []
             missing_families: list[str] = []
             for family in self.config.env_families:
                 family_envs = get_environments_by_family(family)
@@ -47,7 +49,7 @@ class Scheduler:
                     missing_families.append(family)
                 env_ids.extend(family_envs)
             # Deduplicate while preserving order
-            seen: set[str] = set()
+            seen: set[EnvironmentId] = set()
             self.env_ids = [e for e in env_ids if not (e in seen or seen.add(e))]
             if missing_families:
                 logger.warning(
@@ -63,20 +65,11 @@ class Scheduler:
         else:
             self.env_ids = get_all_environment_ids()
         self._running = False
-        self._subtensor = None
+        self.subtensor: Subtensor | None = None
         self._backend_keypair: BackendKeypair | None = None
 
         # Load backend keypair for decrypting miner endpoints
         self._load_backend_keypair()
-
-    @property
-    def subtensor(self):
-        """Lazy-load subtensor connection."""
-        if self._subtensor is None:
-            import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
-
-            self._subtensor = bt.Subtensor(network=self.config.network)
-        return self._subtensor
 
     def _load_backend_keypair(self) -> None:
         """Load the backend keypair for decrypting miner endpoints."""
@@ -117,6 +110,9 @@ class Scheduler:
         if self._running:
             logger.warning("scheduler_already_running")
             return
+
+        # Initialize Subtensor (blocking RPC) off the event loop
+        self.subtensor = await asyncio.to_thread(Subtensor, network=self.config.network)
 
         # Clean up incomplete cycles from previous runs (cycle isolation)
         async with self.storage.session() as session:
@@ -165,10 +161,12 @@ class Scheduler:
 
     async def _run_evaluation_cycle(self) -> None:
         """Run a single evaluation cycle."""
+        if self.subtensor is None:
+            raise RuntimeError("subtensor not initialized; call start() first")
         start_time = time.time()
 
         # Get current block
-        block_number = self.subtensor.block
+        block_number = BlockNumber(self.subtensor.block)
         logger.info("starting_evaluation_cycle", block=block_number)
 
         # Create cycle in database
@@ -275,7 +273,7 @@ class Scheduler:
                     session,
                     cycle_id=cycle_id,
                     block_number=block_number,
-                    weights={int(k): float(v) for k, v in weights.items()},
+                    weights={k: float(v) for k, v in weights.items()},
                     weights_u16=weights_u16,
                 )
 
@@ -331,10 +329,10 @@ class Scheduler:
             logger.info(
                 "waiting_for_tasks",
                 cycle_id=cycle_id,
-                pending=stats["pending_tasks"],
-                assigned=stats["assigned_tasks"],
-                completed=stats["completed_tasks"],
-                failed=stats["failed_tasks"],
+                pending=stats.pending_tasks,
+                assigned=stats.assigned_tasks,
+                completed=stats.completed_tasks,
+                failed=stats.failed_tasks,
                 elapsed_seconds=int(elapsed),
             )
 
@@ -366,5 +364,10 @@ async def run_scheduler(config: SchedulerConfig) -> None:
     try:
         await scheduler.start()
     finally:
+        if scheduler.subtensor is not None:
+            try:
+                await asyncio.to_thread(scheduler.subtensor.close)
+            except Exception:
+                logger.warning("subtensor_close_failed", exc_info=True)
         await scheduler.stop()
         await storage.close()

@@ -4,7 +4,6 @@ import asyncio
 import logging
 import multiprocessing as mp
 import os
-from typing import Any
 
 import structlog
 
@@ -17,6 +16,7 @@ from kinitro.executor.env_loader import (
     load_and_warmup_env,
     run_evaluation,
 )
+from kinitro.types import AffinetesEnv
 
 # Configure structlog for this subprocess
 structlog.configure(
@@ -89,7 +89,7 @@ class FamilyWorker:
         # Async primitives (initialized in run())
         self.task_queue: asyncio.Queue | None = None
         self.semaphore: asyncio.Semaphore | None = None
-        self.env: Any = None
+        self.env: AffinetesEnv | None = None
         self.running = False
 
         # Metrics
@@ -222,6 +222,7 @@ class FamilyWorker:
             env_id=task.env_id,
         )
 
+        assert self.env is not None, "env not initialized"
         task_result = await run_evaluation(
             env=self.env,
             task=task,

@@ -1,12 +1,15 @@
 """Deployment commands for Basilica and one-command deployment."""
 
+import asyncio
 import os
 
 import typer
 from basilica import BasilicaClient
+from bittensor import AsyncSubtensor
+from bittensor_wallet import Wallet
 from huggingface_hub import HfApi
 
-from kinitro.chain.commitments import commit_model
+from kinitro.chain.commitments import commit_model_async
 
 # Shared deployment configuration
 PIP_PACKAGES = [
@@ -461,30 +464,27 @@ def miner_deploy(
                 f"  [DRY RUN] Would commit {repo}@{revision_value[:12]}... with deployment_id {deployment_id}"
             )
         else:
-            import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
-
-            subtensor = bt.Subtensor(network=network)
-            wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)
-
+            wallet = Wallet(name=wallet_name, hotkey=hotkey_name)
             typer.echo(f"  Wallet: {wallet.hotkey.ss58_address[:16]}...")
 
-            try:
-                success = commit_model(
-                    subtensor=subtensor,
-                    wallet=wallet,
-                    netuid=netuid,
-                    repo=repo,
-                    revision=revision_value,
-                    deployment_id=deployment_id,
-                )
+            async def _commit_on_chain() -> bool:
+                async with AsyncSubtensor(network=network) as subtensor:
+                    return await commit_model_async(
+                        subtensor=subtensor,
+                        wallet=wallet,
+                        netuid=netuid,
+                        repo=repo,
+                        revision=revision_value,
+                        deployment_id=deployment_id,
+                    )
 
-                if success:
-                    typer.echo("  Commitment successful!")
-                else:
-                    typer.echo("  Commitment failed!", err=True)
-                    raise typer.Exit(1)
-            finally:
-                subtensor.close()
+            success = asyncio.run(_commit_on_chain())
+
+            if success:
+                typer.echo("  Commitment successful!")
+            else:
+                typer.echo("  Commitment failed!", err=True)
+                raise typer.Exit(1)
 
     # Summary
     typer.echo("\n" + "=" * 60)

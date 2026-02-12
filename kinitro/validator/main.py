@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 
 import structlog
+from bittensor import Subtensor
+from bittensor_wallet import Wallet
 
 from kinitro.chain.weights import set_weights, verify_weight_setting_eligibility
 from kinitro.config import ValidatorConfig
+from kinitro.types import MinerUID
 from kinitro.validator.client import BackendClient
 
 logger = structlog.get_logger()
@@ -37,10 +40,11 @@ class Validator:
         self.config = config
         self.backend_url = backend_url
         self.client = BackendClient(backend_url)
-
-        # Lazy-loaded Bittensor objects
-        self._subtensor = None
-        self._wallet = None
+        self.subtensor: Subtensor | None = None
+        self.wallet = Wallet(
+            name=config.wallet_name,
+            hotkey=config.hotkey_name,
+        )
 
         # State
         self._last_submitted_block = 0
@@ -52,27 +56,6 @@ class Validator:
             backend_url=backend_url,
         )
 
-    @property
-    def subtensor(self):
-        """Lazy-load subtensor connection."""
-        if self._subtensor is None:
-            import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
-
-            self._subtensor = bt.Subtensor(network=self.config.network)
-        return self._subtensor
-
-    @property
-    def wallet(self):
-        """Lazy-load wallet."""
-        if self._wallet is None:
-            import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
-
-            self._wallet = bt.Wallet(
-                name=self.config.wallet_name,
-                hotkey=self.config.hotkey_name,
-            )
-        return self._wallet
-
     async def run(self) -> None:
         """
         Main validator loop.
@@ -81,9 +64,15 @@ class Validator:
         """
         logger.info("starting_validator_loop")
 
+        if self.subtensor is None:
+            raise RuntimeError("subtensor is not initialized")
+
         # Check eligibility
-        eligible, reason = verify_weight_setting_eligibility(
-            self.subtensor, self.wallet, self.config.netuid
+        eligible, reason = await asyncio.to_thread(
+            verify_weight_setting_eligibility,
+            self.subtensor,
+            self.wallet,
+            self.config.netuid,
         )
         if not eligible:
             logger.error("validator_not_eligible", reason=reason)
@@ -113,6 +102,9 @@ class Validator:
 
     async def _weight_setting_cycle(self) -> None:
         """Single cycle: fetch weights from backend and submit if new."""
+        if self.subtensor is None:
+            raise RuntimeError("subtensor is not initialized")
+
         # Get latest weights from backend
         weights_data = await self.client.get_latest_weights()
 
@@ -137,11 +129,12 @@ class Validator:
         )
 
         # Submit weights to chain
-        success = set_weights(
-            subtensor=self.subtensor,
-            wallet=self.wallet,
-            netuid=self.config.netuid,
-            weights=weights_data.weights,
+        success = await asyncio.to_thread(
+            set_weights,
+            self.subtensor,
+            self.wallet,
+            self.config.netuid,
+            {MinerUID(k): v for k, v in weights_data.weights.items()},
         )
 
         if success:
@@ -172,6 +165,12 @@ async def run_validator(
     """
     validator = Validator(config, backend_url)
     try:
+        validator.subtensor = await asyncio.to_thread(Subtensor, network=config.network)
         await validator.run()
     finally:
+        if validator.subtensor is not None:
+            try:
+                await asyncio.to_thread(validator.subtensor.close)
+            except Exception:
+                logger.warning("subtensor_close_failed", exc_info=True)
         await validator.close()

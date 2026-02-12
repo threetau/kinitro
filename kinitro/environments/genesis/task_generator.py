@@ -108,7 +108,7 @@ class TaskGenerator:
         available_types = self._task_types
         if robot_config is not None and robot_config.supported_task_types:
             available_types = [
-                t for t in self._task_types if t.value in robot_config.supported_task_types
+                t for t in self._task_types if t in robot_config.supported_task_types
             ]
 
         if not available_types:
@@ -152,21 +152,23 @@ class TaskGenerator:
         """Attempt to generate a single task of the specified type."""
         supported = robot_config.supported_task_types if robot_config else None
 
-        if task_type == TaskType.NAVIGATE:
-            return self._generate_navigate_task(objects, rng, supported)
-        elif task_type == TaskType.PICKUP:
-            return self._generate_pickup_task(objects, rng, supported)
-        elif task_type == TaskType.PLACE:
-            return self._generate_place_task(objects, rng, supported)
-        elif task_type == TaskType.PUSH:
-            return self._generate_push_task(objects, rng, supported)
-        return None
+        match task_type:
+            case TaskType.NAVIGATE:
+                return self._generate_navigate_task(objects, rng, supported)
+            case TaskType.PICKUP:
+                return self._generate_pickup_task(objects, rng, supported)
+            case TaskType.PLACE:
+                return self._generate_place_task(objects, rng, supported)
+            case TaskType.PUSH:
+                return self._generate_push_task(objects, rng, supported)
+            case _:
+                return None
 
     def _generate_navigate_task(
         self,
         objects: list[SceneObject],
         rng: np.random.Generator,
-        supported: list[str] | None,
+        supported: list[TaskType] | None,
     ) -> TaskSpec | None:
         """Generate a navigation task."""
         if not objects:
@@ -197,7 +199,7 @@ class TaskGenerator:
         self,
         objects: list[SceneObject],
         rng: np.random.Generator,
-        supported: list[str] | None,
+        supported: list[TaskType] | None,
     ) -> TaskSpec | None:
         """Generate a pickup task."""
         candidates = _get_pickupable_objects(objects)
@@ -229,7 +231,7 @@ class TaskGenerator:
         self,
         objects: list[SceneObject],
         rng: np.random.Generator,
-        supported: list[str] | None,
+        supported: list[TaskType] | None,
     ) -> TaskSpec | None:
         """Generate a place task (pick up object, place near destination)."""
         pickupables = _get_pickupable_objects(objects)
@@ -266,7 +268,7 @@ class TaskGenerator:
         self,
         objects: list[SceneObject],
         rng: np.random.Generator,
-        supported: list[str] | None,
+        supported: list[TaskType] | None,
     ) -> TaskSpec | None:
         """Generate a push task."""
         # Any non-picked-up object can be pushed; destination is a different object
@@ -319,9 +321,9 @@ class TaskGenerator:
         if destination is not None:
             return template.format(
                 color=target.color,
-                object=target.object_type,
+                object=target.object_type.value,
                 dest_color=destination.color,
-                dest_object=destination.object_type,
+                dest_object=destination.object_type.value,
             )
 
-        return template.format(color=target.color, object=target.object_type)
+        return template.format(color=target.color, object=target.object_type.value)

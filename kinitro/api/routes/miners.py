@@ -7,6 +7,7 @@ from kinitro.api.deps import get_session, get_storage
 from kinitro.backend.models import EnvironmentInfo, MinerInfo
 from kinitro.backend.storage import Storage
 from kinitro.environments import get_all_environment_ids
+from kinitro.types import EnvironmentId, EnvStatsEntry, Hotkey, MinerUID
 
 router = APIRouter(prefix="/v1", tags=["Miners & Environments"])
 
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/v1", tags=["Miners & Environments"])
 async def list_miners(
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
-):
+) -> list[MinerInfo]:
     """List all miners that have been evaluated."""
     # Get latest cycle's scores to get miner info
     cycle = await storage.get_latest_cycle(session, completed_only=True)
@@ -25,21 +26,22 @@ async def list_miners(
     scores = await storage.get_scores_for_cycle(session, cycle.id)
 
     # Aggregate by miner
-    miners_dict: dict[int, MinerInfo] = {}
+    miners_dict: dict[MinerUID, MinerInfo] = {}
     for s in scores:
-        if s.uid not in miners_dict:
-            miners_dict[s.uid] = MinerInfo(
-                uid=s.uid,
-                hotkey=s.hotkey,
+        uid = MinerUID(s.uid)
+        if uid not in miners_dict:
+            miners_dict[uid] = MinerInfo(
+                uid=uid,
+                hotkey=Hotkey(s.hotkey),
                 last_evaluated_block=cycle.block_number,
                 avg_success_rate=0.0,
                 environments_evaluated=[],
             )
-        miners_dict[s.uid].environments_evaluated.append(s.env_id)
+        miners_dict[uid].environments_evaluated.append(EnvironmentId(s.env_id))
 
     # Calculate average success rate per miner
     for uid, miner in miners_dict.items():
-        miner_scores = [s.success_rate for s in scores if s.uid == uid]
+        miner_scores = [s.success_rate for s in scores if s.uid == int(uid)]
         if miner_scores:
             miner.avg_success_rate = sum(miner_scores) / len(miner_scores)
 
@@ -50,21 +52,24 @@ async def list_miners(
 async def list_environments(
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
-):
+) -> list[EnvironmentInfo]:
     """List all evaluation environments."""
     env_ids = get_all_environment_ids()
 
     # Get latest cycle for stats
     cycle = await storage.get_latest_cycle(session, completed_only=True)
 
-    env_stats: dict[str, dict] = {env_id: {"count": 0, "total_sr": 0.0} for env_id in env_ids}
+    env_stats: dict[EnvironmentId, EnvStatsEntry] = {
+        env_id: EnvStatsEntry(count=0, total_sr=0.0) for env_id in env_ids
+    }
 
     if cycle:
         scores = await storage.get_scores_for_cycle(session, cycle.id)
         for s in scores:
-            if s.env_id in env_stats:
-                env_stats[s.env_id]["count"] += 1
-                env_stats[s.env_id]["total_sr"] += s.success_rate
+            eid = EnvironmentId(s.env_id)
+            if eid in env_stats:
+                env_stats[eid]["count"] += 1
+                env_stats[eid]["total_sr"] += s.success_rate
 
     result = []
     for env_id in env_ids:

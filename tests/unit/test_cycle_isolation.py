@@ -45,13 +45,13 @@ class TestCancelIncompleteCycles:
     """Tests for Storage.cancel_incomplete_cycles()."""
 
     @pytest.fixture
-    def mock_session(self):
+    def mock_session(self) -> AsyncMock:
         """Create a mock async session."""
         session = AsyncMock()
         return session
 
     @pytest.mark.asyncio
-    async def test_no_incomplete_cycles(self, mock_session):
+    async def test_no_incomplete_cycles(self, mock_session: AsyncMock) -> None:
         """When no incomplete cycles exist, nothing is cancelled."""
         mock_session.execute = _mock_execute_results([])
 
@@ -63,7 +63,7 @@ class TestCancelIncompleteCycles:
         assert tasks_cancelled == 0
 
     @pytest.mark.asyncio
-    async def test_cancels_running_cycle_and_tasks(self, mock_session):
+    async def test_cancels_running_cycle_and_tasks(self, mock_session: AsyncMock) -> None:
         """Running cycles and their pending/assigned tasks are cancelled."""
         mock_cycle = _make_mock_cycle()
         mock_task1 = _make_mock_task(TaskStatus.PENDING.value)
@@ -89,7 +89,7 @@ class TestCancelIncompleteCycles:
         assert mock_task2.status == TaskStatus.FAILED.value
 
     @pytest.mark.asyncio
-    async def test_leaves_completed_tasks_unchanged(self, mock_session):
+    async def test_leaves_completed_tasks_unchanged(self, mock_session: AsyncMock) -> None:
         """Completed/failed tasks from incomplete cycles are not modified."""
         mock_cycle = _make_mock_cycle()
         mock_task = _make_mock_task(TaskStatus.PENDING.value)

@@ -22,6 +22,7 @@ from kinitro.environments.genesis.scene_generator import (
 from kinitro.environments.genesis.task_generator import TaskGenerator
 from kinitro.environments.genesis.task_types import SceneObject, TaskSpec, TaskType
 from kinitro.rl_interface import Action, ActionKeys, Observation, ProprioKeys, encode_image
+from kinitro.types import EncodedImage, ObjectType, RobotStateDict, StepInfo
 
 logger = structlog.get_logger()
 
@@ -318,7 +319,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
     @abstractmethod
     def _compute_reward(
         self,
-        robot_state: dict[str, np.ndarray],
+        robot_state: RobotStateDict,
         object_states: dict[str, np.ndarray],
         task_spec: TaskSpec,
     ) -> float:
@@ -327,7 +328,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
     @abstractmethod
     def _check_success(
         self,
-        robot_state: dict[str, np.ndarray],
+        robot_state: RobotStateDict,
         object_states: dict[str, np.ndarray],
         task_spec: TaskSpec,
     ) -> bool:
@@ -356,7 +357,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
                 target = scene_objects[0]
                 task_spec = TaskSpec(
                     task_type=TaskType.NAVIGATE,
-                    task_prompt=f"Walk to the {target.color} {target.object_type}.",
+                    task_prompt=f"Walk to the {target.color} {target.object_type.value}.",
                     target_object_id=target.object_id,
                     target_object_type=target.object_type,
                     target_position=target.position,
@@ -366,7 +367,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
                     task_type=TaskType.NAVIGATE,
                     task_prompt="Explore the environment.",
                     target_object_id="",
-                    target_object_type="",
+                    target_object_type=ObjectType.BOX,
                     target_position=[1.0, 0.0, 0.0],
                 )
             logger.warning("task_generation_fallback", seed=seed)
@@ -382,7 +383,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
                     "objects": [
                         {
                             "object_id": obj.object_id,
-                            "object_type": obj.object_type,
+                            "object_type": obj.object_type.value,
                             "position": obj.position,
                             "color": obj.color,
                             "color_rgb": list(obj.color_rgb),
@@ -413,7 +414,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         obj_configs = [
             SceneObjectConfig(
                 object_id=obj["object_id"],
-                object_type=obj["object_type"],
+                object_type=ObjectType(obj["object_type"]),
                 position=obj["position"],
                 color=obj["color"],
                 color_rgb=tuple(obj["color_rgb"]),
@@ -442,7 +443,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         cam_rgb, cam_depth = self._capture_camera()
         return self._build_observation(robot_state, cam_rgb, cam_depth)
 
-    def step(self, action: Action) -> tuple[Observation, float, bool, dict[str, Any]]:
+    def step(self, action: Action) -> tuple[Observation, float, bool, StepInfo]:
         """Execute action in environment."""
         self._episode_steps += 1
 
@@ -481,7 +482,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
 
         obs = self._build_observation(robot_state, cam_rgb, cam_depth)
 
-        info: dict[str, Any] = {
+        info: StepInfo = {
             "task_prompt": self._current_task.task_prompt if self._current_task else "",
             "task_type": self._current_task.task_type.value if self._current_task else "",
             "episode_steps": self._episode_steps,
@@ -637,7 +638,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
                 exc_info=True,
             )
 
-    def _read_robot_state(self) -> dict[str, np.ndarray]:
+    def _read_robot_state(self) -> RobotStateDict:
         """Read robot state from Genesis tensors, convert to numpy.
 
         Batches all GPU tensor reads into a single CPU transfer via
@@ -742,16 +743,16 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
 
     def _build_observation(
         self,
-        robot_state: dict[str, np.ndarray],
+        robot_state: RobotStateDict,
         cam_rgb: np.ndarray | None,
         cam_depth: np.ndarray | None,
     ) -> Observation:
         """Build the full Observation from robot state and camera images."""
-        rgb: dict[str, dict | list] = {}
+        rgb: dict[str, EncodedImage] = {}
         if cam_rgb is not None:
             rgb["ego"] = encode_image(cam_rgb)
 
-        depth: dict[str, dict | list] = {}
+        depth: dict[str, EncodedImage] = {}
         if cam_depth is not None:
             depth["ego"] = encode_image(cam_depth)
 
@@ -803,7 +804,7 @@ class GenesisBaseEnvironment(RoboticsEnvironment):
         # Control only actuated joints (skip 6 floating base DOFs)
         self._robot.control_dofs_position(target_pos, dofs_idx_local=self._actuated_dof_idx)
 
-    def _check_fallen(self, robot_state: dict[str, np.ndarray]) -> bool:
+    def _check_fallen(self, robot_state: RobotStateDict) -> bool:
         """Check if robot has fallen over."""
         base_height = robot_state["base_pos"][2]
         return bool(base_height < self._robot_config.fall_height_threshold)

@@ -26,7 +26,7 @@ def api(
         help="Disable API key authentication for task endpoints.",
     ),
     log_level: str = typer.Option("INFO", help="Logging level"),
-):
+) -> None:
     """
     Run the API service (lightweight REST API).
 
@@ -56,7 +56,7 @@ def api(
     )
 
     typer.echo(f"Starting API service on {host}:{port}")
-    typer.echo(f"  Database: {database_url.split('@')[-1]}")
+    typer.echo(f"  Database: {database_url.rsplit('@', maxsplit=1)[-1]}")
     if no_auth:
         typer.echo("  Auth: disabled (--no-auth)")
     elif config.api_key:
@@ -81,7 +81,7 @@ def scheduler(
         help="Filter environments to specific families, comma-separated (e.g., metaworld,genesis)",
     ),
     log_level: str = typer.Option("INFO", help="Logging level"),
-):
+) -> None:
     """
     Run the scheduler service.
 
@@ -120,7 +120,7 @@ def scheduler(
 
     typer.echo("Starting scheduler service")
     typer.echo(f"  Network: {network} (netuid={netuid})")
-    typer.echo(f"  Database: {database_url.split('@')[-1]}")
+    typer.echo(f"  Database: {database_url.rsplit('@', maxsplit=1)[-1]}")
     typer.echo(f"  Eval interval: {eval_interval}s")
 
     asyncio.run(run_scheduler(config))
@@ -162,7 +162,7 @@ def executor(
         help="Comma-separated environment families to run (e.g., 'metaworld,genesis'). "
         "Defaults to families in --eval-images.",
     ),
-):
+) -> None:
     """
     Run the executor service.
 

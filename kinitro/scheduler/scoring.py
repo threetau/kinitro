@@ -11,6 +11,15 @@ from kinitro.scoring.winners_take_all import (
     compute_subset_scores_with_priority,
     scores_to_weights,
 )
+from kinitro.types import (
+    BlockNumber,
+    EnvironmentId,
+    Hotkey,
+    MinerFirstBlocks,
+    MinerScoreData,
+    MinerScores,
+    MinerUID,
+)
 
 logger = structlog.get_logger()
 PLACEHOLDER_BLOCK_NUM = 2**32  # Large block number for missing data
@@ -18,7 +27,7 @@ PLACEHOLDER_BLOCK_NUM = 2**32  # Large block number for missing data
 
 def aggregate_task_results(
     tasks: list[TaskPoolORM],
-) -> dict[int, dict[str, float]]:
+) -> MinerScores:
     """
     Aggregate task results into miner scores.
 
@@ -29,14 +38,14 @@ def aggregate_task_results(
         Dict mapping uid -> env_id -> success_rate
     """
     # Group by (miner_uid, env_id)
-    scores: dict[int, dict[str, list[float]]] = {}
+    scores: dict[MinerUID, dict[EnvironmentId, list[float]]] = {}
 
     for task in tasks:
         if task.result is None:
             continue
 
-        uid = task.miner_uid
-        env_id = task.env_id
+        uid = MinerUID(task.miner_uid)
+        env_id = EnvironmentId(task.env_id)
 
         if uid not in scores:
             scores[uid] = {}
@@ -48,7 +57,7 @@ def aggregate_task_results(
         scores[uid][env_id].append(1.0 if success else 0.0)
 
     # Average to get success rates
-    result: dict[int, dict[str, float]] = {}
+    result: MinerScores = {}
     for uid, env_scores in scores.items():
         result[uid] = {}
         for env_id, task_scores in env_scores.items():
@@ -67,15 +76,15 @@ def aggregate_task_results(
 
 
 def compute_weights(
-    miner_scores: dict[int, dict[str, float]],
-    env_ids: list[str],
+    miner_scores: MinerScores,
+    env_ids: list[EnvironmentId],
     episodes_per_env: int,
-    miners: dict[int, MinerCommitment],
+    miners: dict[MinerUID, MinerCommitment],
     pareto_temperature: float = 1.0,
     threshold_z_score: float = 1.5,
     threshold_min_gap: float = 0.02,
     threshold_max_gap: float = 0.10,
-) -> tuple[dict[int, float], dict[str, list[int]]]:
+) -> tuple[dict[MinerUID, float], dict[str, list[int]]]:
     """
     Compute weights from miner scores using Pareto frontier with first-commit advantage.
 
@@ -124,14 +133,14 @@ def compute_weights(
     )
 
     # Extract first_block for each miner
-    miner_first_blocks = {
+    miner_first_blocks: MinerFirstBlocks = {
         uid: miners[uid].committed_block for uid in miner_scores.keys() if uid in miners
     }
 
     # Fill in missing first_blocks with a large value (disadvantaged)
     for uid in miner_scores.keys():
         if uid not in miner_first_blocks:
-            miner_first_blocks[uid] = PLACEHOLDER_BLOCK_NUM
+            miner_first_blocks[uid] = BlockNumber(PLACEHOLDER_BLOCK_NUM)
 
     logger.info(
         "first_commit_advantage",
@@ -155,16 +164,16 @@ def compute_weights(
 
     # Convert to u16 for chain submission
     uids, values = weights_to_u16(weights)
-    weights_u16 = {"uids": uids, "values": values}
+    weights_u16: dict[str, list[int]] = {"uids": [int(u) for u in uids], "values": values}
 
     return weights, weights_u16
 
 
 def convert_to_scores_data(
-    miner_scores: dict[int, dict[str, float]],
-    miners_by_uid: dict[int, str],  # uid -> hotkey
+    miner_scores: MinerScores,
+    miners_by_uid: dict[MinerUID, Hotkey],
     episodes_per_env: int,
-) -> list[dict]:
+) -> list[MinerScoreData]:
     """
     Convert miner scores to format for storage.
 
@@ -179,7 +188,7 @@ def convert_to_scores_data(
     scores_data = []
 
     for uid, env_scores in miner_scores.items():
-        hotkey = miners_by_uid.get(uid, "unknown")
+        hotkey = miners_by_uid.get(uid, Hotkey("unknown"))
 
         for env_id, success_rate in env_scores.items():
             scores_data.append(

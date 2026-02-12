@@ -65,7 +65,9 @@ class StructuredLogger:
 
         self.name = name
 
-    def _log(self, level: str, message: str, **kwargs: Any) -> None:
+    def _log(
+        self, level: str, message: str, **kwargs: Any
+    ) -> None:  # Any: arbitrary structured log fields
         """Emit a structured log entry."""
         entry = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -135,7 +137,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Global state
+# Any: global state holds heterogeneous values (policy object, counters, etc.)
 _state: dict[str, Any] = {
     "policy": None,
     "request_count": 0,

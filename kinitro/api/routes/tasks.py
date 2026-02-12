@@ -9,10 +9,12 @@ from kinitro.backend.models import (
     TaskFetchRequest,
     TaskFetchResponse,
     TaskPoolStats,
+    TaskStatus,
     TaskSubmitRequest,
     TaskSubmitResponse,
 )
 from kinitro.backend.storage import Storage
+from kinitro.types import EnvironmentId, Hotkey, MinerUID, Seed, TaskUUID
 
 router = APIRouter(prefix="/v1/tasks", tags=["Tasks"])
 
@@ -23,7 +25,7 @@ async def fetch_tasks(
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
     _auth: None = Depends(verify_api_key),
-):
+) -> TaskFetchResponse:
     """
     Fetch tasks from the task pool.
 
@@ -46,16 +48,16 @@ async def fetch_tasks(
 
     tasks = [
         Task(
-            task_uuid=t.task_uuid,
+            task_uuid=TaskUUID(t.task_uuid),
             cycle_id=t.cycle_id,
-            miner_uid=t.miner_uid,
-            miner_hotkey=t.miner_hotkey,
+            miner_uid=MinerUID(t.miner_uid),
+            miner_hotkey=Hotkey(t.miner_hotkey),
             miner_endpoint=t.miner_endpoint,
             miner_repo=t.miner_repo,
             miner_revision=t.miner_revision,
-            env_id=t.env_id,
-            seed=t.seed,
-            status=t.status,
+            env_id=EnvironmentId(t.env_id),
+            seed=Seed(t.seed),
+            status=TaskStatus(t.status),
             created_at=t.created_at,
         )
         for t in tasks_orm
@@ -73,7 +75,7 @@ async def submit_tasks(
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
     _auth: None = Depends(verify_api_key),
-):
+) -> TaskSubmitResponse:
     """
     Submit results for completed tasks.
 
@@ -117,7 +119,7 @@ async def get_task_stats(
     cycle_id: int | None = None,
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
-):
+) -> TaskPoolStats:
     """
     Get task pool statistics.
 
@@ -129,14 +131,4 @@ async def get_task_stats(
         running_cycle = await storage.get_running_cycle(session)
         cycle_id = running_cycle.id if running_cycle else None
 
-    stats = await storage.get_task_pool_stats(session, cycle_id=cycle_id)
-
-    return TaskPoolStats(
-        total_tasks=stats["total_tasks"],
-        pending_tasks=stats["pending_tasks"],
-        assigned_tasks=stats["assigned_tasks"],
-        completed_tasks=stats["completed_tasks"],
-        failed_tasks=stats["failed_tasks"],
-        active_executors=stats["active_executors"],
-        current_cycle_id=stats["current_cycle_id"],
-    )
+    return await storage.get_task_pool_stats(session, cycle_id=cycle_id)

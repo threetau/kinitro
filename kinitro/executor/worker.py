@@ -1,7 +1,6 @@
 """Worker that executes evaluation tasks using affinetes."""
 
 import asyncio
-from typing import Any
 
 import structlog
 
@@ -14,6 +13,7 @@ from kinitro.executor.env_loader import (
     run_evaluation,
 )
 from kinitro.executor.verification import PolicyVerifier, VerificationResult
+from kinitro.types import AffinetesEnv, env_family_from_id
 
 logger = structlog.get_logger()
 
@@ -31,7 +31,7 @@ class Worker:
     def __init__(self, config: ExecutorConfig):
         self.config = config
         # Per-family eval environments: family -> affinetes env
-        self._envs: dict[str, Any] = {}
+        self._envs: dict[str, AffinetesEnv] = {}
         self._env_lock = asyncio.Lock()
 
         # Initialize verifier if enabled
@@ -58,9 +58,9 @@ class Worker:
 
     def _get_family(self, env_id: str) -> str:
         """Extract family from env_id (e.g., 'metaworld' from 'metaworld/pick-place-v3')."""
-        return env_id.split("/")[0] if "/" in env_id else env_id
+        return env_family_from_id(env_id)
 
-    async def _get_eval_environment(self, env_id: str):
+    async def _get_eval_environment(self, env_id: str) -> AffinetesEnv:
         """
         Get or create the affinetes-managed eval environment for a given env_id.
 
