@@ -16,7 +16,7 @@ logger = structlog.get_logger()
 # Note: Environment classes are imported lazily in factory functions to allow
 # containers with partial dependencies (e.g., genesis container without metaworld)
 
-# Path to environments directory (robo-subnet/environments/)
+# Path to repository-root environments/ directory (contains env configs, assets, etc.)
 _ENVIRONMENTS_DIR = Path(__file__).parent.parent.parent / "environments"
 
 # Type alias for environment factory functions

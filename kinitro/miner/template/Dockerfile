@@ -1,10 +1,10 @@
-# Dockerfile for Robotics Subnet Miner Policy Server
+# Dockerfile for Kinitro Miner Policy Server
 #
 # This creates a FastAPI server that exposes your policy for validator queries.
 #
-# Build: docker build -t your-username/robo-policy:v1 .
-# Test:  docker run -p 8000:8000 your-username/robo-policy:v1
-# Push:  docker push your-username/robo-policy:v1
+# Build: docker build -t your-username/kinitro-policy:v1 .
+# Test:  docker run -p 8000:8000 your-username/kinitro-policy:v1
+# Push:  docker push your-username/kinitro-policy:v1
 #
 # Deploy to Basilica: kinitro miner push --repo user/policy --revision abc123
 
@@ -29,6 +29,10 @@ COPY policy.py .
 # Copy model weights (uncomment and modify as needed)
 # COPY model.pt .
 # COPY models/ ./models/
+
+# Create non-root user
+RUN useradd -m -u 1000 miner && chown -R miner:miner /app
+USER miner
 
 # Expose port for FastAPI
 EXPOSE 8000

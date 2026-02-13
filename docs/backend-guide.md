@@ -13,7 +13,7 @@ flowchart TB
 
     DB[(PostgreSQL)]
     SIM["Isolated Simulations
-    (affinetes)"]
+    (Affinetes)"]
     MINER["Miner Basilica
     Endpoints"]
 
@@ -131,13 +131,13 @@ Each service (API, Scheduler, Executor) has its own configuration with service-s
 
 ### API Service Configuration
 
-| CLI Flag         | Environment Variable       | Default                    | Description                                     |
-| ---------------- | -------------------------- | -------------------------- | ----------------------------------------------- |
-| `--host`         | `KINITRO_API_HOST`         | `0.0.0.0`                  | API server bind address                         |
-| `--port`         | `KINITRO_API_PORT`         | `8000`                     | API server port                                 |
-| `--database-url` | `KINITRO_API_DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection URL                       |
-| `--no-auth`      | -                          | `false`                    | Disable API key authentication                  |
-| `--log-level`    | `KINITRO_API_LOG_LEVEL`    | `INFO`                     | Logging level                                   |
+| CLI Flag         | Environment Variable       | Default                    | Description                    |
+| ---------------- | -------------------------- | -------------------------- | ------------------------------ |
+| `--host`         | `KINITRO_API_HOST`         | `0.0.0.0`                  | API server bind address        |
+| `--port`         | `KINITRO_API_PORT`         | `8000`                     | API server port                |
+| `--database-url` | `KINITRO_API_DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection URL      |
+| `--no-auth`      | -                          | `false`                    | Disable API key authentication |
+| `--log-level`    | `KINITRO_API_LOG_LEVEL`    | `INFO`                     | Logging level                  |
 
 **Authentication:** API key authentication is **enabled by default**. Set the `KINITRO_API_API_KEY` environment variable to configure the key. Use `--no-auth` to disable authentication.
 
@@ -149,39 +149,39 @@ Additional API settings:
 
 ### Scheduler Service Configuration
 
-| CLI Flag             | Environment Variable                      | Default                    | Description                                                               |
-| -------------------- | ----------------------------------------- | -------------------------- | ------------------------------------------------------------------------- |
-| `--database-url`     | `KINITRO_SCHEDULER_DATABASE_URL`          | `postgresql+asyncpg://...` | PostgreSQL connection URL                                                 |
-| `--network`          | `KINITRO_SCHEDULER_NETWORK`               | `finney`                   | Bittensor network                                                         |
-| `--netuid`           | `KINITRO_SCHEDULER_NETUID`                | `1`                        | Subnet UID                                                                |
-| `--eval-interval`    | `KINITRO_SCHEDULER_EVAL_INTERVAL_SECONDS` | `3600`                     | Seconds between eval cycles                                               |
-| `--episodes-per-env` | `KINITRO_SCHEDULER_EPISODES_PER_ENV`      | `50`                       | Episodes per environment                                                  |
+| CLI Flag             | Environment Variable                      | Default                    | Description                                                              |
+| -------------------- | ----------------------------------------- | -------------------------- | ------------------------------------------------------------------------ |
+| `--database-url`     | `KINITRO_SCHEDULER_DATABASE_URL`          | `postgresql+asyncpg://...` | PostgreSQL connection URL                                                |
+| `--network`          | `KINITRO_SCHEDULER_NETWORK`               | `finney`                   | Bittensor network                                                        |
+| `--netuid`           | `KINITRO_SCHEDULER_NETUID`                | `1`                        | Subnet UID                                                               |
+| `--eval-interval`    | `KINITRO_SCHEDULER_EVAL_INTERVAL_SECONDS` | `3600`                     | Seconds between eval cycles                                              |
+| `--episodes-per-env` | `KINITRO_SCHEDULER_EPISODES_PER_ENV`      | `50`                       | Episodes per environment                                                 |
 | `--env-families`     | `KINITRO_SCHEDULER_ENV_FAMILIES`          | `null` (all)               | Filter to specific families, comma-separated (e.g., `metaworld,genesis`) |
-| `--log-level`        | `KINITRO_SCHEDULER_LOG_LEVEL`             | `INFO`                     | Logging level                                                             |
+| `--log-level`        | `KINITRO_SCHEDULER_LOG_LEVEL`             | `INFO`                     | Logging level                                                            |
 
 Additional Scheduler settings:
 
-| Environment Variable                             | Default | Description                                  |
-| ------------------------------------------------ | ------- | -------------------------------------------- |
-| `KINITRO_SCHEDULER_PARETO_TEMPERATURE`           | `1.0`   | Softmax temperature for weight conversion    |
-| `KINITRO_SCHEDULER_TASK_STALE_THRESHOLD_SECONDS` | `900`   | Time after which assigned tasks become stale |
-| `KINITRO_SCHEDULER_CYCLE_TIMEOUT_SECONDS`        | `7200`  | Maximum time to wait for cycle completion    |
+| Environment Variable                             | Default | Description                                   |
+| ------------------------------------------------ | ------- | --------------------------------------------- |
+| `KINITRO_SCHEDULER_PARETO_TEMPERATURE`           | `1.0`   | Softmax temperature for weight conversion     |
+| `KINITRO_SCHEDULER_TASK_STALE_THRESHOLD_SECONDS` | `900`   | Time after which assigned tasks become stale  |
+| `KINITRO_SCHEDULER_CYCLE_TIMEOUT_SECONDS`        | `7200`  | Maximum time to wait for cycle completion     |
 | `KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY`          | `null`  | X25519 private key (hex) for endpoint decrypt |
 | `KINITRO_SCHEDULER_BACKEND_PRIVATE_KEY_FILE`     | `null`  | Path to backend private key file              |
 
 ### Executor Service Configuration
 
-| CLI Flag           | Environment Variable                     | Default                 | Description                                         |
-| ------------------ | ---------------------------------------- | ----------------------- | --------------------------------------------------- |
-| `--api-url`        | `KINITRO_EXECUTOR_API_URL`               | `http://localhost:8000` | URL of the Kinitro API service                      |
-| `--batch-size`     | `KINITRO_EXECUTOR_BATCH_SIZE`            | `10`                    | Number of tasks to fetch at a time                  |
-| `--poll-interval`  | `KINITRO_EXECUTOR_POLL_INTERVAL_SECONDS` | `5`                     | Seconds between polling for tasks                   |
-| `--eval-images`    | `KINITRO_EXECUTOR_EVAL_IMAGES`           | See below               | Env family to Docker image mapping                  |
-| `--eval-mode`      | `KINITRO_EXECUTOR_EVAL_MODE`             | `docker`                | Evaluation mode: 'docker' or 'basilica'             |
-| `--log-level`      | `KINITRO_EXECUTOR_LOG_LEVEL`             | `INFO`                  | Logging level                                       |
-| `--concurrent`     | `KINITRO_EXECUTOR_USE_CONCURRENT_EXECUTOR` | `false`               | Enable multi-process concurrent executor            |
-| `--max-concurrent` | `KINITRO_EXECUTOR_DEFAULT_MAX_CONCURRENT` | `20`                   | Max concurrent tasks per environment family         |
-| `--env-families`   | `KINITRO_EXECUTOR_ENV_FAMILIES`          | `null`                  | Comma-separated families (defaults to eval_images)  |
+| CLI Flag           | Environment Variable                       | Default                 | Description                                        |
+| ------------------ | ------------------------------------------ | ----------------------- | -------------------------------------------------- |
+| `--api-url`        | `KINITRO_EXECUTOR_API_URL`                 | `http://localhost:8000` | URL of the Kinitro API service                     |
+| `--batch-size`     | `KINITRO_EXECUTOR_BATCH_SIZE`              | `10`                    | Number of tasks to fetch at a time                 |
+| `--poll-interval`  | `KINITRO_EXECUTOR_POLL_INTERVAL_SECONDS`   | `5`                     | Seconds between polling for tasks                  |
+| `--eval-images`    | `KINITRO_EXECUTOR_EVAL_IMAGES`             | See below               | Env family to Docker image mapping                 |
+| `--eval-mode`      | `KINITRO_EXECUTOR_EVAL_MODE`               | `docker`                | Evaluation mode: 'docker' or 'basilica'            |
+| `--log-level`      | `KINITRO_EXECUTOR_LOG_LEVEL`               | `INFO`                  | Logging level                                      |
+| `--concurrent`     | `KINITRO_EXECUTOR_USE_CONCURRENT_EXECUTOR` | `false`                 | Enable multi-process concurrent executor           |
+| `--max-concurrent` | `KINITRO_EXECUTOR_DEFAULT_MAX_CONCURRENT`  | `20`                    | Max concurrent tasks per environment family        |
+| `--env-families`   | `KINITRO_EXECUTOR_ENV_FAMILIES`            | `null`                  | Comma-separated families (defaults to eval_images) |
 
 **Authentication:** Set `KINITRO_EXECUTOR_API_KEY` environment variable to authenticate with the API server.
 
@@ -225,8 +225,8 @@ Additional Executor settings:
 
 These environment variables are read **inside** the Genesis evaluation container (not by the executor process). They control rendering behaviour during evaluations.
 
-| Environment Variable   | Default | Description                                               |
-| ---------------------- | ------- | --------------------------------------------------------- |
+| Environment Variable   | Default | Description                                                           |
+| ---------------------- | ------- | --------------------------------------------------------------------- |
 | `GENESIS_RENDER_DEPTH` | `0`     | Enable depth rendering (`1` to enable; disabled by default for speed) |
 
 Depth rendering is disabled by default for speed. Enable it if the miner policy uses depth images. Configure it by setting the environment variable on the Docker container via your orchestration layer (e.g., Docker Compose, Kubernetes).
@@ -300,12 +300,12 @@ uv run kinitro executor \
 
 **Concurrent executor settings:**
 
-| Environment Variable                          | Default | Description                              |
-| --------------------------------------------- | ------- | ---------------------------------------- |
-| `KINITRO_EXECUTOR_USE_CONCURRENT_EXECUTOR`    | `false` | Enable multi-process concurrent executor |
-| `KINITRO_EXECUTOR_DEFAULT_MAX_CONCURRENT`     | `20`    | Default max concurrent tasks per family  |
-| `KINITRO_EXECUTOR_MAX_CONCURRENT_PER_FAMILY`  | JSON    | Per-family concurrency limits (see below)|
-| `KINITRO_EXECUTOR_ENV_FAMILIES`               | `null`  | Families to run (defaults to eval_images)|
+| Environment Variable                         | Default | Description                               |
+| -------------------------------------------- | ------- | ----------------------------------------- |
+| `KINITRO_EXECUTOR_USE_CONCURRENT_EXECUTOR`   | `false` | Enable multi-process concurrent executor  |
+| `KINITRO_EXECUTOR_DEFAULT_MAX_CONCURRENT`    | `20`    | Default max concurrent tasks per family   |
+| `KINITRO_EXECUTOR_MAX_CONCURRENT_PER_FAMILY` | JSON    | Per-family concurrency limits (see below) |
+| `KINITRO_EXECUTOR_ENV_FAMILIES`              | `null`  | Families to run (defaults to eval_images) |
 
 **Per-family concurrency configuration:**
 
@@ -314,115 +314,26 @@ export KINITRO_EXECUTOR_MAX_CONCURRENT_PER_FAMILY='{"metaworld": 50, "genesis": 
 ```
 
 The concurrent mode uses a producer-consumer pattern:
+
 - **Fetch loop (producer)**: Pulls tasks from API with backpressure
 - **Execution workers (consumers)**: N concurrent async workers per family
 - **Semaphore**: Limits concurrent task executions
 
 ## API Reference
 
-The backend exposes a REST API that validators use to fetch weights.
+The backend exposes a REST API. See the endpoint table in [README.md](../README.md#api-endpoints) for the full list. The key endpoint for validators:
 
-### Health & Status
-
-#### `GET /health`
-
-Health check endpoint.
-
-```json
-{"status": "healthy", "database": "connected"}
-```
-
-#### `GET /v1/status`
-
-Current backend status.
-
-```json
-{
-  "status": "running",
-  "current_block": 12345,
-  "last_eval_block": 12300,
-  "next_eval_in_seconds": 1800,
-  "miners_registered": 15,
-  "environments_enabled": ["metaworld/pick-place-v3", "metaworld/push-v3"]
-}
-```
-
-### Weights (Used by Validators)
-
-#### `GET /v1/weights/latest`
-
-Get the latest computed weights.
+### `GET /v1/weights/latest`
 
 ```json
 {
   "block": 12300,
-  "weights": {
-    "0": 0.15,
-    "1": 0.25,
-    "5": 0.60
-  },
+  "weights": { "0": 0.15, "1": 0.25, "5": 0.60 },
   "created_at": "2024-01-15T10:30:00Z"
 }
 ```
 
-#### `GET /v1/weights/{block}`
-
-Get weights for a specific block.
-
-### Scores
-
-#### `GET /v1/scores/latest`
-
-Get latest evaluation scores.
-
-```json
-{
-  "cycle_id": 42,
-  "block": 12300,
-  "scores": {
-    "0": {
-      "metaworld/pick-place-v3": 0.85,
-      "metaworld/push-v3": 0.72
-    },
-    "1": {
-      "metaworld/pick-place-v3": 0.90,
-      "metaworld/push-v3": 0.88
-    }
-  },
-  "pareto_frontier": [1],
-  "created_at": "2024-01-15T10:30:00Z"
-}
-```
-
-#### `GET /v1/scores/{cycle_id}`
-
-Get scores for a specific evaluation cycle.
-
-### Miners
-
-#### `GET /v1/miners`
-
-List all discovered miners.
-
-```json
-{
-  "miners": [
-    {
-      "uid": 0,
-      "hotkey": "5F...",
-      "endpoint": "https://xxx.deployments.basilica.ai",
-      "last_evaluated": "2024-01-15T10:30:00Z",
-      "status": "active"
-    }
-  ]
-}
-```
-
-### Environments
-
-#### `GET /v1/environments`
-
-List enabled evaluation environments.
+Executor task endpoints (`POST /v1/tasks/fetch`, `POST /v1/tasks/submit`) require API key authentication — see [API Key Authentication](#api-key-authentication) below.
 
 ## Database Management
 
@@ -479,6 +390,7 @@ uv run kinitro crypto generate-keypair --name backend
 ```
 
 This creates (in `$XDG_CONFIG_HOME/kinitro/keys/`, typically `~/.config/kinitro/keys/`):
+
 - `backend` - Private key (keep secret!)
 - `backend.pub` - Public key (share with miners)
 
@@ -536,7 +448,8 @@ uv run kinitro crypto test-encryption --private-key-file ~/.config/kinitro/keys/
 
 ## Production Deployment
 
-### Docker Compose
+<details>
+<summary>Docker Compose</summary>
 
 Create `docker-compose.backend.yml`:
 
@@ -598,7 +511,7 @@ services:
       api:
         condition: service_started
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock  # Required for affinetes
+      - /var/run/docker.sock:/var/run/docker.sock  # Required for Affinetes
     restart: always
 
 volumes:
@@ -622,7 +535,10 @@ Run:
 docker-compose -f docker-compose.backend.yml up -d
 ```
 
-### Systemd Services
+</details>
+
+<details>
+<summary>Systemd Services</summary>
 
 Create separate services for each component:
 
@@ -682,7 +598,10 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-### Reverse Proxy (nginx)
+</details>
+
+<details>
+<summary>Reverse Proxy (nginx)</summary>
 
 ```nginx
 server {
@@ -701,6 +620,8 @@ server {
     }
 }
 ```
+
+</details>
 
 ## Monitoring
 
@@ -782,7 +703,7 @@ Monitor these conditions:
 
 ### Memory issues
 
-- Increase `KINITRO_BACKEND_EVAL_MEM_LIMIT`
+- Increase `KINITRO_EXECUTOR_EVAL_MEM_LIMIT`
 - Monitor container memory: `docker stats`
 - Consider running fewer concurrent evaluations
 
@@ -827,32 +748,15 @@ uv run kinitro api --database-url postgresql://... --no-auth
 ```
 
 **Notes:**
+
 - Authentication is configured via environment variables only (no CLI flags for keys)
 - Requests without a valid `Authorization: Bearer <key>` header receive 401 Unauthorized
 - The `/v1/tasks/stats`, `/health`, and weight/score endpoints remain unauthenticated
 - Use `--no-auth` only for local development; always enable auth in production
 
-## Scaling
-
-### Horizontal Scaling
-
-For high miner counts, run multiple evaluation workers:
-
-- Use a job queue (Redis, RabbitMQ) for evaluation tasks
-- Run multiple backend instances with shared database
-- Load balance API requests
-
-### GPU Acceleration
-
-For faster simulation:
-
-- Use NVIDIA Docker runtime
-- Set `MUJOCO_GL=egl` for headless rendering
-- Allocate GPU to eval containers
-
 ## Additional Resources
 
 - [Validator Guide](./validator-guide.md) - For validators polling this backend
 - [Miner Guide](./miner-guide.md) - For miners participating in the subnet
-- [affinetes](https://github.com/affine-lab/affinetes) - Container-based evaluation library
+- [Affinetes](https://github.com/AffineFoundation/affinetes) - Container-based evaluation library
 - [Bittensor Docs](https://docs.bittensor.com/) - Bittensor documentation

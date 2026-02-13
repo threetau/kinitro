@@ -36,7 +36,7 @@ class Storage:
     Async PostgreSQL storage for evaluation results.
 
     Usage:
-        storage = Storage("postgresql+asyncpg://user:pass@localhost/robo")
+        storage = Storage("postgresql+asyncpg://user:pass@localhost/kinitro")
         await storage.initialize()
 
         async with storage.session() as session:
@@ -49,7 +49,7 @@ class Storage:
 
         Args:
             database_url: PostgreSQL connection URL
-                         (e.g., postgresql+asyncpg://user:pass@localhost/robo)
+                         (e.g., postgresql+asyncpg://user:pass@localhost/kinitro)
         """
         self._database_url = database_url
         self._engine = create_async_engine(
