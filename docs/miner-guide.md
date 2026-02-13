@@ -88,6 +88,8 @@ Your policy receives **canonical observations** that vary by environment family.
 
 ### MetaWorld (Robot Arm Manipulation)
 
+> **Note:** MetaWorld is for local testing and development only; not used in mainnet evaluations.
+
 **Proprioceptive** (`proprio` key):
 
 - `ee_pos`: End-effector XYZ position (meters)
@@ -575,74 +577,7 @@ Key implications:
 
 ### Testing Endpoints
 
-#### Local Testing (Before Deployment)
-
-Test your policy locally using the FastAPI server:
-
-```bash
-cd my-policy
-
-# Start the local server
-uvicorn server:app --host 0.0.0.0 --port 8001
-
-# Test endpoints locally
-curl http://localhost:8001/health
-curl -X POST http://localhost:8001/reset \
-  -H "Content-Type: application/json" \
-  -d '{"task_config": {"task_name": "pick-place-v3", "seed": 42}}'
-curl -X POST http://localhost:8001/act \
-  -H "Content-Type: application/json" \
-  -d '{"obs": {"proprio": {"ee_pos": [0.0, 0.0, 0.0], "ee_quat": [0.0, 0.0, 0.0, 1.0], "ee_vel_lin": [0.0, 0.0, 0.0], "ee_vel_ang": [0.0, 0.0, 0.0], "gripper": [1.0]}, "rgb": {}}}'
-```
-
-#### Remote Testing (After Deployment)
-
-Test your deployed Basilica endpoint:
-
-```bash
-ENDPOINT="https://YOUR-DEPLOYMENT-ID.deployments.basilica.ai"
-
-# Health check
-curl "${ENDPOINT}/health"
-
-# Reset
-curl -X POST "${ENDPOINT}/reset" \
-  -H "Content-Type: application/json" \
-  -d '{"task_config": {"task_name": "pick-place-v3", "seed": 42}}'
-
-# Act
-curl -X POST "${ENDPOINT}/act" \
-  -H "Content-Type: application/json" \
-  -d '{"obs": {"proprio": {"ee_pos": [0.0, 0.0, 0.0], "ee_quat": [0.0, 0.0, 0.0, 1.0], "ee_vel_lin": [0.0, 0.0, 0.0], "ee_vel_ang": [0.0, 0.0, 0.0], "gripper": [1.0]}, "rgb": {}}}'
-```
-
-## Example Training Setup
-
-Here's a suggested training approach:
-
-```python
-import metaworld
-import torch
-
-# Create multi-task environment
-mt = metaworld.MT10()  # 10 tasks
-
-# Sample tasks
-for name, env_cls in mt.train_classes.items():
-    env = env_cls()
-    task = random.choice([t for t in mt.train_tasks if t.env_name == name])
-    env.set_task(task)
-    
-    # Collect data with your policy
-    obs = env.reset()
-    for _ in range(500):
-        action = policy(obs)  # Your policy
-        obs, reward, done, info = env.step(action)
-        # Store transition for training
-        
-# Train policy on collected data
-# Use behavior cloning, RL, or imitation learning
-```
+Use the same curl commands from [Step 4](#step-4-test-locally) for local testing. For remote testing after deployment, replace `http://localhost:8001` with your Basilica endpoint URL (`https://YOUR-DEPLOYMENT-ID.deployments.basilica.ai`).
 
 ## Additional Resources
 

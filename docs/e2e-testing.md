@@ -118,13 +118,13 @@ basilica deploy delete <deployment-id> --yes
 
 ## Troubleshooting
 
-| Problem | Solution |
-|---------|----------|
-| Port conflicts | Run `./scripts/worktree-env.sh` to regenerate ports, then `./scripts/services.sh stop` |
-| Database issues | `PGPASSWORD=postgres psql -h localhost -p $POSTGRES_PORT -U postgres -c "DROP DATABASE $POSTGRES_DB; CREATE DATABASE $POSTGRES_DB;"` |
-| Stuck eval containers | `docker stop $(docker ps -q --filter "name=kinitro-eval")` |
-| Check miner commitment | `uv run kinitro miner show-commitment --netuid ... --wallet-name ...` |
-| Verify miner endpoint | `curl <MINER_ENDPOINT>/health` |
+| Problem                | Solution                                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Port conflicts         | Run `./scripts/worktree-env.sh` to regenerate ports, then `./scripts/services.sh stop`                                               |
+| Database issues        | `PGPASSWORD=postgres psql -h localhost -p $POSTGRES_PORT -U postgres -c "DROP DATABASE $POSTGRES_DB; CREATE DATABASE $POSTGRES_DB;"` |
+| Stuck eval containers  | `docker stop $(docker ps -q --filter "name=kinitro-eval")`                                                                           |
+| Check miner commitment | `uv run kinitro miner show-commitment --netuid ... --wallet-name ...`                                                                |
+| Verify miner endpoint  | `curl <MINER_ENDPOINT>/health`                                                                                                       |
 
 ## Cleanup Commands
 
@@ -147,12 +147,12 @@ basilica deploy delete <deployment-id> --yes
 
 The backend uses these PostgreSQL tables:
 
-| Table | Description |
-|-------|-------------|
-| `evaluation_cycles` | Cycle metadata (id, block_number, status, n_miners, n_environments, duration_seconds) |
-| `miner_scores` | Per-miner per-environment scores (uid, hotkey, env_id, success_rate, mean_reward, episodes_completed) |
-| `computed_weights` | Final weights per cycle (cycle_id, block_number, weights_json, weights_u16_json) |
-| `task_pool` | Individual evaluation tasks (task_uuid, cycle_id, miner_uid, env_id, seed, status, result) |
+| Table               | Description                                                                                           |
+| ------------------- | ----------------------------------------------------------------------------------------------------- |
+| `evaluation_cycles` | Cycle metadata (id, block_number, status, n_miners, n_environments, duration_seconds)                 |
+| `miner_scores`      | Per-miner per-environment scores (uid, hotkey, env_id, success_rate, mean_reward, episodes_completed) |
+| `computed_weights`  | Final weights per cycle (cycle_id, block_number, weights_json, weights_u16_json)                      |
+| `task_pool`         | Individual evaluation tasks (task_uuid, cycle_id, miner_uid, env_id, seed, status, result)            |
 
 ### Query Examples
 

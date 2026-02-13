@@ -83,8 +83,8 @@ Genesis physics simulation with a Unitree G1 humanoid robot in procedurally gene
 
 The Genesis container reads these optional environment variables to tune rendering performance:
 
-| Variable               | Default | Description                                                |
-| ---------------------- | ------- | ---------------------------------------------------------- |
+| Variable               | Default | Description                                   |
+| ---------------------- | ------- | --------------------------------------------- |
 | `GENESIS_RENDER_DEPTH` | `0`     | Set to `1` to enable depth rendering (slower) |
 
 Example: enable depth rendering if your policy uses depth images:
@@ -95,11 +95,10 @@ GENESIS_RENDER_DEPTH=1
 
 ## Backend Configuration
 
-Configure your backend to use the appropriate image for each environment family. Set these environment variables:
+Configure your executor to use the appropriate image for each environment family. Set the environment variable:
 
 ```bash
-KINITRO_BACKEND_EVAL_IMAGE_METAWORLD=kinitro/metaworld:v1
-KINITRO_BACKEND_EVAL_IMAGE_GENESIS=kinitro/genesis:v1
+KINITRO_EXECUTOR_EVAL_IMAGES='{"metaworld": "kinitro/metaworld:v1", "genesis": "kinitro/genesis:v1"}'
 ```
 
 ---
@@ -114,12 +113,12 @@ cp -r environments/_template environments/myenv
 
 ### Required Files
 
-| File | Purpose |
-|------|---------|
-| `metadata.json` | Display name and description |
-| `requirements.txt` | Python dependencies |
-| `Dockerfile` | Container build spec |
-| `env.py` | Actor class with `evaluate()` method |
+| File               | Purpose                              |
+| ------------------ | ------------------------------------ |
+| `metadata.json`    | Display name and description         |
+| `requirements.txt` | Python dependencies                  |
+| `Dockerfile`       | Container build spec                 |
+| `env.py`           | Actor class with `evaluate()` method |
 
 ### Key Concepts
 

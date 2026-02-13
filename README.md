@@ -8,13 +8,14 @@ This subnet incentivizes the development of **generalist robotics policies** - A
 
 Only policies that **generalize across ALL environments** earn rewards, using ε-Pareto dominance scoring.
 
-https://github.com/user-attachments/assets/37942435-8143-41cf-aa78-39f4e8a04509
+<https://github.com/user-attachments/assets/37942435-8143-41cf-aa78-39f4e8a04509>
 
 ## Key Features
 
 ### Vision-Based Observations
 
 Miners receive **limited observations** to prevent overfitting:
+
 - **Genesis**: Full-body proprioception (base pose, joint positions/velocities), ego camera (84x84)
 - Object positions are **NOT exposed** - miners must learn from visual input
 
@@ -102,12 +103,12 @@ flowchart TB
 
 ### Service Components
 
-| Service | Command | Purpose | Scaling |
-|---------|---------|---------|---------|
-| **API** | `kinitro api` | REST API, task pool management | Horizontal (stateless) |
-| **Scheduler** | `kinitro scheduler` | Task generation, scoring, weight computation | Single instance |
-| **Executor** | `kinitro executor` | Run evaluations (MuJoCo, Genesis) via [Affinetes](https://github.com/AffineFoundation/affinetes/) | Horizontal (GPU machines) |
-| **Validator** | `kinitro validate` | Submit weights to chain | Per validator |
+| Service       | Command             | Purpose                                                                                           | Scaling                   |
+| ------------- | ------------------- | ------------------------------------------------------------------------------------------------- | ------------------------- |
+| **API**       | `kinitro api`       | REST API, task pool management                                                                    | Horizontal (stateless)    |
+| **Scheduler** | `kinitro scheduler` | Task generation, scoring, weight computation                                                      | Single instance           |
+| **Executor**  | `kinitro executor`  | Run evaluations (MuJoCo, Genesis) via [Affinetes](https://github.com/AffineFoundation/affinetes/) | Horizontal (GPU machines) |
+| **Validator** | `kinitro validate`  | Submit weights to chain                                                                           | Per validator             |
 
 ### Evaluation Flow
 
@@ -218,73 +219,27 @@ uv run kinitro executor --api-url http://localhost:8000
 
 The API service exposes these endpoints:
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /health` | Health check |
-| `GET /v1/status` | Current backend status |
-| `GET /v1/weights/latest` | Latest computed weights |
-| `GET /v1/weights/{block}` | Weights for specific block |
-| `GET /v1/scores/latest` | Latest evaluation scores |
-| `GET /v1/scores/{cycle_id}` | Scores for specific cycle |
-| `GET /v1/miners` | List evaluated miners |
-| `GET /v1/environments` | List environments |
-| `POST /v1/tasks/fetch` | Fetch tasks (for executors) |
-| `POST /v1/tasks/submit` | Submit results (for executors) |
-| `GET /v1/tasks/stats` | Task pool statistics |
+| Endpoint                    | Description                    |
+| --------------------------- | ------------------------------ |
+| `GET /health`               | Health check                   |
+| `GET /v1/status`            | Current backend status         |
+| `GET /v1/weights/latest`    | Latest computed weights        |
+| `GET /v1/weights/{block}`   | Weights for specific block     |
+| `GET /v1/scores/latest`     | Latest evaluation scores       |
+| `GET /v1/scores/{cycle_id}` | Scores for specific cycle      |
+| `GET /v1/miners`            | List evaluated miners          |
+| `GET /v1/environments`      | List environments              |
+| `POST /v1/tasks/fetch`      | Fetch tasks (for executors)    |
+| `POST /v1/tasks/submit`     | Submit results (for executors) |
+| `GET /v1/tasks/stats`       | Task pool statistics           |
 
 ## Environments
 
-### MetaWorld (Manipulation)
-
-MuJoCo-based robot arm manipulation tasks:
-
-- `metaworld/reach-v3` - Move end-effector to target position
-- `metaworld/push-v3` - Push object to goal location
-- `metaworld/pick-place-v3` - Pick up object and place at target
-- `metaworld/door-open-v3` - Open a door
-- `metaworld/drawer-open-v3` - Open a drawer
-- `metaworld/drawer-close-v3` - Close a drawer
-- `metaworld/button-press-v3` - Press a button from top-down
-- `metaworld/peg-insert-v3` - Insert peg into hole
-
-### Genesis (Humanoid Locomotion + Manipulation)
-
-Genesis physics simulation with a Unitree G1 humanoid robot in procedurally generated scenes:
-
-- `genesis/g1-v0` - Scene-grounded tasks with a bipedal humanoid (43 actuated DOFs):
-  - Navigate to objects
-  - Pick up small objects
-  - Place objects at target locations
-  - Push objects towards destinations
-
-Use `kinitro env list` to see all available environments.
+Two environment families: **MetaWorld** (robot arm manipulation, dev/testing only) and **Genesis** (Unitree G1 humanoid locomotion + manipulation). Use `kinitro env list` to see all available environments. See [environments/README.md](environments/README.md) for full details.
 
 ## Miner Policy Interface
 
-Miners deploy a FastAPI server with these endpoints:
-
-```python
-# POST /reset - Reset for new episode
-async def reset(task_config: dict) -> str:
-    """Called at start of each episode. Returns episode_id."""
-    pass
-
-# POST /act - Get action for observation
-async def act(observation: np.ndarray, images: dict | None) -> np.ndarray:
-    """
-    Return action for observation. Must respond within 500ms.
-    
-    Args:
-        observation: Proprioceptive state [ee_x, ee_y, ee_z, gripper_state]
-        images: Optional camera images {"corner": (84,84,3), "gripper": (84,84,3)}
-    
-    Returns:
-        Action as numpy array in [-1, 1] range
-    """
-    return action
-```
-
-See the [Miner Guide](docs/miner-guide.md) and `kinitro/miner/template/` for complete examples.
+Miners deploy a FastAPI server with `/reset` and `/act` endpoints using `Observation` and `Action` types from `kinitro/rl_interface.py`. See the [Miner Guide](docs/miner-guide.md) and `kinitro/miner/template/` for the interface specification and complete examples.
 
 ## Development
 
@@ -299,11 +254,14 @@ pytest tests/
 MUJOCO_GL=egl pytest tests/
 
 # Type checking
-mypy kinitro/
+ty check .
 
 # Linting
 ruff check kinitro/
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide,
+code style, and contribution workflow.
 
 ## Configuration
 

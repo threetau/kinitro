@@ -81,7 +81,7 @@ services:
     environment:
       - MUJOCO_GL=egl
     volumes:
-      # Mount Docker socket for affinetes
+      # Mount Docker socket for Affinetes
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - api

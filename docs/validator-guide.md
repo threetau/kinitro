@@ -10,9 +10,9 @@ This guide explains how to run a validator for Kinitro. Validators are **lightwe
 │    - Runs evaluations on miner policies                         │
 │    - Computes epsilon-Pareto scores                             │
 │    - Exposes REST API: GET /v1/weights/latest                   │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ HTTP
-                           ▼
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ HTTP
+                                ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  YOUR VALIDATOR                                                 │
 │    - Polls backend for weights                                  │
@@ -111,7 +111,7 @@ sudo journalctl -u kinitro-validator -f  # View logs
 ## Docker Deployment
 
 ```dockerfile
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 RUN pip install uv
