@@ -17,7 +17,7 @@ router = APIRouter(tags=["Health"])
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check(session: AsyncSession = Depends(get_session)):
+async def health_check(session: AsyncSession = Depends(get_session)) -> HealthResponse:
     """Health check endpoint."""
     try:
         await session.execute(text("SELECT 1"))
@@ -35,7 +35,7 @@ async def health_check(session: AsyncSession = Depends(get_session)):
 async def get_status(
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
-):
+) -> StatusResponse:
     """Get current backend status."""
     # Get current/latest cycles
     current_cycle = await storage.get_running_cycle(session)

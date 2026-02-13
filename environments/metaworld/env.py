@@ -37,8 +37,10 @@ import structlog
 
 # Import from kinitro package (installed in container via PYTHONPATH)
 from kinitro.environments import get_environment
+from kinitro.environments.base import RoboticsEnvironment
 from kinitro.environments.registry import get_environments_by_family
 from kinitro.rl_interface import Action
+from kinitro.types import EnvironmentId
 
 logger = structlog.get_logger()
 
@@ -58,7 +60,7 @@ class Actor:
         # to avoid event loop binding issues when affinetes calls methods
         # from different event loops
 
-    def _get_env(self, env_id: str):
+    def _get_env(self, env_id: EnvironmentId) -> RoboticsEnvironment:
         """Get or create a robotics environment."""
         if env_id not in self._env_cache:
             self._env_cache[env_id] = get_environment(env_id)
@@ -91,17 +93,17 @@ class Actor:
             resp.raise_for_status()
             return resp.json()
 
-    async def list_environments(self) -> list[str]:
+    async def list_environments(self) -> list[EnvironmentId]:
         """List available MetaWorld environments."""
         return get_environments_by_family("metaworld")
 
     async def evaluate(
         self,
         task_id: int,
+        base_url: str,
         seed: int | None = None,
         model: str | None = None,
-        base_url: str | None = None,
-        env_id: str = "metaworld/pick-place-v3",
+        env_id: EnvironmentId = EnvironmentId("metaworld/pick-place-v3"),
         max_timesteps: int = 500,
         action_timeout: float = 0.5,
         use_images: bool = True,
@@ -148,9 +150,6 @@ class Actor:
                 error=f"Invalid env_id for MetaWorld container: {env_id}. Must start with 'metaworld/'",
             )
 
-        if base_url is None:
-            raise ValueError("base_url (miner endpoint) is required")
-
         if seed is None:
             seed = task_id
 
@@ -184,7 +183,7 @@ class Actor:
         seed: int,
         model: str | None,
         base_url: str,
-        env_id: str,
+        env_id: EnvironmentId,
         max_timesteps: int,
         action_timeout: float,
         use_images: bool,
@@ -318,7 +317,7 @@ class Actor:
 
     def _build_error_result(
         self,
-        env_id: str,
+        env_id: EnvironmentId,
         task_id: int,
         seed: int,
         start_time: float,
@@ -342,7 +341,7 @@ class Actor:
             "extra": extra_fields,
         }
 
-    async def cleanup(self):
+    async def cleanup(self) -> None:
         """Cleanup resources."""
         # HTTP clients are now created per-request, no need to close here
 

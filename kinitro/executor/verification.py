@@ -30,6 +30,7 @@ import structlog
 from huggingface_hub import HfApi, snapshot_download
 
 from kinitro.rl_interface import Action, Observation, ProprioKeys
+from kinitro.types import Hotkey, MinerUID, VerificationDetails
 
 logger = structlog.get_logger()
 
@@ -38,14 +39,14 @@ logger = structlog.get_logger()
 class VerificationResult:
     """Result of a model verification check."""
 
-    miner_uid: int
-    miner_hotkey: str
+    miner_uid: MinerUID
+    miner_hotkey: Hotkey
     repo: str
     revision: str
     verified: bool
     match_score: float  # 0.0 = no match, 1.0 = perfect match
     error: str | None = None
-    details: dict[str, Any] | None = None
+    details: VerificationDetails | None = None
 
 
 class PolicyVerifier:
@@ -94,6 +95,7 @@ class PolicyVerifier:
         self.num_samples = num_samples
         self.cache_dir = cache_dir or tempfile.mkdtemp(prefix="kinitro_verify_")
         self.max_repo_size_bytes = int(max_repo_size_gb * 1024 * 1024 * 1024)
+        # Any: cached policies are user-provided objects with no shared base class
         self._policy_cache: dict[str, Any] = {}
 
     def should_verify(self) -> bool:
@@ -102,8 +104,8 @@ class PolicyVerifier:
 
     async def verify_miner(
         self,
-        miner_uid: int,
-        miner_hotkey: str,
+        miner_uid: MinerUID,
+        miner_hotkey: Hotkey,
         repo: str,
         revision: str,
         endpoint: str,
@@ -326,7 +328,10 @@ class PolicyVerifier:
         np.random.seed(seed)
 
     async def _get_local_action(
-        self, policy: Any, obs: Observation, seed: int
+        self,
+        policy: Any,
+        obs: Observation,
+        seed: int,  # Any: user-provided policy, no common Protocol
     ) -> np.ndarray | None:
         """Get action from local policy."""
         try:

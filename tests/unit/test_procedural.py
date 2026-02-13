@@ -10,12 +10,13 @@ from kinitro.environments.procedural import (
     randomize_positions,
 )
 from kinitro.scheduler.task_generator import generate_seed
+from kinitro.types import ProceduralTaskResult
 
 
 class TestRandomizePositions:
     """Tests for position randomization."""
 
-    def test_output_shape(self):
+    def test_output_shape(self) -> None:
         """Output should be same shape as base."""
         rng = np.random.default_rng(42)
         base = np.array([1.0, 2.0, 3.0])
@@ -23,7 +24,7 @@ class TestRandomizePositions:
 
         assert result.shape == base.shape
 
-    def test_within_range(self):
+    def test_within_range(self) -> None:
         """Positions should stay within specified range."""
         rng = np.random.default_rng(42)
         base = np.array([0.0, 0.0, 0.0])
@@ -33,7 +34,7 @@ class TestRandomizePositions:
             result = randomize_positions(base, rng, range_xyz)
             assert np.all(np.abs(result - base) <= range_xyz)
 
-    def test_deterministic_with_seed(self):
+    def test_deterministic_with_seed(self) -> None:
         """Same seed should give same result."""
         base = np.array([1.0, 1.0, 1.0])
 
@@ -49,7 +50,7 @@ class TestRandomizePositions:
 class TestRandomizePhysics:
     """Tests for physics randomization."""
 
-    def test_all_params_generated(self):
+    def test_all_params_generated(self) -> None:
         """All requested params should be in result."""
         rng = np.random.default_rng(42)
         params = {
@@ -62,7 +63,7 @@ class TestRandomizePhysics:
 
         assert set(result.keys()) == {"friction", "damping", "mass"}
 
-    def test_within_range(self):
+    def test_within_range(self) -> None:
         """Values should be within specified range."""
         rng = np.random.default_rng(42)
         params = {"friction": (0.5, 1.5)}
@@ -75,7 +76,7 @@ class TestRandomizePhysics:
 class TestGenerateSeed:
     """Tests for seed generation from task UUID."""
 
-    def test_deterministic(self):
+    def test_deterministic(self) -> None:
         """Same UUID should give same seed."""
         task_uuid = str(uuid.uuid4())
         seed1 = generate_seed(task_uuid)
@@ -83,7 +84,7 @@ class TestGenerateSeed:
 
         assert seed1 == seed2
 
-    def test_different_uuids_different_seeds(self):
+    def test_different_uuids_different_seeds(self) -> None:
         """Different UUIDs should give different seeds."""
         uuid1 = str(uuid.uuid4())
         uuid2 = str(uuid.uuid4())
@@ -92,14 +93,14 @@ class TestGenerateSeed:
 
         assert seed1 != seed2
 
-    def test_positive_31bit(self):
+    def test_positive_31bit(self) -> None:
         """Seed should be positive 31-bit integer (fits PostgreSQL int4)."""
         for _ in range(100):
             task_uuid = str(uuid.uuid4())
             seed = generate_seed(task_uuid)
             assert 0 <= seed <= 0x7FFFFFFF
 
-    def test_consistent_across_calls(self):
+    def test_consistent_across_calls(self) -> None:
         """Same UUID should produce same seed across multiple calls."""
         test_uuid = "550e8400-e29b-41d4-a716-446655440000"
         seeds = [generate_seed(test_uuid) for _ in range(10)]
@@ -109,17 +110,17 @@ class TestGenerateSeed:
 class TestProceduralTaskGenerator:
     """Tests for the procedural task generator."""
 
-    def test_generate_returns_dict(self):
+    def test_generate_returns_dict(self) -> None:
         """Generate should return dict with expected keys."""
         gen = ProceduralTaskGenerator(env_id="test_env")
-        result = gen.generate(seed=42)
+        result: ProceduralTaskResult = gen.generate(seed=42)
 
         assert "object_positions" in result
         assert "target_positions" in result
         assert "physics_params" in result
         assert "domain_randomization" in result
 
-    def test_deterministic(self):
+    def test_deterministic(self) -> None:
         """Same seed should give same result."""
         gen = ProceduralTaskGenerator(env_id="test_env")
 
@@ -129,7 +130,7 @@ class TestProceduralTaskGenerator:
         np.testing.assert_array_equal(result1["object_positions"], result2["object_positions"])
         assert result1["physics_params"] == result2["physics_params"]
 
-    def test_different_seeds_different_results(self):
+    def test_different_seeds_different_results(self) -> None:
         """Different seeds should give different results."""
         gen = ProceduralTaskGenerator(env_id="test_env")
 

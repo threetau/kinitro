@@ -11,6 +11,7 @@ from kinitro.backend.models import (
     WeightsU16,
 )
 from kinitro.backend.storage import Storage
+from kinitro.types import MinerUID
 
 router = APIRouter(prefix="/v1/weights", tags=["Weights"])
 
@@ -23,9 +24,9 @@ def _build_weights_response(
         cycle_id=weights_orm.cycle_id,
         block_number=weights_orm.block_number,
         timestamp=weights_orm.created_at,
-        weights={int(k): float(v) for k, v in weights_orm.weights_json.items()},
+        weights={MinerUID(int(k)): float(v) for k, v in weights_orm.weights_json.items()},
         weights_u16=WeightsU16(
-            uids=weights_orm.weights_u16_json["uids"],
+            uids=[MinerUID(u) for u in weights_orm.weights_u16_json["uids"]],
             values=weights_orm.weights_u16_json["values"],
         ),
         metadata={

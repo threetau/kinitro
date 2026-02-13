@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from kinitro.rl_interface import Action, Observation
+from kinitro.types import StepInfo
 
 
 @dataclass
@@ -29,10 +30,10 @@ class TaskConfig:
     # Physics randomization
     physics_params: dict[str, float] = field(default_factory=dict)
 
-    # Domain randomization (visual, etc.)
+    # Any: domain randomization params vary by environment (lighting, textures, etc.)
     domain_randomization: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # Any: mixed value types after serialization
         """Convert to dictionary for serialization to miner."""
         return {
             "env_name": self.env_name,
@@ -117,7 +118,7 @@ class RoboticsEnvironment(ABC):
         pass
 
     @abstractmethod
-    def step(self, action: Action) -> tuple[Observation, float, bool, dict[str, Any]]:
+    def step(self, action: Action) -> tuple[Observation, float, bool, StepInfo]:
         """
         Execute action in environment.
 

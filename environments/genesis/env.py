@@ -32,6 +32,7 @@ from kinitro.environments import get_environment
 from kinitro.environments.base import RoboticsEnvironment
 from kinitro.environments.registry import get_environments_by_family
 from kinitro.rl_interface import Action
+from kinitro.types import EnvironmentId
 
 logger = structlog.get_logger()
 
@@ -58,12 +59,12 @@ class Actor:
     def __init__(self) -> None:
         """Initialize the evaluation actor."""
         self._env_cache = {}
-        self._env_locks: dict[str, asyncio.Lock] = {}
+        self._env_locks: dict[EnvironmentId, asyncio.Lock] = {}
         # Don't cache the HTTP client - create fresh for each evaluation
         # to avoid event loop binding issues when affinetes calls methods
         # from different event loops
 
-    def _get_env(self, env_id: str) -> RoboticsEnvironment:
+    def _get_env(self, env_id: EnvironmentId) -> RoboticsEnvironment:
         """Get or create a robotics environment."""
         if env_id not in self._env_cache:
             self._env_cache[env_id] = get_environment(env_id)
@@ -99,7 +100,7 @@ class Actor:
             resp.raise_for_status()
             return resp.json()
 
-    async def list_environments(self) -> list[str]:
+    async def list_environments(self) -> list[EnvironmentId]:
         """List available Genesis environments."""
         return get_environments_by_family("genesis")
 
@@ -109,7 +110,7 @@ class Actor:
         base_url: str,
         seed: int | None = None,
         model: str | None = None,
-        env_id: str = "genesis/g1-v0",
+        env_id: EnvironmentId = EnvironmentId("genesis/g1-v0"),
         max_timesteps: int = 500,
         action_timeout: float = 0.5,
         use_images: bool = True,
@@ -188,7 +189,7 @@ class Actor:
         seed: int,
         model: str | None,
         base_url: str,
-        env_id: str,
+        env_id: EnvironmentId,
         max_timesteps: int,
         action_timeout: float,
         use_images: bool,
@@ -322,7 +323,7 @@ class Actor:
 
     def _build_error_result(
         self,
-        env_id: str,
+        env_id: EnvironmentId,
         task_id: int,
         seed: int,
         start_time: float,

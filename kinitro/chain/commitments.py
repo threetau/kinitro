@@ -11,14 +11,18 @@ the backend operator to decrypt and evaluate miners.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any, cast
 
 import structlog
+from bittensor import AsyncSubtensor, NeuronInfo, Subtensor
+from bittensor_wallet import Wallet
 from cryptography.hazmat.primitives.asymmetric import x25519
 
 from kinitro.crypto import (
     decrypt_deployment_id,
     encrypt_deployment_id,
 )
+from kinitro.types import BlockNumber, Hotkey, MinerUID, ParsedCommitment
 
 logger = structlog.get_logger()
 
@@ -49,13 +53,13 @@ class MinerCommitment:
                  deployment_id is populated after decryption
     """
 
-    uid: int
-    hotkey: str
+    uid: MinerUID
+    hotkey: Hotkey
     huggingface_repo: str
     revision_sha: str
     deployment_id: str  # Basilica deployment ID (UUID, not full URL) - decrypted if encrypted
     docker_image: str
-    committed_block: int
+    committed_block: BlockNumber
     encrypted_deployment: str | None = field(default=None)  # Base85 encrypted blob (if encrypted)
 
     @property
@@ -93,7 +97,7 @@ class MinerCommitment:
         return bool(self.encrypted_deployment) and not bool(self.deployment_id)
 
 
-def parse_commitment(raw: str) -> dict:
+def parse_commitment(raw: str) -> ParsedCommitment:
     """
     Parse raw commitment string from chain.
 
@@ -152,8 +156,78 @@ def parse_commitment(raw: str) -> dict:
     }
 
 
+def _parse_commitment_result(result: Any) -> tuple[str | None, int | None]:
+    """Parse a raw commitment query result into (commitment_string, block_number).
+
+    ``result`` comes from ``subtensor.query_module("Commitments", ...)`` which
+    returns an untyped substrate response.  In practice this is either:
+    - ``None`` when no commitment exists
+    - A ``dict`` with keys ``"deposit"``, ``"block"``, ``"info"``
+    - A SCALE-decoded object exposing a ``.value`` attribute (dict payload)
+    We accept ``Any`` because the bittensor SDK does not export a concrete type
+    for substrate query results.
+    """
+    if result is None:
+        return None, None
+
+    if isinstance(result, dict):
+        data = result
+    elif hasattr(result, "value"):
+        data = result.value
+    else:
+        return None, None
+
+    if not data:
+        return None, None
+
+    # Handle structured commitment format:
+    # {'deposit': ..., 'block': ..., 'info': {'fields': ...}}
+    if isinstance(data, dict) and "info" in data:
+        data_dict = cast(dict[str, Any], data)
+        block = data_dict.get("block")
+        if block is not None:
+            try:
+                block = int(block)
+            except (TypeError, ValueError):
+                block = None
+
+        info = data_dict.get("info", {})
+        fields = info.get("fields", ()) if isinstance(info, dict) else ()
+
+        if fields and len(fields) > 0:
+            first_field = fields[0]
+
+            if isinstance(first_field, tuple) and len(first_field) > 0:
+                first_field = first_field[0]
+
+            if isinstance(first_field, dict):
+                for key, value in first_field.items():
+                    if key.startswith("Raw") or key == "Data":
+                        if isinstance(value, tuple) and len(value) > 0:
+                            byte_data = value[0]
+                            if isinstance(byte_data, (list, tuple)):
+                                return bytes(byte_data).decode("utf-8", errors="ignore"), block
+                        elif isinstance(value, (bytes, bytearray)):
+                            return value.decode("utf-8", errors="ignore"), block
+                        elif isinstance(value, str):
+                            return value, block
+            elif isinstance(first_field, (bytes, bytearray)):
+                return first_field.decode("utf-8", errors="ignore"), block
+            elif isinstance(first_field, str):
+                return first_field, block
+
+    elif isinstance(data, (bytes, bytearray)):
+        return data.decode("utf-8", errors="ignore"), None
+    elif isinstance(data, str):
+        return data, None
+
+    return None, None
+
+
 def _query_commitment_by_hotkey(
-    subtensor, netuid: int, hotkey: str
+    subtensor: Subtensor,
+    netuid: int,
+    hotkey: str,
 ) -> tuple[str | None, int | None]:
     """
     Query commitment directly from chain storage by hotkey.
@@ -170,78 +244,30 @@ def _query_commitment_by_hotkey(
     """
     try:
         result = subtensor.substrate.query("Commitments", "CommitmentOf", [netuid, hotkey])
-
-        # Handle different result types
-        if result is None:
-            return None, None
-
-        # Result might be a dict directly (newer substrate interface)
-        if isinstance(result, dict):
-            data = result
-        elif hasattr(result, "value"):
-            data = result.value
-        else:
-            return None, None
-
-        if not data:
-            return None, None
-
-        # Handle structured commitment format: {'deposit': ..., 'block': ..., 'info': {'fields': ...}}
-        if isinstance(data, dict) and "info" in data:
-            # Extract block number from commitment data
-            block = data.get("block")
-            if block is not None:
-                try:
-                    block = int(block)
-                except (TypeError, ValueError):
-                    block = None
-
-            info = data.get("info", {})
-            fields = info.get("fields", ())
-
-            if fields and len(fields) > 0:
-                # First field contains the raw data
-                first_field = fields[0]
-
-                # Handle tuple format: ({'Raw94': ((bytes...),)},)
-                if isinstance(first_field, tuple) and len(first_field) > 0:
-                    first_field = first_field[0]
-
-                # Extract bytes from various formats
-                if isinstance(first_field, dict):
-                    # Format: {'RawXX': ((bytes...),)} or {'Data': bytes}
-                    for key, value in first_field.items():
-                        if key.startswith("Raw") or key == "Data":
-                            # Extract the bytes tuple
-                            if isinstance(value, tuple) and len(value) > 0:
-                                byte_data = value[0]
-                                if isinstance(byte_data, (list, tuple)):
-                                    return bytes(byte_data).decode("utf-8", errors="ignore"), block
-                            elif isinstance(value, (bytes, bytearray)):
-                                return value.decode("utf-8", errors="ignore"), block
-                            elif isinstance(value, str):
-                                return value, block
-                elif isinstance(first_field, (bytes, bytearray)):
-                    return first_field.decode("utf-8", errors="ignore"), block
-                elif isinstance(first_field, str):
-                    return first_field, block
-
-        # Handle simple formats (no block info available)
-        elif isinstance(data, (bytes, bytearray)):
-            return data.decode("utf-8", errors="ignore"), None
-        elif isinstance(data, str):
-            return data, None
-
+        return _parse_commitment_result(result)
+    except Exception as e:
+        logger.debug("commitment_query_failed", hotkey=hotkey[:16], error=str(e))
         return None, None
+
+
+async def _query_commitment_by_hotkey_async(
+    subtensor: AsyncSubtensor,
+    netuid: int,
+    hotkey: str,
+) -> tuple[str | None, int | None]:
+    """Async version of :func:`_query_commitment_by_hotkey`."""
+    try:
+        result = await subtensor.query_module("Commitments", "CommitmentOf", [netuid, hotkey])
+        return _parse_commitment_result(result)
     except Exception as e:
         logger.debug("commitment_query_failed", hotkey=hotkey[:16], error=str(e))
         return None, None
 
 
 def read_miner_commitments(
-    subtensor,  # bt.Subtensor
+    subtensor: Subtensor,
     netuid: int,
-    neurons: list | None = None,  # List of NeuronInfo (optional, will fetch if not provided)
+    neurons: list[NeuronInfo] | None = None,
     backend_private_key: x25519.X25519PrivateKey | None = None,
 ) -> list[MinerCommitment]:
     """
@@ -309,13 +335,90 @@ def read_miner_commitments(
                         # can retry later with a different key if needed.
 
                 commitment = MinerCommitment(
-                    uid=uid,
-                    hotkey=hotkey,
+                    uid=MinerUID(uid),
+                    hotkey=Hotkey(hotkey),
                     huggingface_repo=parsed["huggingface_repo"],
                     revision_sha=parsed["revision_sha"],
                     deployment_id=deployment_id,
                     docker_image=parsed["docker_image"],
-                    committed_block=committed_block,
+                    committed_block=BlockNumber(committed_block),
+                    encrypted_deployment=encrypted_deployment,
+                )
+                if commitment.is_valid:
+                    commitments.append(commitment)
+                    logger.debug(
+                        "found_commitment",
+                        uid=uid,
+                        repo=commitment.huggingface_repo,
+                        block=committed_block,
+                        encrypted=commitment.is_encrypted,
+                    )
+        except Exception as e:
+            logger.warning("commitment_read_failed", uid=uid, error=str(e))
+
+    logger.info("commitments_loaded", count=len(commitments), total_miners=n_neurons)
+    return commitments
+
+
+async def read_miner_commitments_async(
+    subtensor: AsyncSubtensor,
+    netuid: int,
+    neurons: list[NeuronInfo] | None = None,
+    backend_private_key: x25519.X25519PrivateKey | None = None,
+) -> list[MinerCommitment]:
+    """Async version of :func:`read_miner_commitments`.
+
+    Uses :class:`AsyncSubtensor` for non-blocking chain I/O.
+    """
+    if neurons is None:
+        neurons = await subtensor.neurons(netuid=netuid)
+
+    if not neurons:
+        logger.warning("no_neurons_on_subnet", netuid=netuid)
+        return []
+
+    commitments = []
+    n_neurons = len(neurons)
+
+    for neuron in neurons:
+        uid = neuron.uid
+        hotkey = neuron.hotkey
+
+        try:
+            raw, block = await _query_commitment_by_hotkey_async(subtensor, netuid, hotkey)
+
+            if raw:
+                parsed = parse_commitment(raw)
+                committed_block = block if block is not None else neuron.last_update
+
+                deployment_id = parsed["deployment_id"]
+                encrypted_deployment = parsed.get("encrypted_deployment")
+
+                if encrypted_deployment and backend_private_key:
+                    try:
+                        deployment_id = decrypt_deployment_id(
+                            encrypted_deployment, backend_private_key
+                        )
+                        logger.debug(
+                            "decrypted_endpoint",
+                            uid=uid,
+                            deployment_id=deployment_id[:12] + "...",
+                        )
+                    except ValueError as e:
+                        logger.warning(
+                            "decryption_failed",
+                            uid=uid,
+                            error=str(e),
+                        )
+
+                commitment = MinerCommitment(
+                    uid=MinerUID(uid),
+                    hotkey=Hotkey(hotkey),
+                    huggingface_repo=parsed["huggingface_repo"],
+                    revision_sha=parsed["revision_sha"],
+                    deployment_id=deployment_id,
+                    docker_image=parsed["docker_image"],
+                    committed_block=BlockNumber(committed_block),
                     encrypted_deployment=encrypted_deployment,
                 )
                 if commitment.is_valid:
@@ -369,9 +472,58 @@ def decrypt_commitments(
     return commitments
 
 
+def _build_commitment_data(
+    repo: str,
+    revision: str,
+    deployment_id: str,
+    backend_public_key: str | None = None,
+) -> str | None:
+    """Build the colon-separated commitment string.
+
+    Returns the commitment data string, or None if validation/encryption fails.
+    """
+    revision_short = revision[:8]
+
+    if ":" in repo or ":" in revision_short or ":" in deployment_id:
+        logger.error(
+            "commitment_field_contains_colon",
+            repo=repo,
+            revision=revision_short,
+            deployment_id=deployment_id,
+        )
+        return None
+
+    if backend_public_key:
+        try:
+            encrypted_blob = encrypt_deployment_id(deployment_id, backend_public_key)
+            commitment_data = f"{repo}:{revision_short}:e:{encrypted_blob}"
+            logger.info(
+                "commitment_encrypted",
+                data_length=len(commitment_data),
+                encrypted_blob_length=len(encrypted_blob),
+            )
+        except Exception as e:
+            logger.exception("encryption_failed", error=str(e))
+            return None
+    else:
+        commitment_data = f"{repo}:{revision_short}:{deployment_id}"
+        logger.info("commitment_data", data=commitment_data, length=len(commitment_data))
+
+    if len(commitment_data) > MAX_COMMITMENT_SIZE:
+        logger.error(
+            "commitment_too_large",
+            size=len(commitment_data),
+            max_size=MAX_COMMITMENT_SIZE,
+            repo_length=len(repo),
+        )
+        return None
+
+    return commitment_data
+
+
 def commit_model(
-    subtensor,  # bt.Subtensor
-    wallet,  # bt.Wallet
+    subtensor: Subtensor,
+    wallet: Wallet,
     netuid: int,
     repo: str,
     revision: str,
@@ -404,49 +556,8 @@ def commit_model(
     Returns:
         True if commitment succeeded
     """
-    # Truncate revision to 8 chars to fit within MAX_COMMITMENT_SIZE (128 bytes).
-    # HuggingFace supports short SHA resolution like git.
-    revision_short = revision[:8]
-
-    # Validate no colons in fields (would break colon-separated format)
-    if ":" in repo or ":" in revision_short or ":" in deployment_id:
-        logger.error(
-            "commitment_field_contains_colon",
-            repo=repo,
-            revision=revision_short,
-            deployment_id=deployment_id,
-        )
-        return False
-
-    # Build commitment data using colon-separated format (more compact than JSON)
-    if backend_public_key:
-        # Encrypt the deployment ID
-        try:
-            encrypted_blob = encrypt_deployment_id(deployment_id, backend_public_key)
-            # Format: repo:revision:e:<encrypted_blob>
-            commitment_data = f"{repo}:{revision_short}:e:{encrypted_blob}"
-            logger.info(
-                "commitment_encrypted",
-                data_length=len(commitment_data),
-                encrypted_blob_length=len(encrypted_blob),
-            )
-        except Exception as e:
-            logger.exception("encryption_failed", error=str(e))
-            return False
-    else:
-        # Plain commitment (deployment_id visible on-chain)
-        # Format: repo:revision:uuid
-        commitment_data = f"{repo}:{revision_short}:{deployment_id}"
-        logger.info("commitment_data", data=commitment_data, length=len(commitment_data))
-
-    # Validate commitment size fits chain limit
-    if len(commitment_data) > MAX_COMMITMENT_SIZE:
-        logger.error(
-            "commitment_too_large",
-            size=len(commitment_data),
-            max_size=MAX_COMMITMENT_SIZE,
-            repo_length=len(repo),
-        )
+    commitment_data = _build_commitment_data(repo, revision, deployment_id, backend_public_key)
+    if commitment_data is None:
         return False
 
     try:
@@ -458,8 +569,48 @@ def commit_model(
             wait_for_finalization=False,
         )
 
-        # Handle both bool and ExtrinsicResponse return types
-        success = bool(result) if not hasattr(result, "is_success") else result.is_success
+        success = result.success
+        if success:
+            logger.info(
+                "commitment_submitted",
+                repo=repo,
+                revision=revision[:8],
+                deployment_id=deployment_id[:8] + "..." if deployment_id else None,
+                encrypted=bool(backend_public_key),
+            )
+        return success
+    except Exception as e:
+        logger.error("commitment_failed", error=str(e))
+        return False
+
+
+async def commit_model_async(
+    subtensor: AsyncSubtensor,
+    wallet: Wallet,
+    netuid: int,
+    repo: str,
+    revision: str,
+    deployment_id: str,
+    backend_public_key: str | None = None,
+) -> bool:
+    """Async version of :func:`commit_model`.
+
+    Uses :class:`AsyncSubtensor` for non-blocking chain I/O.
+    """
+    commitment_data = _build_commitment_data(repo, revision, deployment_id, backend_public_key)
+    if commitment_data is None:
+        return False
+
+    try:
+        result = await subtensor.set_commitment(
+            wallet=wallet,
+            netuid=netuid,
+            data=commitment_data,
+            wait_for_inclusion=True,
+            wait_for_finalization=False,
+        )
+
+        success = result.success
         if success:
             logger.info(
                 "commitment_submitted",

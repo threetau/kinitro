@@ -17,7 +17,7 @@ from kinitro.crypto import (
 
 
 @pytest.fixture()
-def keypair():
+def keypair() -> BackendKeypair:
     return BackendKeypair.generate()
 
 
@@ -31,14 +31,14 @@ class TestUUIDConversion:
             pytest.param("95edf2b6e18b400a83985573df10e5e4", id="no_dashes"),
         ],
     )
-    def test_uuid_to_bytes(self, uuid_str):
+    def test_uuid_to_bytes(self, uuid_str: str) -> None:
         """Both UUID formats should produce the same 16-byte result."""
         result = uuid_to_bytes(uuid_str)
 
         assert len(result) == 16
         assert result.hex() == "95edf2b6e18b400a83985573df10e5e4"
 
-    def test_bytes_to_uuid_roundtrip(self):
+    def test_bytes_to_uuid_roundtrip(self) -> None:
         """Bytes -> UUID -> Bytes roundtrip."""
         original = "95edf2b6-e18b-400a-8398-5573df10e5e4"
         as_bytes = uuid_to_bytes(original)
@@ -46,12 +46,12 @@ class TestUUIDConversion:
 
         assert back_to_uuid == original
 
-    def test_uuid_to_bytes_invalid_length(self):
+    def test_uuid_to_bytes_invalid_length(self) -> None:
         """Invalid UUID length should raise."""
         with pytest.raises(ValueError, match="Invalid UUID format"):
             uuid_to_bytes("abc123")
 
-    def test_bytes_to_uuid_invalid_length(self):
+    def test_bytes_to_uuid_invalid_length(self) -> None:
         """Invalid bytes length should raise."""
         with pytest.raises(ValueError, match="Invalid UUID bytes length"):
             bytes_to_uuid(b"too short")
@@ -60,12 +60,12 @@ class TestUUIDConversion:
 class TestBackendKeypair:
     """Tests for BackendKeypair class."""
 
-    def test_generate_creates_valid_keypair(self, keypair):
+    def test_generate_creates_valid_keypair(self, keypair: BackendKeypair) -> None:
         """Generate should create a valid keypair."""
         assert keypair.private_key is not None
         assert keypair.public_key is not None
 
-    def test_public_key_hex_length(self, keypair):
+    def test_public_key_hex_length(self, keypair: BackendKeypair) -> None:
         """Public key hex should be 64 characters (32 bytes)."""
         pub_hex = keypair.public_key_hex()
 
@@ -73,7 +73,7 @@ class TestBackendKeypair:
         # Should be valid hex
         bytes.fromhex(pub_hex)
 
-    def test_private_key_hex_length(self, keypair):
+    def test_private_key_hex_length(self, keypair: BackendKeypair) -> None:
         """Private key hex should be 64 characters (32 bytes)."""
         priv_hex = keypair.private_key_hex()
 
@@ -81,7 +81,7 @@ class TestBackendKeypair:
         # Should be valid hex
         bytes.fromhex(priv_hex)
 
-    def test_from_private_key_hex_roundtrip(self, keypair):
+    def test_from_private_key_hex_roundtrip(self, keypair: BackendKeypair) -> None:
         """Load keypair from hex should preserve keys."""
         priv_hex = keypair.private_key_hex()
 
@@ -90,7 +90,7 @@ class TestBackendKeypair:
         assert restored.public_key_hex() == keypair.public_key_hex()
         assert restored.private_key_hex() == keypair.private_key_hex()
 
-    def test_from_private_key_file(self, keypair, tmp_path):
+    def test_from_private_key_file(self, keypair: BackendKeypair, tmp_path) -> None:
         """Load keypair from file."""
         key_file = tmp_path / "test.key"
         keypair.save_private_key(key_file)
@@ -99,7 +99,7 @@ class TestBackendKeypair:
 
         assert restored.public_key_hex() == keypair.public_key_hex()
 
-    def test_save_private_key_permissions(self, keypair, tmp_path):
+    def test_save_private_key_permissions(self, keypair: BackendKeypair, tmp_path) -> None:
         """Private key file should have restricted permissions (0600)."""
         key_file = tmp_path / "test.key"
         keypair.save_private_key(key_file)
@@ -107,7 +107,7 @@ class TestBackendKeypair:
         mode = os.stat(key_file).st_mode & 0o777
         assert mode == 0o600
 
-    def test_save_public_key(self, keypair, tmp_path):
+    def test_save_public_key(self, keypair: BackendKeypair, tmp_path) -> None:
         """Save and read public key."""
         pub_file = tmp_path / "test.pub"
         keypair.save_public_key(pub_file)
@@ -119,7 +119,7 @@ class TestBackendKeypair:
 class TestLoadPublicKey:
     """Tests for load_public_key function."""
 
-    def test_load_valid_public_key(self):
+    def test_load_valid_public_key(self) -> None:
         """Load a valid public key from hex."""
         pub_hex = BackendKeypair.generate().public_key_hex()
 
@@ -128,7 +128,7 @@ class TestLoadPublicKey:
         # Should be able to use for encryption
         assert loaded is not None
 
-    def test_load_invalid_length(self):
+    def test_load_invalid_length(self) -> None:
         """Invalid length should raise."""
         with pytest.raises(ValueError, match="Invalid public key length"):
             load_public_key("abcd1234")
@@ -146,7 +146,7 @@ class TestEncryptDecrypt:
             pytest.param(True, id="key_object"),
         ],
     )
-    def test_encrypt_decrypt_roundtrip(self, keypair, use_key_object):
+    def test_encrypt_decrypt_roundtrip(self, keypair: BackendKeypair, use_key_object) -> None:
         """Encrypt and decrypt should return original value (hex string or key object)."""
         pub_key = keypair.public_key if use_key_object else keypair.public_key_hex()
 
@@ -155,7 +155,7 @@ class TestEncryptDecrypt:
 
         assert decrypted == self.DEPLOYMENT_ID
 
-    def test_encrypted_blob_is_base85(self, keypair):
+    def test_encrypted_blob_is_base85(self, keypair: BackendKeypair) -> None:
         """Encrypted blob should be base85 encoded."""
         encrypted = encrypt_deployment_id(self.DEPLOYMENT_ID, keypair.public_key_hex())
 
@@ -163,14 +163,14 @@ class TestEncryptDecrypt:
         decoded = base64.b85decode(encrypted.encode("ascii"))
         assert len(decoded) == 64  # 32 + 16 + 16 (pubkey + ciphertext + tag, nonce derived)
 
-    def test_encrypted_blob_length(self, keypair):
+    def test_encrypted_blob_length(self, keypair: BackendKeypair) -> None:
         """Encrypted blob should be ~95 characters (base85 of 76 bytes)."""
         encrypted = encrypt_deployment_id(self.DEPLOYMENT_ID, keypair.public_key_hex())
 
         # Base85: 64 bytes -> ceil(64 * 5 / 4) = 80 characters
         assert len(encrypted) == 80
 
-    def test_decrypt_with_wrong_key_fails(self, keypair):
+    def test_decrypt_with_wrong_key_fails(self, keypair: BackendKeypair) -> None:
         """Decryption with wrong key should fail."""
         keypair2 = BackendKeypair.generate()
 
@@ -179,7 +179,7 @@ class TestEncryptDecrypt:
         with pytest.raises(ValueError, match="Decryption failed"):
             decrypt_deployment_id(encrypted, keypair2.private_key)
 
-    def test_decrypt_tampered_data_fails(self, keypair):
+    def test_decrypt_tampered_data_fails(self, keypair: BackendKeypair) -> None:
         """Decryption of tampered data should fail."""
         encrypted = encrypt_deployment_id(self.DEPLOYMENT_ID, keypair.public_key_hex())
 
@@ -189,7 +189,7 @@ class TestEncryptDecrypt:
         with pytest.raises(ValueError):
             decrypt_deployment_id(tampered, keypair.private_key)
 
-    def test_each_encryption_is_unique(self, keypair):
+    def test_each_encryption_is_unique(self, keypair: BackendKeypair) -> None:
         """Each encryption should produce different output (fresh ephemeral key)."""
         encrypted1 = encrypt_deployment_id(self.DEPLOYMENT_ID, keypair.public_key_hex())
         encrypted2 = encrypt_deployment_id(self.DEPLOYMENT_ID, keypair.public_key_hex())
@@ -205,7 +205,7 @@ class TestEncryptDecrypt:
 class TestIntegration:
     """Integration tests for the full encryption flow."""
 
-    def test_full_commitment_flow(self, keypair):
+    def test_full_commitment_flow(self, keypair: BackendKeypair) -> None:
         """Test full flow: generate keys, encrypt, parse, decrypt."""
         # Miner encrypts their deployment ID
         deployment_id = "95edf2b6-e18b-400a-8398-5573df10e5e4"
@@ -226,11 +226,12 @@ class TestIntegration:
         assert parsed["encrypted_deployment"] == encrypted_blob
 
         # Backend decrypts the endpoint
+        assert parsed["encrypted_deployment"] is not None
         decrypted = decrypt_deployment_id(parsed["encrypted_deployment"], keypair.private_key)
 
         assert decrypted == deployment_id
 
-    def test_plain_commitment_still_works(self):
+    def test_plain_commitment_still_works(self) -> None:
         """Plain commitments should still work."""
         commitment = "user/policy:abc123:95edf2b6-e18b-400a-8398-5573df10e5e4"
 

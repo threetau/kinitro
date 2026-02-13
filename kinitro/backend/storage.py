@@ -15,7 +15,17 @@ from kinitro.backend.models import (
     EvaluationCycleStatus,
     MinerScoreORM,
     TaskPoolORM,
+    TaskPoolStats,
     TaskStatus,
+)
+from kinitro.types import (
+    EnvironmentId,
+    Hotkey,
+    MinerScoreData,
+    MinerUID,
+    Seed,
+    TaskCreateData,
+    TaskUUID,
 )
 
 logger = structlog.get_logger()
@@ -182,9 +192,9 @@ class Storage:
         self,
         session: AsyncSession,
         cycle_id: int,
-        uid: int,
-        hotkey: str,
-        env_id: str,
+        uid: MinerUID,
+        hotkey: Hotkey,
+        env_id: EnvironmentId,
         success_rate: float,
         mean_reward: float,
         episodes_completed: int,
@@ -208,7 +218,7 @@ class Storage:
         self,
         session: AsyncSession,
         cycle_id: int,
-        scores: list[dict],
+        scores: list[MinerScoreData],
     ) -> None:
         """Bulk add miner scores."""
         for score_data in scores:
@@ -230,7 +240,7 @@ class Storage:
     async def get_miner_history(
         self,
         session: AsyncSession,
-        uid: int,
+        uid: MinerUID,
         limit: int = 10,
     ) -> list[MinerScoreORM]:
         """Get recent scores for a specific miner."""
@@ -256,14 +266,14 @@ class Storage:
         session: AsyncSession,
         cycle_id: int,
         block_number: int,
-        weights: dict[int, float],
+        weights: dict[MinerUID, float],
         weights_u16: dict[str, list[int]],
     ) -> ComputedWeightsORM:
         """Save computed weights for a cycle."""
         weights_orm = ComputedWeightsORM(
             cycle_id=cycle_id,
             block_number=block_number,
-            weights_json=weights,
+            weights_json={str(k): v for k, v in weights.items()},
             weights_u16_json=weights_u16,
             created_at=datetime.now(timezone.utc),
         )
@@ -302,12 +312,12 @@ class Storage:
         self,
         session: AsyncSession,
         cycle_id: int,
-        miner_uid: int,
-        miner_hotkey: str,
+        miner_uid: MinerUID,
+        miner_hotkey: Hotkey,
         miner_endpoint: str,
-        env_id: str,
-        seed: int,
-        task_uuid: str | None = None,
+        env_id: EnvironmentId,
+        seed: Seed,
+        task_uuid: TaskUUID | None = None,
     ) -> TaskPoolORM:
         """Create a new task in the task pool."""
         # Build kwargs, only including task_uuid if provided
@@ -331,7 +341,7 @@ class Storage:
     async def create_tasks_bulk(
         self,
         session: AsyncSession,
-        tasks: list[dict],
+        tasks: list[TaskCreateData],
     ) -> int:
         """Bulk create tasks in the task pool.
 
@@ -370,7 +380,7 @@ class Storage:
         session: AsyncSession,
         executor_id: str,
         batch_size: int = 10,
-        env_ids: list[str] | None = None,
+        env_ids: list[EnvironmentId] | None = None,
     ) -> list[TaskPoolORM]:
         """Fetch and assign tasks to an executor.
 
@@ -418,7 +428,7 @@ class Storage:
     async def submit_task_result(
         self,
         session: AsyncSession,
-        task_uuid: str,
+        task_uuid: TaskUUID,
         executor_id: str,
         success: bool,
         score: float,
@@ -493,7 +503,7 @@ class Storage:
         self,
         session: AsyncSession,
         cycle_id: int | None = None,
-    ) -> dict:
+    ) -> TaskPoolStats:
         """Get statistics about the task pool.
 
         Args:
@@ -501,7 +511,7 @@ class Storage:
             cycle_id: Optional filter by cycle ID
 
         Returns:
-            Dict with task pool statistics
+            TaskPoolStats with task pool statistics
         """
         # Base query
         base_filter = TaskPoolORM.cycle_id == cycle_id if cycle_id is not None else None
@@ -523,15 +533,15 @@ class Storage:
         result = await session.execute(assigned_query)
         active_executors = [r for r in result.scalars().all() if r is not None]
 
-        return {
-            "total_tasks": sum(status_counts.values()),
-            "pending_tasks": status_counts.get(TaskStatus.PENDING.value, 0),
-            "assigned_tasks": status_counts.get(TaskStatus.ASSIGNED.value, 0),
-            "completed_tasks": status_counts.get(TaskStatus.COMPLETED.value, 0),
-            "failed_tasks": status_counts.get(TaskStatus.FAILED.value, 0),
-            "active_executors": active_executors,
-            "current_cycle_id": cycle_id,
-        }
+        return TaskPoolStats(
+            total_tasks=sum(status_counts.values()),
+            pending_tasks=status_counts.get(TaskStatus.PENDING.value, 0),
+            assigned_tasks=status_counts.get(TaskStatus.ASSIGNED.value, 0),
+            completed_tasks=status_counts.get(TaskStatus.COMPLETED.value, 0),
+            failed_tasks=status_counts.get(TaskStatus.FAILED.value, 0),
+            active_executors=active_executors,
+            current_cycle_id=cycle_id,
+        )
 
     async def count_pending_tasks(
         self,

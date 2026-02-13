@@ -4,6 +4,7 @@ import aiohttp
 import structlog
 
 from kinitro.backend.models import Task, TaskResult
+from kinitro.types import EnvironmentId
 
 logger = structlog.get_logger()
 
@@ -38,7 +39,7 @@ class APIClient:
     async def fetch_tasks(
         self,
         batch_size: int = 10,
-        env_ids: list[str] | None = None,
+        env_ids: list[EnvironmentId] | None = None,
     ) -> list[Task]:
         """
         Fetch tasks from the API.

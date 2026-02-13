@@ -19,6 +19,7 @@ from kinitro.environments.registry import (
     get_family_metadata,
 )
 from kinitro.rl_interface import Action, ActionKeys, Observation
+from kinitro.types import EnvironmentId
 
 # Available environment families for build command
 AVAILABLE_ENV_FAMILIES = ["metaworld", "genesis"]
@@ -234,7 +235,7 @@ def test_env(
         typer.echo("Error: --episodes must be >= 1", err=True)
         raise typer.Exit(1)
 
-    env = get_environment(env_id, show_viewer=viewer)
+    env = get_environment(EnvironmentId(env_id), show_viewer=viewer)
     try:
         typer.echo(f"  Canonical observation shape: {env.observation_shape}")
         typer.echo(f"  Canonical action shape: {env.action_shape}")

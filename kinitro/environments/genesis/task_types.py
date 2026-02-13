@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from kinitro.types import FeasibilityResult, ObjectType
+
 
 class TaskType(Enum):
     """Types of tasks the agent can be asked to perform."""
@@ -32,23 +34,23 @@ class TaskSpec:
     task_type: TaskType
     task_prompt: str
     target_object_id: str
-    target_object_type: str
+    target_object_type: ObjectType
     target_position: list[float]  # [x, y, z]
 
     # For PLACE/PUSH tasks: where to deliver the object
     destination_object_id: str | None = None
     destination_position: list[float] | None = None
 
-    # For tracking initial state (to detect completion)
+    # Any: initial state values are heterogeneous (positions, flags, etc.)
     initial_state: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # Any: mixed value types after serialization
         """Serialize to dictionary for TaskConfig."""
         return {
             "task_type": self.task_type.value,
             "task_prompt": self.task_prompt,
             "target_object_id": self.target_object_id,
-            "target_object_type": self.target_object_type,
+            "target_object_type": self.target_object_type.value,
             "target_position": self.target_position,
             "destination_object_id": self.destination_object_id,
             "destination_position": self.destination_position,
@@ -56,13 +58,13 @@ class TaskSpec:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> TaskSpec:
+    def from_dict(cls, data: dict[str, Any]) -> TaskSpec:  # Any: deserialized JSON values
         """Deserialize from dictionary."""
         return cls(
             task_type=TaskType(data["task_type"]),
             task_prompt=data["task_prompt"],
             target_object_id=data["target_object_id"],
-            target_object_type=data["target_object_type"],
+            target_object_type=ObjectType(data["target_object_type"]),
             target_position=data["target_position"],
             destination_object_id=data.get("destination_object_id"),
             destination_position=data.get("destination_position"),
@@ -75,7 +77,7 @@ class SceneObject:
     """Represents a primitive object placed in a Genesis scene."""
 
     object_id: str
-    object_type: str  # "box", "sphere", "cylinder"
+    object_type: ObjectType
     position: list[float]  # [x, y, z]
     color: str  # "red", "green", "blue", etc.
     color_rgb: tuple[float, float, float]
@@ -100,15 +102,15 @@ OBJECT_COLORS: dict[str, tuple[float, float, float]] = {
     "white": (0.9, 0.9, 0.9),
 }
 
-OBJECT_TYPES = ["box", "sphere", "cylinder"]
+OBJECT_TYPES = [e.value for e in ObjectType]
 
 
 def check_task_feasibility(
     task_type: TaskType,
     target: SceneObject,
     destination: SceneObject | None = None,
-    robot_supported_tasks: list[str] | None = None,
-) -> tuple[bool, str]:
+    robot_supported_tasks: list[TaskType] | None = None,
+) -> FeasibilityResult:
     """
     Check if a task is feasible given the target object and robot capabilities.
 
@@ -117,14 +119,14 @@ def check_task_feasibility(
     """
     # Check robot supports this task type
     if robot_supported_tasks is not None:
-        if task_type.value not in robot_supported_tasks:
-            return False, f"Robot does not support task type {task_type.value}"
+        if task_type not in robot_supported_tasks:
+            return FeasibilityResult(False, f"Robot does not support task type {task_type.value}")
 
     # Check required properties
     required_props = TASK_REQUIRED_PROPERTIES[task_type]
     for prop in required_props:
         if not getattr(target, prop, False):
-            return False, f"Object {target.object_type} is not {prop}"
+            return FeasibilityResult(False, f"Object {target.object_type.value} is not {prop}")
 
     # Task-specific checks
     match task_type:
@@ -132,14 +134,16 @@ def check_task_feasibility(
             pass  # Always feasible if target exists
         case TaskType.PICKUP:
             if target.is_picked_up:
-                return False, f"Object {target.object_type} is already picked up"
+                return FeasibilityResult(
+                    False, f"Object {target.object_type.value} is already picked up"
+                )
         case TaskType.PLACE:
             if destination is None:
-                return False, "Place task requires a destination"
+                return FeasibilityResult(False, "Place task requires a destination")
         case TaskType.PUSH:
             if destination is None:
-                return False, "Push task requires a destination"
+                return FeasibilityResult(False, "Push task requires a destination")
             if target.object_id == destination.object_id:
-                return False, "Cannot push object to itself"
+                return FeasibilityResult(False, "Cannot push object to itself")
 
-    return True, "Task is feasible"
+    return FeasibilityResult(True, "Task is feasible")

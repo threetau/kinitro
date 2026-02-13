@@ -18,7 +18,7 @@ class WeightsData:
     weights: dict[int, float]
     uids: list[int]
     values_u16: list[int]
-    metadata: dict[str, Any]
+    metadata: dict[str, Any]  # Any: open-ended backend metadata
 
 
 class BackendClient:
@@ -150,7 +150,7 @@ class BackendClient:
             logger.error("backend_request_error", error=str(e))
             return None
 
-    async def get_status(self) -> dict[str, Any] | None:
+    async def get_status(self) -> dict[str, Any] | None:  # Any: backend status schema is open-ended
         """
         Get backend status.
 

@@ -10,6 +10,8 @@ from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Index, Integer, 
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from kinitro.types import EnvironmentId, Hotkey, MinerUID, Seed, TaskUUID
+
 
 def generate_task_uuid() -> str:
     """Generate a unique task UUID."""
@@ -166,6 +168,7 @@ class TaskPoolORM(Base):
     assigned_to: Mapped[str | None] = mapped_column(String(64), nullable=True)
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Any: JSONB column — schema varies by environment/task type
     result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=func.now()
@@ -198,9 +201,9 @@ class HealthResponse(BaseModel):
 class MinerScore(BaseModel):
     """Score for one miner on one environment."""
 
-    uid: int
-    hotkey: str
-    env_id: str
+    uid: MinerUID
+    hotkey: Hotkey
+    env_id: EnvironmentId
     success_rate: float
     mean_reward: float
     episodes_completed: int
@@ -214,7 +217,7 @@ class EvaluationCycle(BaseModel):
     block_number: int
     started_at: datetime
     completed_at: datetime | None
-    status: str
+    status: EvaluationCycleStatus
     n_miners: int | None
     n_environments: int | None
     duration_seconds: float | None
@@ -230,7 +233,7 @@ class ScoresResponse(BaseModel):
     scores: list[MinerScore]
 
     # Aggregated by miner
-    miner_summary: dict[int, dict[str, float]] = Field(
+    miner_summary: dict[MinerUID, dict[EnvironmentId, float]] = Field(
         default_factory=dict,
         description="Aggregated scores per miner: {uid: {env_id: success_rate}}",
     )
@@ -239,7 +242,7 @@ class ScoresResponse(BaseModel):
 class WeightsU16(BaseModel):
     """Weights in u16 format for chain submission."""
 
-    uids: list[int]
+    uids: list[MinerUID]
     values: list[int]
 
 
@@ -249,8 +252,9 @@ class WeightsResponse(BaseModel):
     cycle_id: int
     block_number: int
     timestamp: datetime
-    weights: dict[int, float] = Field(description="Normalized weights: {uid: weight}")
+    weights: dict[MinerUID, float] = Field(description="Normalized weights: {uid: weight}")
     weights_u16: WeightsU16 = Field(description="Weights formatted for chain submission")
+    # Any: open-ended metadata for extensibility (timestamps, debug info, etc.)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -261,24 +265,24 @@ class StatusResponse(BaseModel):
     last_completed_cycle: EvaluationCycle | None
     total_cycles: int
     total_miners_evaluated: int
-    environments: list[str]
+    environments: list[EnvironmentId]
     is_evaluating: bool
 
 
 class MinerInfo(BaseModel):
     """Information about a miner."""
 
-    uid: int
-    hotkey: str
+    uid: MinerUID
+    hotkey: Hotkey
     last_evaluated_block: int | None
     avg_success_rate: float | None
-    environments_evaluated: list[str]
+    environments_evaluated: list[EnvironmentId]
 
 
 class EnvironmentInfo(BaseModel):
     """Information about an evaluation environment."""
 
-    env_id: str
+    env_id: EnvironmentId
     env_name: str
     task_name: str
     n_evaluations: int
@@ -293,16 +297,16 @@ class EnvironmentInfo(BaseModel):
 class Task(BaseModel):
     """A single evaluation task from the task pool."""
 
-    task_uuid: str  # Unique identifier for API calls
+    task_uuid: TaskUUID  # Unique identifier for API calls
     cycle_id: int
-    miner_uid: int
-    miner_hotkey: str
+    miner_uid: MinerUID
+    miner_hotkey: Hotkey
     miner_endpoint: str
     miner_repo: str | None = None  # HuggingFace repo for verification
     miner_revision: str | None = None  # HuggingFace revision for verification
-    env_id: str
-    seed: int  # Deterministic seed for reproducibility
-    status: str
+    env_id: EnvironmentId
+    seed: Seed  # Deterministic seed for reproducibility
+    status: TaskStatus
     created_at: datetime
 
     class Config:
@@ -314,7 +318,9 @@ class TaskFetchRequest(BaseModel):
 
     executor_id: str = Field(description="Unique identifier for the executor")
     batch_size: int = Field(default=10, ge=1, le=100, description="Number of tasks to fetch")
-    env_ids: list[str] | None = Field(default=None, description="Filter by environment IDs")
+    env_ids: list[EnvironmentId] | None = Field(
+        default=None, description="Filter by environment IDs"
+    )
 
 
 class TaskFetchResponse(BaseModel):
@@ -327,7 +333,7 @@ class TaskFetchResponse(BaseModel):
 class TaskResult(BaseModel):
     """Result of a single task execution."""
 
-    task_uuid: str = Field(description="UUID of the task")
+    task_uuid: TaskUUID = Field(description="UUID of the task")
     success: bool
     score: float = Field(default=0.0)
     total_reward: float = Field(default=0.0)

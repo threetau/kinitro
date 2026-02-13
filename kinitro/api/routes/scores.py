@@ -12,6 +12,7 @@ from kinitro.backend.models import (
     ScoresResponse,
 )
 from kinitro.backend.storage import Storage
+from kinitro.types import EnvironmentId, Hotkey, MinerUID
 
 router = APIRouter(prefix="/v1/scores", tags=["Scores"])
 
@@ -22,9 +23,9 @@ def _build_scores_response(
     """Build a ScoresResponse from a cycle ORM object and its scores."""
     scores = [
         MinerScore(
-            uid=s.uid,
-            hotkey=s.hotkey,
-            env_id=s.env_id,
+            uid=MinerUID(s.uid),
+            hotkey=Hotkey(s.hotkey),
+            env_id=EnvironmentId(s.env_id),
             success_rate=s.success_rate,
             mean_reward=s.mean_reward,
             episodes_completed=s.episodes_completed,
@@ -33,11 +34,12 @@ def _build_scores_response(
         for s in scores_orm
     ]
 
-    miner_summary: dict[int, dict[str, float]] = {}
+    miner_summary: dict[MinerUID, dict[EnvironmentId, float]] = {}
     for s in scores_orm:
-        if s.uid not in miner_summary:
-            miner_summary[s.uid] = {}
-        miner_summary[s.uid][s.env_id] = s.success_rate
+        uid = MinerUID(s.uid)
+        if uid not in miner_summary:
+            miner_summary[uid] = {}
+        miner_summary[uid][EnvironmentId(s.env_id)] = s.success_rate
 
     return ScoresResponse(
         cycle=EvaluationCycle.model_validate(cycle),
@@ -50,7 +52,7 @@ def _build_scores_response(
 async def get_latest_scores(
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
-):
+) -> ScoresResponse:
     """Get scores from the most recent completed evaluation cycle."""
     cycle = await storage.get_latest_cycle(session, completed_only=True)
     if cycle is None:
@@ -65,7 +67,7 @@ async def get_scores_for_cycle(
     cycle_id: int,
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
-):
+) -> ScoresResponse:
     """Get scores for a specific evaluation cycle."""
     cycle = await storage.get_cycle(session, cycle_id)
     if cycle is None:

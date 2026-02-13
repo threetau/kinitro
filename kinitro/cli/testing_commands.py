@@ -15,13 +15,14 @@ from kinitro.scoring.winners_take_all import (
     compute_subset_scores_with_priority,
     scores_to_weights,
 )
+from kinitro.types import BlockNumber, EnvironmentId, MinerUID
 
 
 def test_scoring(
     n_miners: int = typer.Option(5, help="Number of simulated miners"),
     n_envs: int = typer.Option(3, help="Number of environments"),
     episodes_per_env: int = typer.Option(50, help="Simulated episodes per environment"),
-):
+) -> None:
     """
     Test the Pareto scoring mechanism with simulated data.
 
@@ -30,13 +31,14 @@ def test_scoring(
     typer.echo(f"Testing Pareto scoring with {n_miners} miners, {n_envs} environments\n")
 
     # Generate random scores and commit blocks
-    env_ids = [f"env_{i}" for i in range(n_envs)]
+    env_ids = [EnvironmentId(f"env_{i}") for i in range(n_envs)]
     miner_scores = {}
     miner_blocks = {}
 
     for uid in range(n_miners):
-        miner_scores[uid] = {env_id: float(np.random.uniform(0.3, 0.9)) for env_id in env_ids}
-        miner_blocks[uid] = 1000 + uid * 100  # Earlier UIDs committed earlier
+        miner_uid = MinerUID(uid)
+        miner_scores[miner_uid] = {env_id: float(np.random.uniform(0.3, 0.9)) for env_id in env_ids}
+        miner_blocks[miner_uid] = BlockNumber(1000 + uid * 100)  # Earlier UIDs committed earlier
 
     # Display scores
     typer.echo("Miner scores (earlier block = first-commit advantage):")
@@ -68,7 +70,7 @@ def mock_miner(
     host: str = typer.Option("127.0.0.1", help="Host to bind to (use 0.0.0.0 to expose)"),
     port: int = typer.Option(8001, help="Port to bind to"),
     random_actions: bool = typer.Option(True, help="Return random actions (won't solve tasks)"),
-):
+) -> None:
     """
     Run a mock miner policy server for testing.
 

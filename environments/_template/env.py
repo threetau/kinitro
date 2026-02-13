@@ -23,8 +23,10 @@ import httpx
 import structlog
 
 from kinitro.environments import get_environment
+from kinitro.environments.base import RoboticsEnvironment
 from kinitro.environments.registry import get_environments_by_family
 from kinitro.rl_interface import Action
+from kinitro.types import EnvironmentId
 
 logger = structlog.get_logger()
 
@@ -36,7 +38,7 @@ class Actor:
         """Initialize the evaluation actor."""
         self._env_cache = {}
 
-    def _get_env(self, env_id: str):
+    def _get_env(self, env_id: EnvironmentId) -> RoboticsEnvironment:
         """Get or create a robotics environment (lazy loading)."""
         if env_id not in self._env_cache:
             self._env_cache[env_id] = get_environment(env_id)
@@ -67,7 +69,7 @@ class Actor:
             resp.raise_for_status()
             return resp.json()
 
-    async def list_environments(self) -> list[str]:
+    async def list_environments(self) -> list[EnvironmentId]:
         """List available environments in this family."""
         # TODO: Change "myenv" to your environment family prefix
         return get_environments_by_family("myenv")
@@ -75,10 +77,10 @@ class Actor:
     async def evaluate(
         self,
         task_id: int,
+        base_url: str,
         seed: int | None = None,
         model: str | None = None,
-        base_url: str | None = None,
-        env_id: str = "myenv/v0",  # TODO: Change default env_id
+        env_id: EnvironmentId = EnvironmentId("myenv/v0"),  # TODO: Change default env_id
         max_timesteps: int = 500,
         action_timeout: float = 0.5,
         use_images: bool = True,
@@ -107,9 +109,6 @@ class Actor:
                 start_time=time.time(),
                 error=f"Invalid env_id: {env_id}. Must start with 'myenv/'",
             )
-
-        if base_url is None:
-            raise ValueError("base_url (miner endpoint) is required")
 
         seed = seed if seed is not None else task_id
         start_time = time.time()
@@ -207,7 +206,7 @@ class Actor:
 
     def _build_error_result(
         self,
-        env_id: str,
+        env_id: EnvironmentId,
         task_id: int,
         seed: int,
         start_time: float,

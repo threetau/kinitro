@@ -4,13 +4,15 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from kinitro.types import EnvironmentId, MinerScores, MinerUID
+
 
 @dataclass
 class ParetoResult:
     """Result of Pareto frontier computation."""
 
     # UIDs of miners on the Pareto frontier
-    frontier_uids: list[int]
+    frontier_uids: list[MinerUID]
 
     # Dominance matrix: dominance[i, j] = True if miner i dominates miner j
     dominance_matrix: np.ndarray
@@ -22,7 +24,7 @@ class ParetoResult:
     score_matrix: np.ndarray
 
     # Mapping from matrix index to UID
-    uid_mapping: list[int] = field(default_factory=list)
+    uid_mapping: list[MinerUID] = field(default_factory=list)
 
 
 def compute_epsilon(
@@ -98,9 +100,9 @@ def epsilon_dominates(
 
 
 def compute_pareto_frontier(
-    miner_scores: dict[int, dict[str, float]],
-    env_ids: list[str],
-    n_samples_per_env: int | dict[str, int],
+    miner_scores: MinerScores,
+    env_ids: list[EnvironmentId],
+    n_samples_per_env: int | dict[EnvironmentId, int],
 ) -> ParetoResult:
     """
     Compute ε-Pareto frontier across all miners.
@@ -171,7 +173,7 @@ def compute_pareto_frontier(
     )
 
 
-def get_dominating_miners(pareto_result: ParetoResult, uid: int) -> list[int]:
+def get_dominating_miners(pareto_result: ParetoResult, uid: MinerUID) -> list[MinerUID]:
     """
     Get list of miners that dominate the given miner.
 
@@ -182,15 +184,16 @@ def get_dominating_miners(pareto_result: ParetoResult, uid: int) -> list[int]:
     Returns:
         List of UIDs that dominate this miner
     """
-    if uid not in pareto_result.uid_mapping:
+    uid_to_idx = {u: i for i, u in enumerate(pareto_result.uid_mapping)}
+    if uid not in uid_to_idx:
         return []
 
-    idx = pareto_result.uid_mapping.index(uid)
+    idx = uid_to_idx[uid]
     dominating_indices = np.where(pareto_result.dominance_matrix[:, idx])[0]
     return [pareto_result.uid_mapping[i] for i in dominating_indices]
 
 
-def get_dominated_miners(pareto_result: ParetoResult, uid: int) -> list[int]:
+def get_dominated_miners(pareto_result: ParetoResult, uid: MinerUID) -> list[MinerUID]:
     """
     Get list of miners that are dominated by the given miner.
 
@@ -201,18 +204,19 @@ def get_dominated_miners(pareto_result: ParetoResult, uid: int) -> list[int]:
     Returns:
         List of UIDs that this miner dominates
     """
-    if uid not in pareto_result.uid_mapping:
+    uid_to_idx = {u: i for i, u in enumerate(pareto_result.uid_mapping)}
+    if uid not in uid_to_idx:
         return []
 
-    idx = pareto_result.uid_mapping.index(uid)
+    idx = uid_to_idx[uid]
     dominated_indices = np.where(pareto_result.dominance_matrix[idx, :])[0]
     return [pareto_result.uid_mapping[i] for i in dominated_indices]
 
 
 def later_beats_earlier(
-    later_scores: dict[str, float],
-    earlier_thresholds: dict[str, float],
-    env_ids: list[str],
+    later_scores: dict[EnvironmentId, float],
+    earlier_thresholds: dict[EnvironmentId, float],
+    env_ids: list[EnvironmentId],
 ) -> bool:
     """
     Check if a later miner beats an earlier miner's thresholds on all environments.

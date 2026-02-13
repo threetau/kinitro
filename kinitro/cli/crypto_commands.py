@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 
 import typer
+from bittensor import Subtensor
+from bittensor_wallet import Wallet
 
 from kinitro.chain.commitments import _query_commitment_by_hotkey
 from kinitro.crypto import BackendKeypair, decrypt_deployment_id, encrypt_deployment_id
@@ -65,9 +67,7 @@ def fetch_backend_public_key(
     Returns:
         Public key hex string, or None if not found
     """
-    import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
-
-    subtensor = bt.Subtensor(network=network)
+    subtensor = Subtensor(network=network)
     try:
         commitment_str, _ = _query_commitment_by_hotkey(subtensor, netuid, backend_hotkey)
 
@@ -225,10 +225,8 @@ def publish_public_key(
     typer.echo(f"  Commitment size: {len(commitment_data)} bytes")
 
     # Connect and publish
-    import bittensor as bt  # noqa: PLC0415 - lazy import to avoid argparse hijacking
-
-    subtensor = bt.Subtensor(network=network)
-    wallet = bt.Wallet(name=wallet_name, hotkey=hotkey_name)
+    subtensor = Subtensor(network=network)
+    wallet = Wallet(name=wallet_name, hotkey=hotkey_name)
 
     typer.echo(f"  Wallet: {wallet_name}/{hotkey_name}")
     typer.echo(f"  Hotkey: {wallet.hotkey.ss58_address}")
@@ -242,7 +240,7 @@ def publish_public_key(
             wait_for_finalization=False,
         )
 
-        success = bool(result) if not hasattr(result, "is_success") else result.is_success
+        success = result.success
         if success:
             typer.echo("")
             typer.echo("Public key published successfully!")

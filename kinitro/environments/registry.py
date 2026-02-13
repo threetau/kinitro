@@ -9,6 +9,7 @@ from typing import Any
 import structlog
 
 from kinitro.environments.base import RoboticsEnvironment
+from kinitro.types import EnvironmentFamily, EnvironmentId
 
 logger = structlog.get_logger()
 
@@ -25,7 +26,7 @@ EnvFactory = Callable[..., RoboticsEnvironment]
 def _make_metaworld_env(task: str) -> EnvFactory:
     """Create factory for MetaWorld environment."""
 
-    def factory(**_kwargs: Any) -> RoboticsEnvironment:
+    def factory(**_kwargs: Any) -> RoboticsEnvironment:  # Any: matches EnvFactory signature
         # Lazy import to allow containers with partial dependencies
         from kinitro.environments.metaworld_env import MetaWorldEnvironment  # noqa: PLC0415
 
@@ -37,7 +38,7 @@ def _make_metaworld_env(task: str) -> EnvFactory:
 def _make_genesis_env(env_cls_name: str, task: str) -> EnvFactory:
     """Create factory for Genesis environment."""
 
-    def factory(**kwargs: Any) -> RoboticsEnvironment:
+    def factory(**kwargs: Any) -> RoboticsEnvironment:  # Any: forwarded to env constructor
         # Lazy import to allow containers with partial dependencies
         from kinitro.environments.genesis import envs  # noqa: PLC0415
 
@@ -74,7 +75,9 @@ ENVIRONMENTS: dict[str, EnvFactory] = {
 }
 
 
-def get_environment(env_id: str, **kwargs: Any) -> RoboticsEnvironment:
+def get_environment(
+    env_id: EnvironmentId, **kwargs: Any
+) -> RoboticsEnvironment:  # Any: forwarded to factory
     """
     Load a robotics environment by ID.
 
@@ -97,12 +100,12 @@ def get_environment(env_id: str, **kwargs: Any) -> RoboticsEnvironment:
     return ENVIRONMENTS[env_id](**kwargs)
 
 
-def get_all_environment_ids() -> list[str]:
+def get_all_environment_ids() -> list[EnvironmentId]:
     """Get list of all registered environment IDs."""
-    return list(ENVIRONMENTS.keys())
+    return [EnvironmentId(env_id) for env_id in ENVIRONMENTS]
 
 
-def get_environments_by_family(family: str) -> list[str]:
+def get_environments_by_family(family: str | EnvironmentFamily) -> list[EnvironmentId]:
     """
     Get environment IDs for a specific family.
 
@@ -112,7 +115,7 @@ def get_environments_by_family(family: str) -> list[str]:
     Returns:
         List of environment IDs in that family
     """
-    return [env_id for env_id in ENVIRONMENTS if env_id.startswith(f"{family}/")]
+    return [EnvironmentId(env_id) for env_id in ENVIRONMENTS if env_id.startswith(f"{family}/")]
 
 
 def _load_family_metadata() -> dict[str, dict[str, str]]:

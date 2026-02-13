@@ -2,11 +2,15 @@
 
 import numpy as np
 import structlog
+from bittensor import Subtensor
+from bittensor_wallet import Wallet
+
+from kinitro.types import EligibilityResult, MinerUID
 
 logger = structlog.get_logger()
 
 
-def weights_to_u16(weights: dict[int, float]) -> tuple[list[int], list[int]]:
+def weights_to_u16(weights: dict[MinerUID, float]) -> tuple[list[MinerUID], list[int]]:
     """
     Convert float weights to u16 format for chain submission.
 
@@ -39,10 +43,10 @@ def weights_to_u16(weights: dict[int, float]) -> tuple[list[int], list[int]]:
 
 
 def set_weights(
-    subtensor,  # bt.Subtensor
-    wallet,  # bt.Wallet
+    subtensor: Subtensor,
+    wallet: Wallet,
     netuid: int,
-    weights: dict[int, float],
+    weights: dict[MinerUID, float],
     wait_for_inclusion: bool = True,
     wait_for_finalization: bool = False,
 ) -> bool:
@@ -75,21 +79,21 @@ def set_weights(
             top_weights=[(uid, w) for uid, w in top_weights],
         )
 
-        success = subtensor.set_weights(
+        result = subtensor.set_weights(
             wallet=wallet,
             netuid=netuid,
-            uids=uids,
+            uids=[int(uid) for uid in uids],
             weights=weights_u16,
             wait_for_inclusion=wait_for_inclusion,
             wait_for_finalization=wait_for_finalization,
         )
 
-        if success:
+        if result.success:
             logger.info("weights_set_successfully")
         else:
-            logger.error("weights_set_failed")
+            logger.error("weights_set_failed", message=result.message)
 
-        return success
+        return result.success
 
     except Exception as e:
         logger.error("weights_set_exception", error=str(e))
@@ -97,10 +101,10 @@ def set_weights(
 
 
 def verify_weight_setting_eligibility(
-    subtensor,  # bt.Subtensor
-    wallet,  # bt.Wallet
+    subtensor: Subtensor,
+    wallet: Wallet,
     netuid: int,
-) -> tuple[bool, str]:
+) -> EligibilityResult:
     """
     Check if validator can set weights.
 
@@ -118,14 +122,14 @@ def verify_weight_setting_eligibility(
         neurons = subtensor.neurons(netuid=netuid)
 
         if not neurons:
-            return False, "No neurons found on subnet"
+            return EligibilityResult(False, "No neurons found on subnet")
 
         # Check if hotkey is registered
         hotkey = wallet.hotkey.ss58_address
         hotkeys = [n.hotkey for n in neurons]
 
         if hotkey not in hotkeys:
-            return False, "Hotkey not registered on subnet"
+            return EligibilityResult(False, "Hotkey not registered on subnet")
 
         uid = hotkeys.index(hotkey)
         _neuron = neurons[uid]  # noqa: F841 - kept for future validation
@@ -133,14 +137,14 @@ def verify_weight_setting_eligibility(
         # NOTE: this has been disabled for now do not check permit and stake
         # # Check if has validator permit
         # if not neuron.validator_permit:
-        #     return False, "No validator permit"
+        #     return EligibilityResult(False, "No validator permit")
 
         # # Check stake (neuron.stake is a Balance object, compare raw value)
         # stake_tao = float(neuron.stake.tao)
         # if stake_tao < 1.0:  # Minimum stake threshold
-        #     return False, f"Insufficient stake: {stake_tao}"
+        #     return EligibilityResult(False, f"Insufficient stake: {stake_tao}")
 
-        return True, "Eligible"
+        return EligibilityResult(True, "Eligible")
 
     except Exception as e:
-        return False, f"Error checking eligibility: {e}"
+        return EligibilityResult(False, f"Error checking eligibility: {e}")

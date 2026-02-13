@@ -4,6 +4,8 @@ from typing import Any
 
 import numpy as np
 
+from kinitro.types import ProceduralTaskResult
+
 
 def randomize_positions(
     base: np.ndarray | list[float],
@@ -47,8 +49,8 @@ def randomize_physics(
 
 def randomize_domain(
     rng: np.random.Generator,
-    config: dict[str, dict[str, Any]],
-) -> dict[str, Any]:
+    config: dict[str, dict[str, Any]],  # Any: randomization specs vary by param type
+) -> dict[str, Any]:  # Any: generated values are floats, ints, or tuples
     """
     Generate domain randomization parameters.
 
@@ -96,7 +98,7 @@ class ProceduralTaskGenerator:
         env_id: str,
         position_ranges: dict[str, np.ndarray] | None = None,
         physics_ranges: dict[str, tuple[float, float]] | None = None,
-        domain_config: dict[str, dict[str, Any]] | None = None,
+        domain_config: dict[str, dict[str, Any]] | None = None,  # Any: see randomize_domain
     ):
         """
         Initialize generator with randomization parameters.
@@ -124,7 +126,7 @@ class ProceduralTaskGenerator:
         seed: int,
         base_object_pos: np.ndarray | None = None,
         base_target_pos: np.ndarray | None = None,
-    ) -> dict[str, Any]:
+    ) -> ProceduralTaskResult:
         """
         Generate procedural task parameters.
 

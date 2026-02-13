@@ -9,6 +9,7 @@ from kinitro.chain.commitments import (
     commit_model,
     parse_commitment,
     read_miner_commitments,
+    read_miner_commitments_async,
 )
 from kinitro.chain.weights import set_weights, weights_to_u16
 
@@ -17,6 +18,7 @@ __all__ = [
     "commit_model",
     "parse_commitment",
     "read_miner_commitments",
+    "read_miner_commitments_async",
     "set_weights",
     "weights_to_u16",
 ]
