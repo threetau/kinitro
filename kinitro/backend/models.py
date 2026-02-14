@@ -339,14 +339,10 @@ class TaskResult(BaseModel):
     total_reward: float = Field(default=0.0)
     timesteps: int = Field(default=0)
     error: str | None = Field(default=None)
-    verification_passed: bool | None = Field(
-        default=None,
-        description="Whether miner passed model verification (None if not checked)",
-    )
-    verification_score: float | None = Field(
-        default=None,
-        description="Match score between deployed and HuggingFace model (0.0 to 1.0)",
-    )
+    # Deprecated: verification now happens at the scheduler level via Basilica
+    # metadata API, not per-task. These fields are kept for API compatibility.
+    verification_passed: bool | None = Field(default=None)
+    verification_score: float | None = Field(default=None)
 
 
 class TaskSubmitRequest(BaseModel):

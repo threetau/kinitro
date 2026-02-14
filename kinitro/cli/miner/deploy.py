@@ -87,8 +87,19 @@ def _extract_deployment_id(deployment) -> str:
 
 
 def basilica_push(
-    repo: str = typer.Option(..., "--repo", "-r", help="HuggingFace repository ID"),
-    revision: str = typer.Option(..., "--revision", help="HuggingFace commit SHA"),
+    repo: str | None = typer.Option(
+        None, "--repo", "-r", help="HuggingFace repository ID (required unless --image)"
+    ),
+    revision: str | None = typer.Option(
+        None, "--revision", help="HuggingFace commit SHA (required unless --image)"
+    ),
+    image: str | None = typer.Option(
+        None,
+        "--image",
+        "-i",
+        help="Pre-built Docker image to deploy (e.g., user/policy:v1). "
+        "Mutually exclusive with --repo/--revision.",
+    ),
     deployment_name: str | None = typer.Option(
         None, "--name", "-n", help="Deployment name (default: derived from repo)"
     ),
@@ -109,20 +120,41 @@ def basilica_push(
     """
     Deploy policy to Basilica.
 
-    Deploys your robotics policy server to Basilica's GPU serverless platform.
-    The policy is downloaded from HuggingFace and served via FastAPI.
+    Two modes:
+
+    1. HuggingFace mode (default): Downloads from HF and serves via FastAPI.
+       Requires --repo and --revision.
+
+    2. Image mode: Deploys a pre-built Docker image directly.
+       Requires --image and --name.
 
     Requires BASILICA_API_TOKEN environment variable or --api-token.
 
     Example:
+        # HuggingFace mode
         kinitro miner push --repo user/policy --revision abc123
 
-        # With custom name
-        kinitro miner push --repo user/policy --revision abc123 --name my-policy
+        # Image mode
+        kinitro miner push --image user/policy:v1 --name my-policy
 
         # With more GPU memory
         kinitro miner push --repo user/policy --revision abc123 --min-vram 24
     """
+    # Validate mode
+    if image:
+        # Image mode: --name is required, --repo/--revision are ignored
+        if not deployment_name:
+            typer.echo("Error: --name is required when using --image", err=True)
+            raise typer.Exit(1)
+    else:
+        # HuggingFace mode: --repo and --revision are required
+        if not repo:
+            typer.echo("Error: --repo is required (or use --image for image mode)", err=True)
+            raise typer.Exit(1)
+        if not revision:
+            typer.echo("Error: --revision is required (or use --image for image mode)", err=True)
+            raise typer.Exit(1)
+
     # Validate required credentials
     api_token = basilica_api_token or os.environ.get("BASILICA_API_TOKEN")
 
@@ -132,54 +164,96 @@ def basilica_push(
         typer.echo("\nTo get a token, run: basilica tokens create")
         raise typer.Exit(1)
 
-    # Derive deployment name from repo
-    name = deployment_name or repo.replace("/", "-").lower()
-    # Ensure name is DNS-safe (lowercase, alphanumeric and hyphens only)
-    name = "".join(c if c.isalnum() or c == "-" else "-" for c in name).strip("-")[:63]
-
-    typer.echo("Deploying to Basilica:")
-    typer.echo(f"  Repo: {repo}")
-    typer.echo(f"  Revision: {revision[:12]}...")
-    typer.echo(f"  Deployment Name: {name}")
-    vram_str = f" (min {min_gpu_memory_gb}GB VRAM)" if min_gpu_memory_gb else ""
-    typer.echo(f"  GPU: {gpu_count}x{vram_str}")
-    typer.echo(f"  Memory: {memory}")
-
-    # Create client and build deployment configuration
     client = BasilicaClient(api_key=api_token)
-    source_code = _get_deployment_source(repo, revision)
 
-    # Note: kinitro is NOT included in pip_packages because the miner template
-    # is self-contained (includes rl_interface.py locally). This avoids
-    # dependency conflicts and keeps the deployment lightweight.
-    env_vars: dict[str, str] = {"HF_REPO": repo, "HF_REVISION": revision}
-    if hf_token:
-        env_vars["HF_TOKEN"] = hf_token
+    if image:
+        # Image mode: deploy pre-built Docker image directly
+        name = deployment_name  # Already validated as required above
+        assert name is not None
+        name = "".join(c if c.isalnum() or c == "-" else "-" for c in name).strip("-")[:63]
 
-    deploy_kwargs: dict = {
-        "name": name,
-        "source": source_code,
-        "image": _get_docker_image(gpu_count),
-        "port": 8000,
-        "env": env_vars,
-        "cpu": cpu,
-        "memory": memory,
-        "pip_packages": PIP_PACKAGES,
-        "timeout": timeout,
-    }
+        typer.echo("Deploying to Basilica (image mode):")
+        typer.echo(f"  Image: {image}")
+        typer.echo(f"  Deployment Name: {name}")
+        vram_str = f" (min {min_gpu_memory_gb}GB VRAM)" if min_gpu_memory_gb else ""
+        typer.echo(f"  GPU: {gpu_count}x{vram_str}")
+        typer.echo(f"  Memory: {memory}")
 
-    if gpu_count > 0:
-        deploy_kwargs["gpu_count"] = gpu_count
-        if min_gpu_memory_gb is not None:
-            deploy_kwargs["min_gpu_memory_gb"] = min_gpu_memory_gb
+        typer.echo("\nDeploying to Basilica (this may take several minutes)...")
+        try:
+            gpu_kwargs: dict = {}
+            if gpu_count > 0:
+                gpu_kwargs["gpu_count"] = gpu_count
+                if min_gpu_memory_gb is not None:
+                    gpu_kwargs["min_gpu_memory_gb"] = min_gpu_memory_gb
+            deployment = client.deploy(
+                name=name,
+                image=image,
+                port=8000,
+                cpu=cpu,
+                memory=memory,
+                timeout=timeout,
+                **gpu_kwargs,
+            )
+        except Exception as e:
+            typer.echo(f"\nDeployment failed: {e}", err=True)
+            raise typer.Exit(1)
+    else:
+        # HuggingFace mode: generate source code for HF download
+        assert repo is not None
+        assert revision is not None
 
-    # Deploy
-    typer.echo("\nDeploying to Basilica (this may take several minutes)...")
+        # Derive deployment name from repo
+        name = deployment_name or repo.replace("/", "-").lower()
+        name = "".join(c if c.isalnum() or c == "-" else "-" for c in name).strip("-")[:63]
+
+        typer.echo("Deploying to Basilica:")
+        typer.echo(f"  Repo: {repo}")
+        typer.echo(f"  Revision: {revision[:12]}...")
+        typer.echo(f"  Deployment Name: {name}")
+        vram_str = f" (min {min_gpu_memory_gb}GB VRAM)" if min_gpu_memory_gb else ""
+        typer.echo(f"  GPU: {gpu_count}x{vram_str}")
+        typer.echo(f"  Memory: {memory}")
+
+        source_code = _get_deployment_source(repo, revision)
+
+        # Note: kinitro is NOT included in pip_packages because the miner template
+        # is self-contained (includes rl_interface.py locally). This avoids
+        # dependency conflicts and keeps the deployment lightweight.
+        env_vars: dict[str, str] = {"HF_REPO": repo, "HF_REVISION": revision}
+        if hf_token:
+            env_vars["HF_TOKEN"] = hf_token
+
+        deploy_kwargs: dict = {
+            "name": name,
+            "source": source_code,
+            "image": _get_docker_image(gpu_count),
+            "port": 8000,
+            "env": env_vars,
+            "cpu": cpu,
+            "memory": memory,
+            "pip_packages": PIP_PACKAGES,
+            "timeout": timeout,
+        }
+
+        if gpu_count > 0:
+            deploy_kwargs["gpu_count"] = gpu_count
+            if min_gpu_memory_gb is not None:
+                deploy_kwargs["min_gpu_memory_gb"] = min_gpu_memory_gb
+
+        typer.echo("\nDeploying to Basilica (this may take several minutes)...")
+        try:
+            deployment = client.deploy(**deploy_kwargs)
+        except Exception as e:
+            typer.echo(f"\nDeployment failed: {e}", err=True)
+            raise typer.Exit(1)
+
+    # Enroll for public metadata so validators can verify the deployment
     try:
-        deployment = client.deploy(**deploy_kwargs)
+        client.enroll_metadata(deployment.name, enabled=True)
+        typer.echo("  Public metadata enrolled for validator verification.")
     except Exception as e:
-        typer.echo(f"\nDeployment failed: {e}", err=True)
-        raise typer.Exit(1)
+        typer.echo(f"  Warning: Could not enroll public metadata: {e}", err=True)
 
     deploy_id = _extract_deployment_id(deployment)
 
@@ -190,9 +264,15 @@ def basilica_push(
     typer.echo(f"  URL: {deployment.url}")
     typer.echo(f"  State: {deployment.state}")
     typer.echo("=" * 60)
-    typer.echo("\nNext step - commit on-chain:")
-    typer.echo(f"  kinitro miner commit --repo {repo} --revision {revision} \\")
-    typer.echo(f"    --deployment-id {deploy_id} --netuid YOUR_NETUID")
+
+    if image:
+        typer.echo("\nNext step - commit on-chain:")
+        typer.echo("  kinitro miner commit --repo YOUR_REPO --revision YOUR_REV \\")
+        typer.echo(f"    --deployment-id {deploy_id} --netuid YOUR_NETUID")
+    else:
+        typer.echo("\nNext step - commit on-chain:")
+        typer.echo(f"  kinitro miner commit --repo {repo} --revision {revision} \\")
+        typer.echo(f"    --deployment-id {deploy_id} --netuid YOUR_NETUID")
 
 
 def miner_deploy(
@@ -441,6 +521,13 @@ def miner_deploy(
 
                 deployment_id = _extract_deployment_id(deployment)
                 typer.echo(f"    Deployment ID: {deployment_id}")
+
+                # Enroll for public metadata so validators can verify the deployment
+                try:
+                    client.enroll_metadata(deployment.name, enabled=True)
+                    typer.echo("    Public metadata enrolled for validator verification.")
+                except Exception as e:
+                    typer.echo(f"    Warning: Could not enroll public metadata: {e}", err=True)
             except Exception as e:
                 typer.echo(f"\nDeployment failed: {e}", err=True)
                 raise typer.Exit(1)

@@ -112,14 +112,6 @@ class TaskCreateData(TypedDict):
     miner_revision: NotRequired[str | None]
 
 
-class VerificationDetails(TypedDict):
-    """Details dict for VerificationResult.details."""
-
-    match_scores: list[float]
-    test_seed: int
-    num_samples: int
-
-
 class StepInfo(TypedDict, total=False):
     """Info dict returned by step(). total=False because environments populate different subsets."""
 

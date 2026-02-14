@@ -12,7 +12,6 @@ from kinitro.executor.env_loader import (
     load_and_warmup_env,
     run_evaluation,
 )
-from kinitro.executor.verification import PolicyVerifier, VerificationResult
 from kinitro.types import AffinetesEnv, env_family_from_id
 
 logger = structlog.get_logger()
@@ -24,8 +23,6 @@ class Worker:
 
     The worker loads an affinetes-managed evaluation environment
     and uses it to run evaluations against miner policy endpoints.
-    It also performs spot-check verification to ensure deployed models
-    match what miners uploaded to HuggingFace.
     """
 
     def __init__(self, config: ExecutorConfig):
@@ -33,28 +30,6 @@ class Worker:
         # Per-family eval environments: family -> affinetes env
         self._envs: dict[str, AffinetesEnv] = {}
         self._env_lock = asyncio.Lock()
-
-        # Initialize verifier if enabled
-        self._verifier: PolicyVerifier | None = None
-        if config.verification_enabled:
-            self._verifier = PolicyVerifier(
-                verification_rate=config.verification_rate,
-                tolerance=config.verification_tolerance,
-                num_samples=config.verification_samples,
-                cache_dir=config.verification_cache_dir,
-                max_repo_size_gb=config.verification_max_repo_size_gb,
-            )
-            logger.info(
-                "verification_enabled",
-                rate=config.verification_rate,
-                tolerance=config.verification_tolerance,
-                samples=config.verification_samples,
-                max_repo_size_gb=config.verification_max_repo_size_gb,
-            )
-
-        # Track verification results for reporting
-        self._verification_results: list[VerificationResult] = []
-        self._verified_miners: set[str] = set()  # Track which miners we've verified this cycle
 
     def _get_family(self, env_id: str) -> str:
         """Extract family from env_id (e.g., 'metaworld' from 'metaworld/pick-place-v3')."""
@@ -128,9 +103,6 @@ class Worker:
             seed=task.seed,
         )
 
-        # Perform spot-check verification if enabled and not yet verified this miner
-        await self._maybe_verify_miner(task)
-
         try:
             env = await self._get_eval_environment(task.env_id)
 
@@ -170,78 +142,6 @@ class Worker:
                 error=str(e),
             )
 
-    async def _maybe_verify_miner(self, task: Task) -> None:
-        """
-        Perform spot-check verification if conditions are met.
-
-        Verification is performed if:
-        - Verification is enabled
-        - Miner has repo and revision info
-        - Miner hasn't been verified yet this cycle
-        - Random chance based on verification_rate
-        """
-        if self._verifier is None:
-            return
-
-        # Skip if missing repo/revision info
-        if not task.miner_repo or not task.miner_revision:
-            logger.debug(
-                "verification_skipped_no_repo",
-                miner_uid=task.miner_uid,
-            )
-            return
-
-        # Only verify each miner once per cycle
-        miner_key = f"{task.miner_uid}:{task.miner_revision}"
-        if miner_key in self._verified_miners:
-            return
-
-        # Random spot-check
-        if not self._verifier.should_verify():
-            return
-
-        # Mark as verified (even if verification fails, don't retry)
-        self._verified_miners.add(miner_key)
-
-        logger.info(
-            "verification_triggered",
-            miner_uid=task.miner_uid,
-            repo=task.miner_repo,
-            revision=task.miner_revision[:12] if task.miner_revision else None,
-        )
-
-        try:
-            result = await self._verifier.verify_miner(
-                miner_uid=task.miner_uid,
-                miner_hotkey=task.miner_hotkey,
-                repo=task.miner_repo,
-                revision=task.miner_revision,
-                endpoint=task.miner_endpoint,
-            )
-
-            self._verification_results.append(result)
-
-            if not result.verified:
-                logger.warning(
-                    "verification_mismatch",
-                    miner_uid=task.miner_uid,
-                    match_score=result.match_score,
-                    error=result.error,
-                )
-            else:
-                logger.info(
-                    "verification_passed",
-                    miner_uid=task.miner_uid,
-                    match_score=result.match_score,
-                )
-
-        except Exception as e:
-            logger.error(
-                "verification_error",
-                miner_uid=task.miner_uid,
-                error=str(e),
-            )
-
     async def execute_batch(self, tasks: list[Task]) -> list[TaskResult]:
         """
         Execute a batch of tasks.
@@ -258,21 +158,8 @@ class Worker:
             results.append(result)
         return results
 
-    def get_verification_results(self) -> list[VerificationResult]:
-        """Get all verification results from this worker."""
-        return self._verification_results.copy()
-
-    def get_failed_verifications(self) -> list[VerificationResult]:
-        """Get verification results where miner failed verification."""
-        return [r for r in self._verification_results if not r.verified]
-
-    def reset_verification_state(self) -> None:
-        """Reset verification state for a new evaluation cycle."""
-        self._verified_miners.clear()
-        self._verification_results.clear()
-
     async def cleanup(self) -> None:
-        """Cleanup all eval environments and verifier."""
+        """Cleanup all eval environments."""
         async with self._env_lock:
             for family, env in list(self._envs.items()):
                 try:
@@ -281,10 +168,6 @@ class Worker:
                 except Exception as e:
                     logger.warning("cleanup_error", family=family, error=str(e))
             self._envs.clear()
-
-        # Cleanup verifier
-        if self._verifier is not None:
-            self._verifier.cleanup()
 
     def force_cleanup(self) -> None:
         """Force cleanup by killing docker containers directly."""
