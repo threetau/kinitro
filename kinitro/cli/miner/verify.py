@@ -34,16 +34,13 @@ async def _read_commitment_from_chain(
         return None
 
     parsed = parse_commitment(raw)
-    if not parsed["huggingface_repo"]:
+    if not parsed["deployment_id"] and not parsed.get("encrypted_deployment"):
         return None
 
     return MinerCommitment(
         uid=MinerUID(0),
         hotkey=Hotkey(hotkey),
-        huggingface_repo=parsed["huggingface_repo"],
-        revision_sha=parsed["revision_sha"],
         deployment_id=parsed["deployment_id"],
-        docker_image=parsed["docker_image"],
         committed_block=BlockNumber(block if block is not None else 0),
         encrypted_deployment=parsed.get("encrypted_deployment"),
     )
@@ -97,10 +94,7 @@ def verify(
         commitment = MinerCommitment(
             uid=MinerUID(0),
             hotkey=Hotkey(""),
-            huggingface_repo="",
-            revision_sha="",
             deployment_id=deployment_id,
-            docker_image="",
             committed_block=BlockNumber(0),
         )
         typer.echo(f"Verifying deployment: {deployment_id}")
@@ -128,8 +122,6 @@ def verify(
             raise typer.Exit(1)
 
         typer.echo(f"  Deployment ID: {commitment.deployment_id}")
-        typer.echo(f"  Repo: {commitment.huggingface_repo}")
-        typer.echo(f"  Revision: {commitment.revision_sha}")
 
     else:
         typer.echo(

@@ -69,11 +69,8 @@ class EncodedImage(TypedDict):
 class ParsedCommitment(TypedDict):
     """Parsed commitment fields from parse_commitment()."""
 
-    huggingface_repo: str
-    revision_sha: str
     deployment_id: str
     encrypted_deployment: str | None
-    docker_image: str
 
 
 class TaskResultData(TypedDict):
@@ -108,8 +105,6 @@ class TaskCreateData(TypedDict):
     env_id: EnvironmentId
     seed: Seed
     task_uuid: NotRequired[TaskUUID]
-    miner_repo: NotRequired[str | None]
-    miner_revision: NotRequired[str | None]
 
 
 class StepInfo(TypedDict, total=False):

@@ -53,8 +53,6 @@ async def fetch_tasks(
             miner_uid=MinerUID(t.miner_uid),
             miner_hotkey=Hotkey(t.miner_hotkey),
             miner_endpoint=t.miner_endpoint,
-            miner_repo=t.miner_repo,
-            miner_revision=t.miner_revision,
             env_id=EnvironmentId(t.env_id),
             seed=Seed(t.seed),
             status=TaskStatus(t.status),

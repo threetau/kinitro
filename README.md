@@ -30,7 +30,7 @@ Miners receive **limited observations** to prevent overfitting:
 - **Sybil-proof**: Copies tie under Pareto dominance, no benefit from multiple identities
 - **Copy-proof**: Must improve on the leader to earn, not just match them
 - **Specialization-proof**: Must dominate on ALL environments, not just one
-- **Deployment verification**: Spot-checks verify Basilica deployments match HuggingFace uploads
+- **Deployment verification**: Basilica metadata API verifies deployments use publicly pullable images
 
 ### Scoring: ε-Pareto Dominance
 
@@ -151,22 +151,21 @@ cd my-policy
 # 3. Test locally
 uvicorn server:app --port 8001
 
-# 4. Upload to HuggingFace
-huggingface-cli upload your-username/kinitro-policy .
+# 4. Build and push Docker image
+docker build -t your-username/kinitro-policy:v1 .
+docker push your-username/kinitro-policy:v1
 
 # 5. Deploy to Basilica
 export BASILICA_API_TOKEN="your-api-token"
 
 uv run kinitro miner push \
-  --repo your-username/kinitro-policy \
-  --revision YOUR_HF_COMMIT_SHA \
+  --image your-username/kinitro-policy:v1 \
+  --name my-policy \
   --gpu-count 1 --min-vram 16
 
 # 6. Register on chain
 uv run kinitro miner commit \
-  --repo your-username/kinitro-policy \
-  --revision YOUR_HF_COMMIT_SHA \
-  --endpoint YOUR_BASILICA_URL \
+  --deployment-id YOUR_BASILICA_DEPLOYMENT_ID \
   --netuid YOUR_NETUID \
   --network finney
 ```

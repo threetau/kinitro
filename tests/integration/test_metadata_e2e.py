@@ -50,10 +50,7 @@ def _make_commitment(
     return MinerCommitment(
         uid=MinerUID(uid),
         hotkey=Hotkey(hotkey),
-        huggingface_repo="user/policy",
-        revision_sha="abc12345",
         deployment_id=deployment_id,
-        docker_image="user/policy:abc12345",
         committed_block=BlockNumber(1000),
     )
 
@@ -100,23 +97,13 @@ class TestPushImage:
         # Metadata enrolled
         mock_client.enroll_metadata.assert_called_once_with("test-deploy", enabled=True)
 
-    def test_push_image_requires_name(self):
-        """--image without --name should fail."""
-        result = runner.invoke(
-            miner_app,
-            ["push", "--image", "python:3.11-slim", "--api-token", "fake-token"],
-        )
-        assert result.exit_code != 0
-        assert "--name is required" in result.output
-
-    def test_push_hf_mode_requires_repo(self):
-        """HF mode without --repo should fail."""
+    def test_push_requires_image_and_name(self):
+        """push without --image and --name should fail."""
         result = runner.invoke(
             miner_app,
             ["push", "--api-token", "fake-token"],
         )
         assert result.exit_code != 0
-        assert "--repo is required" in result.output
 
 
 # ---------------------------------------------------------------------------

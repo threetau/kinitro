@@ -38,8 +38,6 @@ dependencies = [
     "alembic>=1.14.0",
     # Deployment (Basilica for GPU serverless)
     "basilica-sdk==0.19.0",
-    # HuggingFace Hub for model uploads
-    "huggingface-hub>=0.20.0",
 ]
 
 [project.optional-dependencies]

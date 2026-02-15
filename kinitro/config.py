@@ -51,8 +51,6 @@ class MinerConfig(NetworkConfig):
     """Miner-specific configuration."""
 
     # Model settings
-    huggingface_repo: str | None = Field(default=None, description="HuggingFace model repo")
-    model_revision: str | None = Field(default=None, description="Model revision/commit SHA")
     deployment_id: str | None = Field(default=None, description="Basilica deployment ID")
 
     # Docker settings

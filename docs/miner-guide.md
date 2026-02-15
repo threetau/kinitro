@@ -7,16 +7,17 @@ This guide explains how to participate as a miner in Kinitro. As a miner, you'll
 The evaluation flow:
 
 1. You train a robotics policy (locally or on your own infrastructure)
-2. You upload your model weights to HuggingFace
-3. You deploy your policy server to [Basilica](https://basilica.ai) (required for mainnet)
-4. You commit your endpoint info on-chain so validators can find you
-5. Validators periodically evaluate your policy across multiple environments
-6. You earn rewards based on how well your policy generalizes
+2. You build a Docker image containing your policy server
+3. You push your image to a container registry (e.g., Docker Hub)
+4. You deploy your image to [Basilica](https://basilica.ai) (required for mainnet)
+5. You commit your deployment ID on-chain so validators can find you
+6. Validators periodically evaluate your policy across multiple environments
+7. You earn rewards based on how well your policy generalizes
 
 ## Requirements
 
 - **Training**: GPU compute for training your policy
-- **HuggingFace Account**: For storing your model weights
+- **Container Registry**: For storing your Docker image (e.g., Docker Hub)
 - **Basilica Account**: For deploying your policy server (required for mainnet)
 - **Bittensor Wallet**: For registering as a miner and committing your endpoint
 
@@ -34,13 +35,15 @@ cd my-policy
 # 3. Test locally
 uvicorn server:app --port 8001
 
-# 4. One-command deployment (upload + deploy + commit)
-export HF_TOKEN="your-huggingface-token"
+# 4. Build and push Docker image
+docker build -t your-username/kinitro-policy:v1 .
+docker push your-username/kinitro-policy:v1
+
+# 5. Deploy to Basilica and commit on-chain
 export BASILICA_API_TOKEN="your-basilica-api-token"
 
 uv run kinitro miner deploy \
-  --repo your-username/kinitro-policy \
-  --path ./my-policy \
+  --image your-username/kinitro-policy:v1 \
   --netuid YOUR_NETUID \
   --network finney
 ```
@@ -48,17 +51,14 @@ uv run kinitro miner deploy \
 Or do each step separately:
 
 ```bash
-# Upload to HuggingFace
-huggingface-cli upload your-username/kinitro-policy .
-
 # Deploy to Basilica
-uv run kinitro miner push --repo your-username/kinitro-policy --revision YOUR_HF_SHA
+uv run kinitro miner push \
+  --image your-username/kinitro-policy:v1 \
+  --name my-policy
 
 # Commit on-chain
 uv run kinitro miner commit \
-  --repo your-username/kinitro-policy \
-  --revision YOUR_HF_COMMIT_SHA \
-  --endpoint YOUR_BASILICA_URL \
+  --deployment-id YOUR_BASILICA_DEPLOYMENT_ID \
   --netuid YOUR_NETUID
 ```
 
@@ -76,8 +76,7 @@ This creates:
 
 - `server.py` - FastAPI server with `/reset` and `/act` endpoints (for local testing and Basilica deployment)
 - `policy.py` - Policy implementation template (edit this!)
-- `basilica_deploy.py` - Basilica deployment script
-- `Dockerfile` - For containerizing your policy (optional, for self-hosted)
+- `Dockerfile` - For containerizing your policy
 - `requirements.txt` - Python dependencies
 
 ## Step 2: Understand the Observation Space
@@ -207,25 +206,19 @@ curl -X POST http://localhost:8001/act \
 
 The `server.py` file provides the endpoints (`/health`, `/reset`, `/act`) that validators will call. This lets you test your policy logic locally before deploying to Basilica.
 
-## Step 5: Upload to HuggingFace
+## Step 5: Build and Push Docker Image
 
-Before deploying, upload your model weights to HuggingFace:
+Build your policy into a Docker image and push to a container registry:
 
 ```bash
-# Install huggingface-cli if needed
-pip install huggingface_hub
+# Build the Docker image
+docker build -t your-username/kinitro-policy:v1 .
 
-# Login to HuggingFace
-huggingface-cli login
+# Test locally with Docker
+docker run -p 8001:8000 your-username/kinitro-policy:v1
 
-# Create a new model repository
-huggingface-cli repo create your-username/kinitro-policy --type model
-
-# Upload your model files
-huggingface-cli upload your-username/kinitro-policy ./my-policy
-
-# Note the commit SHA for the on-chain commitment
-git ls-remote https://huggingface.co/your-username/kinitro-policy HEAD
+# Push to Docker Hub (or any public registry)
+docker push your-username/kinitro-policy:v1
 ```
 
 ## Step 6: Deploy to Basilica (Required for Mainnet)
@@ -247,26 +240,24 @@ export BASILICA_API_TOKEN="your-api-token"
 
 # Deploy to Basilica
 uv run kinitro miner push \
-  --repo your-username/kinitro-policy \
-  --revision YOUR_HUGGINGFACE_COMMIT_SHA \
+  --image your-username/kinitro-policy:v1 \
+  --name my-policy \
   --gpu-count 1 \
   --min-vram 16
 ```
 
-This command:
-
-1. Downloads your policy from HuggingFace
-2. Builds a container image with your policy
-3. Deploys to Basilica
-4. Returns the endpoint URL for on-chain commitment
+This command deploys your pre-built Docker image to Basilica and returns the deployment ID for on-chain commitment.
 
 ### Verify Deployment
 
-After deployment, note your **endpoint URL**. You can verify your deployment:
+After deployment, note your **deployment ID**. You can verify your deployment:
 
 ```bash
 # Test the endpoint (replace with your URL)
 curl https://YOUR-DEPLOYMENT-ID.deployments.basilica.ai/health
+
+# Verify metadata
+uv run kinitro miner verify --deployment-id YOUR-DEPLOYMENT-ID
 ```
 
 ### GPU vs CPU Deployments
@@ -275,8 +266,8 @@ For testing, you can deploy without GPU:
 
 ```bash
 uv run kinitro miner push \
-  --repo your-username/kinitro-policy \
-  --revision YOUR_HF_SHA \
+  --image your-username/kinitro-policy:v1 \
+  --name my-policy \
   --gpu-count 0  # CPU-only for testing
 ```
 
@@ -284,30 +275,27 @@ For production with GPU:
 
 ```bash
 uv run kinitro miner push \
-  --repo your-username/kinitro-policy \
-  --revision YOUR_HF_SHA \
+  --image your-username/kinitro-policy:v1 \
+  --name my-policy \
   --gpu-count 1 \
   --min-vram 16
 ```
 
-### Deployment Verification (Spot-Checks)
+### Deployment Verification
 
-> **Important**: Your Basilica deployment may be spot-checked to verify it matches your HuggingFace upload.
+> **Important**: Your Basilica deployment is verified via the Basilica metadata API.
 
-The evaluation system performs random verification checks to ensure miners are running the same code they uploaded to HuggingFace. During verification:
+The evaluation system checks deployments to ensure they are running and using a publicly pullable Docker image. During verification:
 
-1. Your policy is downloaded from HuggingFace
-2. Test observations are generated with deterministic seeds
-3. Local inference is compared against your Basilica endpoint
-4. If outputs don't match, verification fails
+1. Deployment state is checked (must be "Running")
+2. Docker image is verified to be publicly pullable
+3. Public metadata enrollment is checked
 
 **To pass verification:**
 
-- Your Basilica deployment must serve the exact same model as your HuggingFace upload
-- If your policy uses randomness, support the optional `seed` parameter in your `/act` endpoint (the template already handles this)
-- Don't modify your deployment code after uploading to HuggingFace
-
-**Size limits:** HuggingFace repositories larger than 5GB will be rejected. This limit applies to both uploads and verification downloads.
+- Your Docker image must be publicly pullable from a container registry
+- Your Basilica deployment must be running and healthy
+- Enroll for public metadata (the CLI does this automatically)
 
 ## Local Testing (Development Only)
 
@@ -326,9 +314,7 @@ You can then test with a local validator backend by committing your local endpoi
 ```bash
 # For LOCAL TESTING ONLY - not valid for mainnet
 uv run kinitro miner commit \
-  --repo your-username/kinitro-policy \
-  --revision $(git rev-parse HEAD) \
-  --endpoint http://localhost:8001 \
+  --deployment-id my-local-deploy \
   --netuid 2 \
   --network local \
   --wallet-name test-wallet \
@@ -339,21 +325,15 @@ uv run kinitro miner commit \
 
 ## Step 7: Commit On-Chain
 
-Register your policy endpoint on-chain so validators can find and evaluate you.
+Register your deployment on-chain so validators can find and evaluate you.
 
-The commitment includes three pieces of information:
-
-- **model**: Your HuggingFace repository (e.g., `your-username/kinitro-policy`)
-- **revision**: The HuggingFace commit SHA of your model
-- **endpoint**: Your Basilica deployment URL
+The commitment stores your **Basilica deployment ID** on-chain.
 
 ### Basic Commitment (Endpoint Visible On-Chain)
 
 ```bash
 uv run kinitro miner commit \
-  --repo your-username/kinitro-policy \
-  --revision YOUR_HUGGINGFACE_COMMIT_SHA \
-  --deployment-id YOUR_BASILICA_DEPLOYMENT_UUID \
+  --deployment-id YOUR_BASILICA_DEPLOYMENT_ID \
   --netuid YOUR_SUBNET_ID \
   --network finney \
   --wallet-name your-wallet \
@@ -366,9 +346,7 @@ To protect your Basilica endpoint from public disclosure, use encrypted commitme
 
 ```bash
 uv run kinitro miner commit \
-  --repo your-username/kinitro-policy \
-  --revision YOUR_HUGGINGFACE_COMMIT_SHA \
-  --deployment-id YOUR_BASILICA_DEPLOYMENT_UUID \
+  --deployment-id YOUR_BASILICA_DEPLOYMENT_ID \
   --netuid YOUR_SUBNET_ID \
   --network finney \
   --wallet-name your-wallet \
@@ -399,24 +377,17 @@ uv run kinitro miner commit \
 
 ### Commitment Format
 
-The commitment is stored on-chain as compact JSON to fit within chain limits:
+The commitment is stored on-chain in a compact format:
 
 **Plain commitment:**
-```json
-{"m":"your-username/kinitro-policy","r":"abc123def456...","d":"deployment-uuid"}
+```
+deployment-uuid
 ```
 
 **Encrypted commitment:**
-```json
-{"m":"your-username/kinitro-policy","r":"abc123def456...","e":"<base85-encrypted-blob>"}
 ```
-
-Where:
-
-- `m` = HuggingFace model repository
-- `r` = HuggingFace revision (commit SHA)
-- `d` = Basilica deployment ID (UUID) - for plain commitments
-- `e` = Encrypted deployment ID (base85 blob) - for encrypted commitments
+e:<base85-encrypted-blob>
+```
 
 ### Verify Your Commitment
 
@@ -432,9 +403,9 @@ uv run kinitro miner show-commitment \
 
 When you update your model:
 
-1. Upload the new weights to HuggingFace
-2. Deploy the updated model to Basilica
-3. Commit the new revision and endpoint on-chain
+1. Build and push a new Docker image
+2. Deploy the updated image to Basilica
+3. Commit the new deployment ID on-chain
 
 Validators will automatically pick up your new endpoint at the next evaluation cycle.
 
@@ -546,8 +517,7 @@ Key implications:
 1. Check your on-chain commitment: `uv run kinitro miner show-commitment --netuid ... --wallet-name ...`
 2. Verify your Basilica deployment is running - check the Basilica dashboard
 3. Verify your endpoint is accessible: `curl YOUR_BASILICA_ENDPOINT/health`
-4. Ensure the revision in your commitment matches the deployed model
-5. Check validator logs for errors
+4. Check validator logs for errors
 
 ### Basilica deployment issues
 
@@ -570,10 +540,9 @@ Key implications:
 
 ### Commitment not recognized
 
-- Ensure you're using JSON format (not legacy colon-separated)
-- Verify the HuggingFace repo exists and is accessible
-- Check that the revision SHA matches your HuggingFace commit
-- Commitment must be under ~128 bytes (uses compact JSON with short keys)
+- Ensure your deployment ID is correct
+- Verify the Basilica deployment is running
+- Commitment must be under ~128 bytes
 
 ### Testing Endpoints
 

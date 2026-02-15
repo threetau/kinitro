@@ -158,8 +158,6 @@ class TaskPoolORM(Base):
     miner_uid: Mapped[int] = mapped_column(Integer, nullable=False)
     miner_hotkey: Mapped[str] = mapped_column(String(64), nullable=False)
     miner_endpoint: Mapped[str] = mapped_column(Text, nullable=False)
-    miner_repo: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    miner_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
     env_id: Mapped[str] = mapped_column(String(64), nullable=False)
     seed: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(
@@ -302,8 +300,6 @@ class Task(BaseModel):
     miner_uid: MinerUID
     miner_hotkey: Hotkey
     miner_endpoint: str
-    miner_repo: str | None = None  # HuggingFace repo for verification
-    miner_revision: str | None = None  # HuggingFace revision for verification
     env_id: EnvironmentId
     seed: Seed  # Deterministic seed for reproducibility
     status: TaskStatus
@@ -339,10 +335,6 @@ class TaskResult(BaseModel):
     total_reward: float = Field(default=0.0)
     timesteps: int = Field(default=0)
     error: str | None = Field(default=None)
-    # Deprecated: verification now happens at the scheduler level via Basilica
-    # metadata API, not per-task. These fields are kept for API compatibility.
-    verification_passed: bool | None = Field(default=None)
-    verification_score: float | None = Field(default=None)
 
 
 class TaskSubmitRequest(BaseModel):

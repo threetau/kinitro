@@ -26,16 +26,11 @@ def _make_commitment(
     uid: int = 1,
     hotkey: str = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty",
     deployment_id: str = "test-deployment-abc123",
-    repo: str = "user/policy",
-    revision: str = "abc12345",
 ) -> MinerCommitment:
     return MinerCommitment(
         uid=MinerUID(uid),
         hotkey=Hotkey(hotkey),
-        huggingface_repo=repo,
-        revision_sha=revision,
         deployment_id=deployment_id,
-        docker_image=f"{repo}:{revision}",
         committed_block=BlockNumber(1000),
     )
 

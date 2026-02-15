@@ -99,8 +99,6 @@ def generate_tasks(
                         "miner_uid": miner.uid,
                         "miner_hotkey": miner.hotkey,
                         "miner_endpoint": endpoint,
-                        "miner_repo": miner.huggingface_repo,
-                        "miner_revision": miner.revision_sha,
                         "env_id": env_id,
                         "seed": seed,
                     }
