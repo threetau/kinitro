@@ -77,5 +77,12 @@ class SchedulerConfig(BaseSettings):
         "If None, all environments are used.",
     )
 
+    # Metadata verification
+    metadata_verification_enabled: bool = Field(
+        default=True,
+        description="Verify miner deployments via Basilica metadata API before generating tasks. "
+        "Checks that deployments are running and use publicly pullable Docker images.",
+    )
+
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")

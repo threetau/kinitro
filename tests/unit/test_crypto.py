@@ -211,8 +211,8 @@ class TestIntegration:
         deployment_id = "95edf2b6-e18b-400a-8398-5573df10e5e4"
         encrypted_blob = encrypt_deployment_id(deployment_id, keypair.public_key_hex())
 
-        # Miner creates commitment (colon-separated format)
-        commitment = f"user/policy:abc123def456:e:{encrypted_blob}"
+        # Miner creates commitment (new format)
+        commitment = f"e:{encrypted_blob}"
 
         # Verify commitment is under chain limit (128 bytes)
         assert len(commitment) <= 128
@@ -220,8 +220,6 @@ class TestIntegration:
         # Backend parses commitment from chain
         parsed = parse_commitment(commitment)
 
-        assert parsed["huggingface_repo"] == "user/policy"
-        assert parsed["revision_sha"] == "abc123def456"
         assert parsed["deployment_id"] == ""  # Empty until decrypted
         assert parsed["encrypted_deployment"] == encrypted_blob
 
@@ -233,11 +231,35 @@ class TestIntegration:
 
     def test_plain_commitment_still_works(self) -> None:
         """Plain commitments should still work."""
+        commitment = "95edf2b6-e18b-400a-8398-5573df10e5e4"
+
+        parsed = parse_commitment(commitment)
+
+        assert parsed["deployment_id"] == "95edf2b6-e18b-400a-8398-5573df10e5e4"
+        assert parsed["encrypted_deployment"] is None
+
+    def test_legacy_commitment_format(self) -> None:
+        """Legacy repo:rev:deployment_id format should still parse."""
         commitment = "user/policy:abc123:95edf2b6-e18b-400a-8398-5573df10e5e4"
 
         parsed = parse_commitment(commitment)
 
-        assert parsed["huggingface_repo"] == "user/policy"
-        assert parsed["revision_sha"] == "abc123"
         assert parsed["deployment_id"] == "95edf2b6-e18b-400a-8398-5573df10e5e4"
         assert parsed["encrypted_deployment"] is None
+
+    def test_legacy_encrypted_format(self, keypair: BackendKeypair) -> None:
+        """Legacy repo:rev:e:blob format should still parse."""
+        deployment_id = "95edf2b6-e18b-400a-8398-5573df10e5e4"
+        encrypted_blob = encrypt_deployment_id(deployment_id, keypair.public_key_hex())
+
+        commitment = f"user/policy:abc123:e:{encrypted_blob}"
+
+        parsed = parse_commitment(commitment)
+
+        assert parsed["deployment_id"] == ""
+        assert parsed["encrypted_deployment"] == encrypted_blob
+
+        # Should decrypt correctly
+        assert parsed["encrypted_deployment"] is not None
+        decrypted = decrypt_deployment_id(parsed["encrypted_deployment"], keypair.private_key)
+        assert decrypted == deployment_id

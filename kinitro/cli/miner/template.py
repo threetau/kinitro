@@ -54,8 +54,11 @@ def init_miner(
     typer.echo("  1. Edit policy.py to implement your policy")
     typer.echo("  2. Add your model weights to the directory")
     typer.echo("  3. Test locally: uvicorn server:app --port 8001")
-    typer.echo("  4. Upload to HuggingFace: huggingface-cli upload user/repo .")
-    typer.echo("  5. Deploy to Basilica: kinitro miner push --repo user/repo --revision SHA")
+    typer.echo("  4. Build Docker image: docker build -t user/policy:v1 .")
+    typer.echo("  5. Push to registry: docker push user/policy:v1")
     typer.echo(
-        "  6. Or use one-command deploy: kinitro miner deploy -r user/repo -p . --netuid ..."
+        "  6. Deploy to Basilica: kinitro miner push --image user/policy:v1 --name my-policy"
+    )
+    typer.echo(
+        "  7. Or use one-command deploy: kinitro miner deploy --image user/policy:v1 --netuid ..."
     )

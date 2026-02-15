@@ -124,38 +124,6 @@ class ExecutorConfig(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
 
-    # Model verification settings
-    verification_enabled: bool = Field(
-        default=True,
-        description="Enable spot-check verification of miner models",
-    )
-    verification_rate: float = Field(
-        default=0.05,
-        ge=0.0,
-        le=1.0,
-        description="Probability of verifying each miner (0.0 to 1.0)",
-    )
-    verification_tolerance: float = Field(
-        default=1e-3,
-        description="Relative tolerance for comparing actions",
-    )
-    verification_samples: int = Field(
-        default=5,
-        ge=1,
-        le=20,
-        description="Number of test observations per verification",
-    )
-    verification_cache_dir: str | None = Field(
-        default=None,
-        description="Directory to cache downloaded HuggingFace models",
-    )
-    verification_max_repo_size_gb: float = Field(
-        default=5.0,
-        ge=0.1,
-        le=50.0,
-        description="Maximum allowed HuggingFace repo size in GB",
-    )
-
     # Concurrent executor settings
     use_concurrent_executor: bool = Field(
         default=False,

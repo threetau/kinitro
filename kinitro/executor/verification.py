@@ -1,436 +1,327 @@
+"""Deployment metadata verification for miner Basilica deployments.
+
+Uses the Basilica public metadata API to verify that miner deployments
+are running with publicly pullable Docker images. This replaces the previous
+spot-check system that required downloading full HuggingFace repos.
+
+Verification checks:
+1. Deployment exists and metadata is publicly accessible
+2. Deployment is in a healthy state (Active/Running)
+3. Docker image is publicly pullable from its container registry
 """
-Model verification module for spot-checking miner deployments.
 
-This module verifies that what miners deploy to Basilica matches what they
-uploaded to HuggingFace. It works by:
-
-1. Downloading the policy from HuggingFace
-2. Running inference locally with a fixed seed
-3. Comparing against the miner's endpoint response
-
-If outputs differ significantly, the miner may be running different code
-than what they committed.
-"""
+from __future__ import annotations
 
 import asyncio
-import hashlib
-import importlib.util
-import os
-import random
-import shutil
-import sys
-import tempfile
+import re
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 
 import httpx
-import numpy as np
 import structlog
-from huggingface_hub import HfApi, snapshot_download
+from basilica import BasilicaClient
 
-from kinitro.rl_interface import Action, Observation, ProprioKeys
-from kinitro.types import Hotkey, MinerUID, VerificationDetails
+from kinitro.chain.commitments import MinerCommitment
+from kinitro.types import Hotkey, MinerUID
 
 logger = structlog.get_logger()
 
+# Deployment states considered healthy
+HEALTHY_STATES: frozenset[str] = frozenset({"Active", "Running"})
+
+# Docker Hub registry host used when no registry is specified in the image ref
+DOCKER_HUB_REGISTRY = "registry-1.docker.io"
+DOCKER_HUB_AUTH_URL = "https://auth.docker.io/token"
+
+# Accept header for Docker Registry HTTP V2 manifest requests
+_MANIFEST_ACCEPT = (
+    "application/vnd.docker.distribution.manifest.v2+json, "
+    "application/vnd.oci.image.manifest.v1+json"
+)
+
 
 @dataclass
-class VerificationResult:
-    """Result of a model verification check."""
+class ImageRef:
+    """Parsed container image reference."""
+
+    registry: str  # e.g. "registry-1.docker.io", "ghcr.io"
+    repository: str  # e.g. "library/python", "pytorch/pytorch"
+    tag: str  # e.g. "3.11-slim", "latest"
+
+
+@dataclass
+class MetadataVerificationResult:
+    """Result of a metadata-based deployment verification."""
 
     miner_uid: MinerUID
     miner_hotkey: Hotkey
-    repo: str
-    revision: str
+    deployment_id: str
     verified: bool
-    match_score: float  # 0.0 = no match, 1.0 = perfect match
+    state: str | None = None
+    image: str | None = None
+    image_tag: str | None = None
+    image_public: bool | None = None
+    uptime_seconds: float | None = None
     error: str | None = None
-    details: VerificationDetails | None = None
+    failure_reason: str | None = None
 
 
-class PolicyVerifier:
+def parse_image_ref(image: str, image_tag: str | None = None) -> ImageRef:
+    """Parse a Docker image reference into registry, repository, and tag.
+
+    Handles:
+    - Docker Hub shorthand: ``python:3.11-slim`` → registry-1.docker.io/library/python:3.11-slim
+    - Docker Hub org: ``pytorch/pytorch:2.1.0`` → registry-1.docker.io/pytorch/pytorch:2.1.0
+    - Fully qualified: ``ghcr.io/org/image:v1`` → ghcr.io/org/image:v1
     """
-    Verifies that miner deployments match their HuggingFace uploads.
+    # If image_tag provided separately, strip any tag already on the image name
+    if image_tag:
+        name = image.split(":")[0]
+        tag = image_tag
+    elif ":" in image:
+        name, tag = image.rsplit(":", 1)
+    else:
+        name = image
+        tag = "latest"
 
-    Uses spot-checking: randomly selects a percentage of evaluations
-    to verify, comparing local inference against remote endpoint.
+    # Determine if the first component is a registry host.
+    # Registry hosts contain a dot or a colon (port), or are "localhost".
+    parts = name.split("/", 1)
+    if len(parts) == 1:
+        # Simple name like "python" → Docker Hub library image
+        return ImageRef(
+            registry=DOCKER_HUB_REGISTRY,
+            repository=f"library/{name}",
+            tag=tag,
+        )
+
+    first = parts[0]
+    has_dot = "." in first
+    has_colon = ":" in first
+    is_localhost = first == "localhost"
+
+    if has_dot or has_colon or is_localhost:
+        # Fully qualified: ghcr.io/org/image or localhost:5000/img
+        return ImageRef(registry=first, repository=parts[1], tag=tag)
+
+    # No registry prefix → Docker Hub with org, e.g. "pytorch/pytorch"
+    return ImageRef(registry=DOCKER_HUB_REGISTRY, repository=name, tag=tag)
+
+
+class MetadataVerifier:
+    """Verifies miner Basilica deployments using the public metadata API.
+
+    Checks:
+    1. Deployment metadata is accessible (miner enrolled for public metadata)
+    2. Deployment is in a healthy state (Active/Running)
+    3. Docker image is publicly pullable from its container registry
     """
 
-    # Default max repo size: 5GB
-    DEFAULT_MAX_REPO_SIZE_GB = 5.0
+    def __init__(self) -> None:
+        # No API key needed for public metadata reads
+        self._client = BasilicaClient()
 
-    def __init__(
-        self,
-        verification_rate: float = 0.05,  # 5% of evaluations
-        tolerance: float = 1e-3,  # Relative tolerance for floating point comparison
-        num_samples: int = 5,  # Number of observations to compare
-        cache_dir: str | None = None,
-        max_repo_size_gb: float = DEFAULT_MAX_REPO_SIZE_GB,
-    ):
-        """
-        Initialize the policy verifier.
-
-        Args:
-            verification_rate: Probability of verifying each miner (0.0 to 1.0)
-            tolerance: Relative tolerance for comparing actions
-            num_samples: Number of test observations per verification
-            cache_dir: Directory to cache downloaded models
-            max_repo_size_gb: Maximum allowed HuggingFace repo size in GB
-
-        Raises:
-            ValueError: If any parameter is invalid
-        """
-        if not 0.0 <= verification_rate <= 1.0:
-            raise ValueError("verification_rate must be between 0.0 and 1.0")
-        if tolerance < 0:
-            raise ValueError("tolerance must be >= 0")
-        if num_samples <= 0:
-            raise ValueError("num_samples must be >= 1")
-        if max_repo_size_gb <= 0:
-            raise ValueError("max_repo_size_gb must be > 0")
-
-        self.verification_rate = verification_rate
-        self.tolerance = tolerance
-        self.num_samples = num_samples
-        self.cache_dir = cache_dir or tempfile.mkdtemp(prefix="kinitro_verify_")
-        self.max_repo_size_bytes = int(max_repo_size_gb * 1024 * 1024 * 1024)
-        # Any: cached policies are user-provided objects with no shared base class
-        self._policy_cache: dict[str, Any] = {}
-
-    def should_verify(self) -> bool:
-        """Randomly decide whether to verify based on verification_rate."""
-        return random.random() < self.verification_rate
-
-    async def verify_miner(
-        self,
-        miner_uid: MinerUID,
-        miner_hotkey: Hotkey,
-        repo: str,
-        revision: str,
-        endpoint: str,
-    ) -> VerificationResult:
-        """
-        Verify a miner's deployment matches their HuggingFace model.
-
-        Args:
-            miner_uid: Miner's UID
-            miner_hotkey: Miner's hotkey
-            repo: HuggingFace repo (e.g., "user/model")
-            revision: HuggingFace commit SHA
-            endpoint: Miner's Basilica endpoint URL
-
-        Returns:
-            VerificationResult with match status
-        """
+    async def verify_miner(self, commitment: MinerCommitment) -> MetadataVerificationResult:
+        """Verify a single miner's deployment via metadata API."""
         logger.info(
-            "verification_starting",
-            miner_uid=miner_uid,
-            repo=repo,
-            revision=revision[:12],
+            "metadata_verification_starting",
+            miner_uid=commitment.uid,
+            deployment_id=commitment.deployment_id,
         )
 
         try:
-            # Load policy from HuggingFace
-            policy = await self._load_policy_from_hf(repo, revision)
-
-            # Generate deterministic test observations
-            # Use hashlib for cross-process determinism (hash() is randomized by PYTHONHASHSEED)
-            seed_str = f"{miner_uid}:{revision}".encode()
-            test_seed = int(hashlib.sha256(seed_str).hexdigest()[:8], 16) % (2**31)
-            rng = np.random.default_rng(test_seed)
-
-            # Generate Observation objects for testing
-            test_observations = []
-            for _ in range(self.num_samples):
-                obs = Observation(
-                    proprio={
-                        ProprioKeys.EE_POS: rng.uniform(-1, 1, size=3).tolist(),
-                        ProprioKeys.EE_QUAT: [0.0, 0.0, 0.0, 1.0],  # Identity quaternion
-                        ProprioKeys.EE_VEL_LIN: rng.uniform(-0.5, 0.5, size=3).tolist(),
-                        ProprioKeys.EE_VEL_ANG: rng.uniform(-0.5, 0.5, size=3).tolist(),
-                        ProprioKeys.GRIPPER: [float(rng.uniform(0, 1))],
-                    },
-                    rgb={},  # No images for verification (simpler comparison)
-                )
-                test_observations.append(obs)
-
-            # Get actions from local policy
-            local_actions = []
-            for i, obs in enumerate(test_observations):
-                seed = test_seed + i
-                self._set_seed(seed)
-                action = await self._get_local_action(policy, obs, seed)
-                local_actions.append(action)
-
-            # Get actions from remote endpoint
-            remote_actions = []
-            for i, obs in enumerate(test_observations):
-                seed = test_seed + i
-                action = await self._get_remote_action(endpoint, obs, seed)
-                remote_actions.append(action)
-
-            # Compare actions
-            match_scores = []
-            for local, remote in zip(local_actions, remote_actions):
-                if local is None or remote is None:
-                    match_scores.append(0.0)
-                else:
-                    match_scores.append(self._compare_actions(local, remote))
-
-            avg_match = np.mean(match_scores)
-            verified = avg_match >= (1.0 - self.tolerance)
-
-            logger.info(
-                "verification_complete",
-                miner_uid=miner_uid,
-                verified=verified,
-                match_score=round(avg_match, 4),
-                num_samples=self.num_samples,
+            metadata = await asyncio.to_thread(
+                self._client.get_public_deployment_metadata,
+                commitment.deployment_id,
             )
-
-            return VerificationResult(
-                miner_uid=miner_uid,
-                miner_hotkey=miner_hotkey,
-                repo=repo,
-                revision=revision,
-                verified=verified,
-                match_score=avg_match,
-                details={
-                    "match_scores": match_scores,
-                    "test_seed": test_seed,
-                    "num_samples": self.num_samples,
-                },
-            )
-
         except Exception as e:
-            logger.error(
-                "verification_failed",
-                miner_uid=miner_uid,
+            logger.warning(
+                "metadata_api_error",
+                miner_uid=commitment.uid,
+                deployment_id=commitment.deployment_id,
                 error=str(e),
             )
-            return VerificationResult(
-                miner_uid=miner_uid,
-                miner_hotkey=miner_hotkey,
-                repo=repo,
-                revision=revision,
+            return MetadataVerificationResult(
+                miner_uid=commitment.uid,
+                miner_hotkey=commitment.hotkey,
+                deployment_id=commitment.deployment_id,
                 verified=False,
-                match_score=0.0,
                 error=str(e),
+                failure_reason="Metadata API call failed (deployment may not have public metadata enrolled)",
             )
 
-    async def _load_policy_from_hf(self, repo: str, revision: str) -> Any:
-        """
-        Load a policy from HuggingFace.
+        state = metadata.state
+        image = metadata.image
+        image_tag = metadata.image_tag
 
-        Downloads the model files and imports the policy class.
-        Checks repo size before downloading to prevent DoS attacks.
-        """
-        cache_key = f"{repo}:{revision}"
-        if cache_key in self._policy_cache:
-            return self._policy_cache[cache_key]
-
-        # Check repo size before downloading
-        api = HfApi()
-        try:
-            repo_info = await asyncio.to_thread(
-                api.repo_info,
-                repo_id=repo,
-                revision=revision,
-                repo_type="model",
+        # Check deployment state
+        if state not in HEALTHY_STATES:
+            return MetadataVerificationResult(
+                miner_uid=commitment.uid,
+                miner_hotkey=commitment.hotkey,
+                deployment_id=commitment.deployment_id,
+                verified=False,
+                state=state,
+                image=image,
+                image_tag=image_tag,
+                uptime_seconds=metadata.uptime_seconds,
+                failure_reason=f"Deployment state '{state}' is not healthy",
             )
 
-            # Calculate total size from siblings (files in repo)
-            total_size = 0
-            if repo_info.siblings:
-                for sibling in repo_info.siblings:
-                    if sibling.size is not None:
-                        total_size += sibling.size
-
-            if total_size > self.max_repo_size_bytes:
-                size_gb = total_size / (1024 * 1024 * 1024)
-                max_gb = self.max_repo_size_bytes / (1024 * 1024 * 1024)
-                raise ValueError(
-                    f"Repository size ({size_gb:.2f}GB) exceeds maximum allowed ({max_gb:.2f}GB)"
-                )
-
-            logger.info(
-                "repo_size_checked",
-                repo=repo,
-                revision=revision[:12],
-                size_mb=round(total_size / (1024 * 1024), 2),
+        # Check image is publicly pullable
+        if not image:
+            return MetadataVerificationResult(
+                miner_uid=commitment.uid,
+                miner_hotkey=commitment.hotkey,
+                deployment_id=commitment.deployment_id,
+                verified=False,
+                state=state,
+                image_public=False,
+                uptime_seconds=metadata.uptime_seconds,
+                failure_reason="No image reported in deployment metadata",
             )
 
-        except Exception as e:
-            if "exceeds maximum" in str(e):
-                raise
-            # Fail closed: don't download if we can't verify size (security requirement)
-            logger.error(
-                "repo_size_check_failed",
-                repo=repo,
-                error=str(e),
-            )
-            raise ValueError(
-                f"Cannot verify repository size for {repo}: {e}. "
-                "Size check is required for security."
-            ) from e
+        image_public = await _check_image_public(image, image_tag)
 
-        # Download from HuggingFace
-        model_path = await asyncio.to_thread(
-            snapshot_download,
-            repo,
-            revision=revision,
-            cache_dir=self.cache_dir,
-            local_dir=os.path.join(self.cache_dir, repo.replace("/", "_"), revision[:12]),
+        if not image_public:
+            full_ref = f"{image}:{image_tag}" if image_tag else image
+            return MetadataVerificationResult(
+                miner_uid=commitment.uid,
+                miner_hotkey=commitment.hotkey,
+                deployment_id=commitment.deployment_id,
+                verified=False,
+                state=state,
+                image=image,
+                image_tag=image_tag,
+                image_public=False,
+                uptime_seconds=metadata.uptime_seconds,
+                failure_reason=f"Image '{full_ref}' is not publicly pullable",
+            )
+
+        # All checks passed
+        return MetadataVerificationResult(
+            miner_uid=commitment.uid,
+            miner_hotkey=commitment.hotkey,
+            deployment_id=commitment.deployment_id,
+            verified=True,
+            state=state,
+            image=image,
+            image_tag=image_tag,
+            image_public=True,
+            uptime_seconds=metadata.uptime_seconds,
         )
 
-        if isinstance(model_path, list):
-            raise ValueError("Unexpected model path format from HuggingFace download")
-        model_path_str = str(model_path)
+    async def verify_miners(
+        self, commitments: list[MinerCommitment]
+    ) -> list[MetadataVerificationResult]:
+        """Verify all miners concurrently."""
+        tasks = [self.verify_miner(c) for c in commitments]
+        return await asyncio.gather(*tasks)
 
-        # Load the policy module
-        policy_file = os.path.join(model_path_str, "policy.py")
-        if not os.path.exists(policy_file):
-            raise FileNotFoundError(f"policy.py not found in {repo}@{revision}")
 
-        # Import the policy module dynamically
-        spec = importlib.util.spec_from_file_location("miner_policy", policy_file)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Unable to load policy module from {policy_file}")
-        module = importlib.util.module_from_spec(spec)
+async def _check_image_public(image: str, image_tag: str | None = None) -> bool:
+    """Check whether a container image is publicly pullable.
 
-        # Add model path to sys.path for relative imports
-        sys.path.insert(0, model_path_str)
-        try:
-            spec.loader.exec_module(module)
-        finally:
-            sys.path.remove(model_path_str)
+    Queries the Docker Registry HTTP V2 API to verify the manifest exists
+    and is accessible without credentials.
+    """
+    ref = parse_image_ref(image, image_tag)
 
-        # Instantiate the policy
-        if not hasattr(module, "RobotPolicy"):
-            raise AttributeError(f"RobotPolicy class not found in {repo}@{revision}")
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            if ref.registry == DOCKER_HUB_REGISTRY:
+                return await _check_docker_hub(client, ref)
+            return await _check_generic_registry(client, ref)
+    except Exception as e:
+        logger.debug("image_public_check_error", image=image, error=str(e))
+        return False
 
-        policy = module.RobotPolicy()
-        self._policy_cache[cache_key] = policy
 
-        logger.info(
-            "policy_loaded_from_hf",
-            repo=repo,
-            revision=revision[:12],
-            model_path=model_path_str,
-        )
+async def _check_docker_hub(client: httpx.AsyncClient, ref: ImageRef) -> bool:
+    """Check image pullability on Docker Hub (requires anonymous token)."""
+    # Get anonymous bearer token
+    token_resp = await client.get(
+        DOCKER_HUB_AUTH_URL,
+        params={
+            "service": "registry.docker.io",
+            "scope": f"repository:{ref.repository}:pull",
+        },
+    )
+    if token_resp.status_code != 200:
+        return False
 
-        return policy
+    token = token_resp.json().get("token")
+    if not token:
+        return False
 
-    def _set_seed(self, seed: int) -> None:
-        """Set random seeds for reproducibility."""
-        random.seed(seed)
-        np.random.seed(seed)
+    # Check manifest
+    manifest_url = f"https://{ref.registry}/v2/{ref.repository}/manifests/{ref.tag}"
+    resp = await client.head(
+        manifest_url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": _MANIFEST_ACCEPT,
+        },
+    )
+    return resp.status_code == 200
 
-    async def _get_local_action(
-        self,
-        policy: Any,
-        obs: Observation,
-        seed: int,  # Any: user-provided policy, no common Protocol
-    ) -> np.ndarray | None:
-        """Get action from local policy."""
-        try:
-            self._set_seed(seed)
 
-            # Try async first, fall back to sync
-            if asyncio.iscoroutinefunction(policy.act):
-                action = await policy.act(obs)
-            else:
-                action = policy.act(obs)
+async def _check_generic_registry(client: httpx.AsyncClient, ref: ImageRef) -> bool:
+    """Check image pullability on a generic OCI registry."""
+    manifest_url = f"https://{ref.registry}/v2/{ref.repository}/manifests/{ref.tag}"
 
-            # Handle different action return types
-            # Note: Check by method/attribute rather than isinstance() because
-            # the miner's bundled rl_interface.py has its own Action class
-            if hasattr(action, "to_array"):
-                return action.to_array()
-            if hasattr(action, "continuous_array"):
-                return action.continuous_array()
-            if isinstance(action, dict):
-                return Action.model_validate(action).continuous_array()
-            if hasattr(action, "numpy"):
-                action = action.numpy()
-            return np.array(action, dtype=np.float32)
-        except Exception as e:
-            logger.warning("local_inference_failed", error=str(e))
-            return None
+    # Try unauthenticated first
+    resp = await client.head(
+        manifest_url,
+        headers={"Accept": _MANIFEST_ACCEPT},
+    )
 
-    async def _get_remote_action(
-        self, endpoint: str, obs: Observation, seed: int
-    ) -> np.ndarray | None:
-        """Get action from remote miner endpoint."""
-        try:
-            url = f"{endpoint.rstrip('/')}/act"
-            # Use the same format as the evaluator: {"obs": Observation}
-            payload = {"obs": obs.model_dump(mode="python")}
+    if resp.status_code == 200:
+        return True
 
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(url, json=payload)
-                response.raise_for_status()
-                data = response.json()
-                action_data = data.get("action", {})
-                if isinstance(action_data, dict):
-                    return Action.model_validate(action_data).continuous_array()
-                return np.array(action_data, dtype=np.float32)
+    # If 401 with Www-Authenticate, try anonymous token exchange
+    if resp.status_code == 401:
+        return await _try_anonymous_token(client, resp, ref)
 
-        except Exception as e:
-            logger.warning("remote_inference_failed", error=str(e))
-            return None
+    return False
 
-    def _compare_actions(self, local: np.ndarray, remote: np.ndarray) -> float:
-        """
-        Compare two action vectors.
 
-        Returns a match score from 0.0 (no match) to 1.0 (perfect match).
-        """
-        if local.shape != remote.shape:
-            return 0.0
+async def _try_anonymous_token(
+    client: httpx.AsyncClient,
+    unauthorized_resp: httpx.Response,
+    ref: ImageRef,
+) -> bool:
+    """Attempt anonymous token exchange from a 401 Www-Authenticate header."""
+    www_auth = unauthorized_resp.headers.get("www-authenticate", "")
+    if not www_auth:
+        return False
 
-        # Use relative comparison for floating point
-        if np.allclose(local, remote, rtol=self.tolerance, atol=1e-6):
-            return 1.0
+    # Parse Bearer realm="...",service="...",scope="..."
+    realm_match = re.search(r'realm="([^"]+)"', www_auth)
+    service_match = re.search(r'service="([^"]+)"', www_auth)
 
-        # Calculate a continuous match score based on relative error
-        rel_error = np.abs(local - remote) / (np.abs(local) + 1e-8)
-        mean_rel_error = np.mean(rel_error)
+    if not realm_match:
+        return False
 
-        # Convert to match score (exponential decay)
-        match_score = np.exp(-mean_rel_error / self.tolerance)
-        return float(match_score)
+    realm = realm_match.group(1)
+    params: dict[str, str] = {}
+    if service_match:
+        params["service"] = service_match.group(1)
+    params["scope"] = f"repository:{ref.repository}:pull"
 
-    def compute_model_hash(self, model_path: str) -> str:
-        """
-        Compute a deterministic hash of model weights.
+    token_resp = await client.get(realm, params=params)
+    if token_resp.status_code != 200:
+        return False
 
-        This can be used for plagiarism detection - models with the same
-        hash are copies of each other.
-        """
-        hasher = hashlib.sha256()
+    token = token_resp.json().get("token") or token_resp.json().get("access_token")
+    if not token:
+        return False
 
-        # Find all weight files
-        weight_extensions = [".pt", ".pth", ".safetensors", ".bin", ".ckpt"]
-        weight_files = []
-
-        for ext in weight_extensions:
-            weight_files.extend(Path(model_path).rglob(f"*{ext}"))
-
-        # Sort for deterministic ordering
-        weight_files = sorted(weight_files)
-
-        for weight_file in weight_files:
-            with open(weight_file, "rb") as f:
-                # Read in chunks to handle large files
-                for chunk in iter(lambda: f.read(8192), b""):
-                    hasher.update(chunk)
-
-        return hasher.hexdigest()
-
-    def cleanup(self) -> None:
-        """Clean up cached models."""
-        self._policy_cache.clear()
-        if os.path.exists(self.cache_dir) and self.cache_dir.startswith(tempfile.gettempdir()):
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
+    manifest_url = f"https://{ref.registry}/v2/{ref.repository}/manifests/{ref.tag}"
+    resp = await client.head(
+        manifest_url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": _MANIFEST_ACCEPT,
+        },
+    )
+    return resp.status_code == 200

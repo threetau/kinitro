@@ -12,6 +12,7 @@ from kinitro.backend.storage import Storage
 from kinitro.chain.commitments import read_miner_commitments
 from kinitro.crypto import BackendKeypair
 from kinitro.environments import get_all_environment_ids, get_environments_by_family
+from kinitro.executor.verification import MetadataVerifier
 from kinitro.scheduler.config import SchedulerConfig
 from kinitro.scheduler.scoring import (
     aggregate_task_results,
@@ -205,6 +206,51 @@ class Scheduler:
                     await session.commit()
 
             logger.info("found_miners", count=len(miners))
+
+            # 1.5. Verify miner deployments via Basilica metadata API
+            if self.config.metadata_verification_enabled:
+                verifier = MetadataVerifier()
+                verification_results = await verifier.verify_miners(miners)
+
+                verified_uids: set[int] = set()
+                for result in verification_results:
+                    if result.verified:
+                        verified_uids.add(result.miner_uid)
+                        logger.info(
+                            "miner_verified",
+                            miner_uid=result.miner_uid,
+                            image=result.image,
+                            image_tag=result.image_tag,
+                            state=result.state,
+                        )
+                    else:
+                        logger.warning(
+                            "miner_verification_failed",
+                            miner_uid=result.miner_uid,
+                            deployment_id=result.deployment_id,
+                            failure_reason=result.failure_reason,
+                            image=result.image,
+                            state=result.state,
+                            error=result.error,
+                        )
+
+                original_count = len(miners)
+                miners = [m for m in miners if m.uid in verified_uids]
+
+                logger.info(
+                    "metadata_verification_complete",
+                    total_miners=original_count,
+                    verified_miners=len(miners),
+                    failed_miners=original_count - len(miners),
+                )
+
+                if not miners:
+                    logger.warning("no_miners_passed_verification")
+                    async with self.storage.session() as session:
+                        await self.storage.fail_cycle(
+                            session, cycle_id, "No miners passed metadata verification"
+                        )
+                    return
 
             # 2. Generate and create tasks
             tasks_data = generate_tasks(

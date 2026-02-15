@@ -67,9 +67,7 @@ curl -X POST http://localhost:8001/reset \
 
 # 4. For local testing only - commit to local chain
 uv run kinitro miner commit \
-  --repo test-user/test-policy \
-  --revision $(git rev-parse HEAD) \
-  --endpoint http://localhost:8001 \
+  --deployment-id my-local-deploy \
   --netuid 2 \
   --network local \
   --wallet-name test-wallet \
@@ -91,10 +89,12 @@ Deploy a miner to Basilica for realistic E2E testing:
 # 1. Initialize policy template
 uv run kinitro miner init ./test-policy
 
-# 2. Deploy to Basilica (uploads to HuggingFace, deploys, commits on-chain)
+# 2. Build, push, and deploy to Basilica
+docker build -t <username>/test-policy:v1 ./test-policy
+docker push <username>/test-policy:v1
+
 uv run kinitro miner deploy \
-  --repo <hf-username>/test-policy \
-  --path ./test-policy \
+  --image <username>/test-policy:v1 \
   --network $NETWORK \
   --netuid $NETUID \
   --wallet-name alice \

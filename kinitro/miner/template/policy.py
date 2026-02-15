@@ -62,7 +62,7 @@ class RobotPolicy:
         # return action
         #
         # NOTE: If seed is provided, ensure your inference is deterministic.
-        # The validator may verify that your deployed model matches HuggingFace.
+        # The validator verifies your deployment via Basilica metadata.
 
         # Default: random action (seed is already set by server if provided)
         twist = np.random.uniform(-1, 1, size=6).tolist()

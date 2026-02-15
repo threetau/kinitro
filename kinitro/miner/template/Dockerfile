@@ -6,7 +6,7 @@
 # Test:  docker run -p 8000:8000 your-username/kinitro-policy:v1
 # Push:  docker push your-username/kinitro-policy:v1
 #
-# Deploy to Basilica: kinitro miner push --repo user/policy --revision abc123
+# Deploy to Basilica: kinitro miner push --image user/policy:v1 --name my-policy
 
 FROM python:3.11-slim
 

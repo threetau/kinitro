@@ -8,6 +8,7 @@ from .commitment import commit, show_commitment
 from .deploy import basilica_push, miner_deploy
 from .mock import mock
 from .template import init_miner
+from .verify import verify
 
 
 def build(
@@ -71,5 +72,6 @@ miner_app.command(name="init")(init_miner)
 miner_app.command(name="push")(basilica_push)
 miner_app.command(name="deploy")(miner_deploy)
 miner_app.command()(mock)
+miner_app.command()(verify)
 
 __all__ = ["miner_app"]

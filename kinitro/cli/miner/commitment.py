@@ -19,8 +19,6 @@ async def _commit_async(
     wallet_name: str,
     hotkey_name: str,
     netuid: int,
-    repo: str,
-    revision: str,
     deployment_id: str,
     encrypt: bool,
     backend_public_key: str | None,
@@ -32,8 +30,6 @@ async def _commit_async(
             subtensor=subtensor,
             wallet=wallet,
             netuid=netuid,
-            repo=repo,
-            revision=revision,
             deployment_id=deployment_id,
             backend_public_key=backend_public_key if encrypt else None,
         )
@@ -63,8 +59,6 @@ async def _get_neurons_hotkey_async(
 
 
 def commit(
-    repo: str = typer.Option(..., help="HuggingFace repo (user/model)"),
-    revision: str = typer.Option(..., help="Commit SHA"),
     deployment_id: str = typer.Option(
         ..., "--deployment-id", "-d", help="Basilica deployment ID (UUID only)"
     ),
@@ -93,7 +87,7 @@ def commit(
     ),
 ):
     """
-    Commit model to chain.
+    Commit deployment to chain.
 
     Registers your policy so validators can evaluate it.
 
@@ -107,14 +101,14 @@ def commit(
 
     Example:
         # Plain commitment (endpoint visible on-chain)
-        kinitro miner commit --repo user/policy --revision abc123 --deployment-id UUID --netuid 1
+        kinitro miner commit --deployment-id UUID --netuid 1
 
         # Encrypted commitment using backend hotkey (recommended)
-        kinitro miner commit --repo user/policy --revision abc123 --deployment-id UUID \\
+        kinitro miner commit --deployment-id UUID \\
             --netuid 1 --encrypt --backend-hotkey 5Dxxx...
 
         # Encrypted commitment using explicit public key
-        kinitro miner commit --repo user/policy --revision abc123 --deployment-id UUID \\
+        kinitro miner commit --deployment-id UUID \\
             --netuid 1 --encrypt --backend-public-key <hex>
     """
     # Validate encryption options
@@ -153,9 +147,7 @@ def commit(
             )
             raise typer.Exit(1)
 
-    typer.echo(f"Committing model to {network} (netuid={netuid})")
-    typer.echo(f"  Repo: {repo}")
-    typer.echo(f"  Revision: {revision}")
+    typer.echo(f"Committing deployment to {network} (netuid={netuid})")
     typer.echo(f"  Deployment ID: {deployment_id}")
     if encrypt:
         typer.echo("  Encryption: ENABLED")
@@ -169,8 +161,6 @@ def commit(
                 wallet_name=wallet_name,
                 hotkey_name=hotkey_name,
                 netuid=netuid,
-                repo=repo,
-                revision=revision,
                 deployment_id=deployment_id,
                 encrypt=encrypt,
                 backend_public_key=backend_public_key,
@@ -230,19 +220,15 @@ def show_commitment(
     if block is not None:
         typer.echo(f"Committed at block: {block}")
 
-    # Parse the commitment (supports both JSON and legacy formats)
+    # Parse the commitment
     parsed = parse_commitment(raw)
-    if parsed["huggingface_repo"]:
+    if parsed["deployment_id"] or parsed.get("encrypted_deployment"):
         typer.echo("\nParsed commitment:")
-        typer.echo(f"  Repo: {parsed['huggingface_repo']}")
-        typer.echo(f"  Revision: {parsed['revision_sha']}")
         encrypted_blob = parsed.get("encrypted_deployment")
         if encrypted_blob:
             typer.echo("  Encrypted: YES")
             typer.echo(f"  Encrypted Blob: {encrypted_blob[:40]}...")
         else:
             typer.echo(f"  Deployment ID: {parsed['deployment_id']}")
-        if parsed["docker_image"]:
-            typer.echo(f"  Docker Image: {parsed['docker_image']}")
     else:
         typer.echo("\nCould not parse commitment format.")
